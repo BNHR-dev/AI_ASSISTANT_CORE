@@ -1,0 +1,67 @@
+# DECISION FLOW — AI_ASSISTANT_CORE
+
+## Objectif
+Décrire comment une requête devient une réponse exécutable.
+
+## Flux canonique actuel
+1. `task_classifier`
+   → produit un `task_type` + une raison de classification
+
+2. `TASK_ROUTING`
+   → donne la base statique : agent, modèle, web, format
+
+3. `routing_conditions`
+   → enrichit la décision pour certains cas hybrides
+
+4. `tool_selector`
+   → suggère un tool si besoin
+
+5. `router_service`
+   → produit la décision finale structurée et une première trace
+
+6. `plan_builder`
+   → transforme la décision en `ExecutionPlan`
+
+7. `step_executor`
+   → exécute les steps dans l’ordre
+
+8. `result_assembler`
+   → masque les sorties techniques et assemble la sortie finale
+
+9. `executor`
+   → renvoie aussi la surface d’observabilité (`plan`, `step_results`, `execution_summary`, timestamps, artefact visuel éventuel)
+
+## Stratégies produites
+### `single_step`
+Une seule étape LLM.
+
+### `two_step_llm`
+Étape 1 = explication / analyse
+Étape 2 = livrable spécialisé.
+
+### `web_pipeline`
+Étape 1 = `tool_web_search`
+Étape 2 = `llm_synthesis`
+
+### `visual_pipeline`
+Étape 1 = `prepare_visual`
+Étape 2 = `tool_comfyui`
+
+## Détail du sous-flux visuel post-session 4
+`prepare_visual` réalise maintenant :
+- l’analyse d’intention visuelle
+- le choix du `workflow_id`
+- le calcul d’un preset simple de format
+- la construction d’un `VisualRequest`
+- l’exposition de la metadata utile pour relire la décision visuelle
+
+`tool_comfyui` réalise ensuite :
+- l’exécution du workflow retenu
+- la gestion éventuelle de plusieurs variantes
+- la remontée des fichiers produits
+- la remontée du succès partiel si toutes les variantes ne sortent pas
+
+## Point de vérité
+La décision finale est produite par `router_service`.
+La forme finale d’exécution est produite par `plan_builder`.
+Le raffinement visuel session 4 reste donc **au service du pipeline**, sans déplacer le centre de gravité du projet.

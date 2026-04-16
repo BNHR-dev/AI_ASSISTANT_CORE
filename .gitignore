@@ -1,0 +1,55 @@
+# --- secrets / env ---
+.env
+.env.*
+*.secret
+*.key
+*.pem
+*.crt
+*.pfx
+
+# --- Python / caches ---
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# --- local heavy / runtime / artifacts ---
+/backups/
+/data/
+/outputs/
+/sync_from_vm/
+/benchmarks/
+*.log
+*.db
+*.sqlite
+*.tmp
+*.bak
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+
+# --- nested core local artifacts ---
+/core/.env
+/core/.env.*
+/core/.env.vm_runtime_snapshot
+/core/data/
+/core/outputs/
+/core/backups/
+/core/sync_from_vm/
+/core/benchmarks/
+/core/.pytest_cache/
+/core/searxng/settings.yml
+/core/docs/core.zip
+
+# keep safe example files tracked
+!core/.env.example
+!infra/vm/env_examples/
+!infra/vm/env_examples/.env.vm.example
+
+core/archive_notes/test_localsystem.txt
+core/tests/test_visual_pipeline (2).py
+core/phase5_v171_quality_visible.patch

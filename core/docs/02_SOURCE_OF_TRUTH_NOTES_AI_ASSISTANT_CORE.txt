@@ -1,0 +1,45 @@
+# SOURCE OF TRUTH NOTES — AI_ASSISTANT_CORE
+
+## Hiérarchie de confiance
+1. code canonique sous `app/*`
+2. `openai_compat.py`
+3. pack `docs/*` régénéré post-VM et post-hardening phase 1
+4. config runtime réellement utilisée (`.env`, services systemd VM, `docker-compose.yml`, `searxng/settings.yml`, portproxy host, règles firewall host`)
+5. docs racine (`README.md`, `ROADMAP.md`, `ARCHITECTURE.md`, `RUNBOOK_POST_VM.md`)
+6. fichiers racine legacy qui redirigent vers `app/*`
+
+## Règle d’usage
+Quand une info diverge :
+→ le comportement du code canonique prime.
+
+Quand un module est utilisé seulement pour support, debug ou contrat :
+→ le documenter comme auxiliaire ou secondaire, pas comme cœur décisionnel.
+
+## Ce qu’il faut éviter
+- recopier une version déclarée sans relire `app/main.py`
+- décrire `/execute` sans relire `app/schemas.py` et `app/engine/executor.py`
+- confondre la façade OpenAI-compatible avec la logique métier réelle
+- traiter les anciens fichiers racine comme source métier
+- décrire encore le runtime comme un stack Docker unique host-side alors que la topologie canonique est maintenant host + VM
+- documenter encore le bridge Ollama en `12000` alors que le chemin runtime validé est `12001` côté VM
+
+## Nuance importante post-VM
+Le projet est cohérent si on le lit comme :
+- noyau canonique sous `app/*`
+- backend FastAPI lancé dans la VM via `aicore-backend.service`
+- SearXNG lancé dans la VM via `systemd` + Docker
+- Ollama et ComfyUI gardés sur le host Windows quand c’est pertinent
+- frontière réseau privée Hyper-V comme brique produit et sécurité
+
+## Snapshot 2026-04-13
+Le projet est cohérent si on le lit comme :
+- routeur central
+- planner explicite
+- exécution step-by-step
+- façade OpenAI-compatible
+- surface runtime/debug
+- pipeline web déjà branché
+- pipeline visuel enrichi par l’analyse d’intention session 4
+- runtime principal canonisé dans la VM
+- hardening safe backend phase 1 validé
+- bridge Ollama réel documenté via `192.168.77.1:12001`

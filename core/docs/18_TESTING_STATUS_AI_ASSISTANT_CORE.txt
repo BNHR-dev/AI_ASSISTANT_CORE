@@ -1,0 +1,52 @@
+# TESTING STATUS — AI_ASSISTANT_CORE
+
+## Validation session 4
+Validations obtenues sur la session 4 :
+- batterie visuelle étendue : `29 passed`
+- release gate smoke : `26 passed`
+- release gate core : `45 passed`
+
+## Ce que la batterie visuelle couvre
+- analyse d’intention visuelle
+- compatibilité du sélecteur de workflow
+- enrichissement de prompt V2
+- presets simples de format
+- metadata `prepare_visual` enrichie
+- variantes multiples
+- succès partiel visuel
+- contrat artefact image
+- conservation du contrat ComfyUI
+
+## Smoke gate
+Commande :
+`python scripts/release_gate_v17.py smoke`
+
+Ce que cela couvre :
+- contrat ComfyUI
+- runtime ComfyUI mocké
+- visibilité contrôlée des outputs
+- modes OpenAI-compatible
+- surface runtime debug
+- contrats d’output V2-A1
+- contrats de prompts V2-A1
+- prompt contracts executor
+
+## Core gate
+Commande :
+`python scripts/release_gate_v17.py core`
+
+Ce que cela couvre en plus :
+- planner service
+- multistep executor
+- baseline V1.7 régression
+- qualité prompts V2.1
+- résumé d’exécution
+- pipeline visuel
+- contrat artifact image
+- shims legacy racine
+
+## Ce que cela ne prouve pas entièrement
+- disponibilité réelle des backends sur la machine utilisateur finale
+- absence totale de dette documentaire ou debug surface drift
+- qualité métier parfaite des réponses LLM
+- UX finale OpenWebUI sur tous les cas visuels

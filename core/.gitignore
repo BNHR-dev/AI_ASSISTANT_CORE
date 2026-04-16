@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+
+# Local env / local runtime config
+.env
+.env.vm_runtime_snapshot
+
+# Local runtime-generated config
+searxng/settings.yml
+
+# Data / outputs / local work dirs
+data/
+outputs/
+backups/
+sync_from_vm/
+benchmarks/
+core-before-phaseA/
+core-before-phaseB/
+
+# Build artifacts
+dist/
+build/
+
+# Databases / logs
+*.db
+*.sqlite
+*.log
+
+# Secrets / keys / certs
+**/id_ed25519
+**/id_ed25519.pub
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*secret*
+
+# Runtime snapshots / machine-specific deployment notes
+archive_notes/runtime_vm_snapshot/
+
+# Local archives
+core.zip

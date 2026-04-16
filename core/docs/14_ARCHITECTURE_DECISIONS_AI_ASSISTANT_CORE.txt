@@ -1,0 +1,84 @@
+# ARCHITECTURE DECISIONS — AI_ASSISTANT_CORE
+
+## Décision 1
+Le noyau n’est plus un simple routeur.
+Il est documenté comme :
+→ routeur + planner + executor
+
+Conséquence :
+la bonne abstraction centrale est désormais la paire :
+→ décision structurée
+→ plan d’exécution explicite
+
+## Décision 2
+`TASK_ROUTING` reste la base statique source de vérité pour agent / modèle / web / format.
+
+Conséquence :
+les variations dynamiques doivent rester limitées et visibles.
+
+## Décision 3
+Les requêtes hybrides sont gérées par `routing_conditions`, puis matérialisées en `two_step_llm`.
+
+Conséquence :
+le système reste déterministe sans planner libre piloté par LLM.
+
+## Décision 4
+Les sorties techniques intermédiaires ne doivent pas être affichées par défaut à l’utilisateur final.
+
+Conséquence :
+`result_assembler` garde la sortie utile, tandis que `/execute` conserve la surface debug.
+
+## Décision 5
+ComfyUI est une intégration outillée réelle.
+
+Conséquence :
+`image_generation` fait partie des capacités présentes, même si le runtime peut rester indisponible hors environnement prêt.
+
+## Décision 6
+La session 4 ajoute une couche d’intention visuelle spécialisée avant ComfyUI.
+
+Conséquence :
+le pipeline visuel gagne en finesse sans modifier le noyau général ni recréer un routeur parallèle.
+
+## Décision 7
+Le sélecteur de workflow visuel doit rester compatible avec la façade historique.
+
+Conséquence :
+`select_visual_workflow()` reste disponible alors que l’analyse interne devient plus structurée.
+
+## Décision 8
+Les presets de format visuel restent simples et déterministes.
+
+Conséquence :
+pas de système complexe de layout ; seulement des formats utiles et testables selon le rendu.
+
+## Décision 9
+OpenWebUI s’intègre via une façade OpenAI-compatible plutôt qu’un couplage spécifique.
+
+Conséquence :
+bonne modularité côté interface, mais besoin d’un contrat d’API propre.
+
+## Décision 10
+La santé runtime et les frontières canoniques sont exposées par API.
+
+Conséquence :
+le projet gagne une observabilité légère sans rajouter de logique métier cachée.
+
+## Décision 11
+La VM Hyper-V fait partie du produit final et de la frontière de sécurité structurelle.
+
+Conséquence :
+le runtime principal doit être lu comme :
+- host Windows
+- VM Hyper-V isolée
+- services gardés sur le host quand c’est pertinent
+
+La VM n’est donc ni un simple environnement de dev, ni un bac à sable jetable.
+
+## Décision 12
+Le cycle de vie du backend et du web runtime principal doit être canonisé dans la VM.
+
+Conséquence :
+- `aicore-backend.service` devient la forme normale de lancement du backend
+- `aicore-searxng.service` devient la forme normale de lancement de SearXNG dans la VM
+- `systemd` devient la façade d’exploitation standard côté VM

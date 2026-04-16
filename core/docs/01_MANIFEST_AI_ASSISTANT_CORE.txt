@@ -1,0 +1,39 @@
+AI_ASSISTANT_CORE — PACK DE CONTEXTE COMPLET
+Source-of-truth snapshot : 2026-04-11
+Audit source : core.zip post-session 4 + docs existantes + stabilisation runtime post-VM validée
+
+Ce pack a été régénéré pour réaligner le récit documentaire sur l’état réel du projet après :
+- validation de la session 4 visuelle
+- canonisation post-VM du runtime principal
+- clarification host Windows / VM Hyper-V / frontière réseau privée
+
+Contenu du pack :
+1. MANIFEST
+2. SOURCE OF TRUTH NOTES
+3. MENTAL MODEL
+4. SYSTEM OVERVIEW
+5. CURRENT STATE
+6. CODEBASE MAP
+7. DECISION FLOW
+8. ROUTING PHILOSOPHY
+9. ROUTING TRACE SPEC
+10. PROMPTS & MODES
+11. API & INTEGRATION SURFACE
+12. INFRA & RUNTIME
+13. ROADMAP
+14. ARCHITECTURE DECISIONS
+15. FAILURE MODES
+16. DEBUG CASES
+17. KNOWN GAPS & LEGACY
+18. TESTING STATUS
+19. LIVRABLES
+20. SNAPSHOT CHANGELOG
+21. PROJECT SOURCES SLOT GUIDANCE
+
+Règle de lecture :
+- les chemins canoniques sont sous `app/*`
+- `openai_compat.py` fait partie de la surface canonique exposée
+- la doc doit désormais être lue comme un récit post-VM, pas seulement post-session 4
+- la VM Hyper-V fait partie du produit final et de la frontière de sécurité structurelle
+- les fichiers racine qui dupliquent `app/*` restent des shims legacy tant qu’ils ne portent pas une logique propre
+- si une information diverge, le code canonique prime

@@ -1,0 +1,14 @@
+[Unit]
+Description=AI_ASSISTANT_CORE SearXNG runtime
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/bnhr/aicore/projects/core
+ExecStart=/usr/bin/docker compose up -d searxng
+ExecStop=/usr/bin/docker compose stop searxng
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

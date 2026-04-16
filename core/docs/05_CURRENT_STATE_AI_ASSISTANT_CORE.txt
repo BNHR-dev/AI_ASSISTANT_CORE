@@ -1,0 +1,42 @@
+# CURRENT STATE — AI_ASSISTANT_CORE
+
+## Résumé court
+Le projet est dans un état intermédiaire solide :
+- le noyau décisionnel est en place
+- le planner est actif
+- les schémas API exposent l’essentiel des champs d’observabilité utiles
+- la façade OpenAI-compatible est branchée
+- les pipelines web et visuel existent réellement
+- la session 4 a amélioré le sous-pipeline visuel sans casser le noyau
+- la phase post-VM a canonisé le runtime principal dans la VM
+- la phase 1 de hardening safe backend est validée
+- la dette principale est désormais surtout documentaire, surface runtime et normalisation légère
+
+## Ce qui est vrai maintenant
+1. `router_service` produit la décision centrale
+2. `planner_service` convertit cette décision en `ExecutionPlan`
+3. `executor` exécute ce plan pas à pas
+4. `result_assembler` masque le bruit et garde la sortie utile
+5. `/execute` expose `execution_strategy`, `execution_summary`, `plan`, `step_results`, timestamps et artefacts visuels
+6. le pipeline visuel expose désormais `workflow_id`, variantes, succès partiel et listes de fichiers
+7. `prepare_visual` remonte aussi l’analyse d’intention visuelle
+8. les shims racine restent testés comme simples redirections vers le canonique
+9. le backend est désormais lancé dans la VM via `aicore-backend.service`
+10. SearXNG est désormais lancé dans la VM via `aicore-searxng.service`
+11. `/health/runtime` reflète la disponibilité d’Ollama, SearXNG et ComfyUI dans cette topologie host + VM
+12. le chemin runtime Ollama validé côté VM est maintenant `http://192.168.77.1:12001`
+
+## Ce qui n’est pas encore complètement propre
+- le `portproxy` Ollama côté host reste une dépendance runtime canonique à court terme, mais encore transitoire dans la forme
+- la présence éventuelle d’OpenWebUI côté host reste un choix de surface produit à expliciter
+- la surface `/debug/canonical` peut encore être en décalage avec l’usage réel de certains modules de support visuel
+- il n’existe pas encore de mode public visuel dédié côté `/v1/models`
+- la qualité finale des réponses LLM reste un sujet distinct de la stabilité du noyau
+- le runbook d’exploitation doit être gardé figé proprement dans la doc projet
+
+## Lecture correcte du projet
+Le projet doit maintenant être lu comme :
+→ orchestrateur de décision + plan + exécution + observabilité
+
+et non comme :
+→ simple routeur minimal à compléter plus tard

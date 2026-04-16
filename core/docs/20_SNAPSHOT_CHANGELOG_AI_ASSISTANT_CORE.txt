@@ -1,0 +1,30 @@
+# SNAPSHOT CHANGELOG — AI_ASSISTANT_CORE
+
+## Ce que ce refresh corrige par rapport au pack précédent
+- le pack n’est plus figé sur un récit seulement post-session 4
+- le runtime principal n’est plus décrit implicitement comme un stack host-side unique
+- la VM Hyper-V est désormais intégrée explicitement comme brique du produit final
+- backend canonisé via `aicore-backend.service`
+- SearXNG canonisé via `aicore-searxng.service`
+- SearXNG resserré à `127.0.0.1:8081`
+- surface `/health/runtime` relue dans la topologie réelle host + VM
+- le `portproxy` Ollama est nommé comme dépendance runtime canonique à court terme dans le setup actuel
+- le bridge Ollama réel est corrigé en `192.168.77.1:12001 -> 127.0.0.1:12000`
+- le reboot VM validé fait partie du récit runtime
+- la phase 1 de hardening safe backend fait désormais partie du récit d’exploitation figé
+
+## Ce qui a été gardé
+- la philosophie “orchestrateur de décisions”
+- la priorité à la lisibilité, la traçabilité et au contrôle
+- le refus de la sur-ingénierie
+- la logique de progressivité V1 → V2
+- la distinction canonique / legacy
+- la place réelle de la session 4 visuelle dans le projet
+
+## Ce qui a été corrigé dans le récit
+- la lecture “backend minimal” du projet
+- la lecture trop purement Docker host-side du runtime
+- l’absence de la VM dans l’architecture produit finale
+- le flou entre runtime fonctionnel manuel et runtime canonique
+- le manque de séparation explicite entre host Windows, VM Hyper-V et services gardés sur le host
+- l’ancien faux invariant VM → Ollama `192.168.77.1:12000`

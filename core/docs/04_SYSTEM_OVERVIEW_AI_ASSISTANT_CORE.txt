@@ -1,0 +1,75 @@
+# SYSTEM OVERVIEW — AI_ASSISTANT_CORE
+
+## Objectif du projet
+Construire un orchestrateur IA local orienté création numérique, capable de :
+- classifier une demande
+- choisir un agent et un modèle
+- décider d’un outil externe si nécessaire
+- construire un plan d’exécution
+- exécuter ce plan
+- retourner une réponse finale propre avec surface de trace suffisante
+
+Vision long terme :
+→ copilote multi-outils local pour code, image, web et workflows créatifs.
+
+## État réel du snapshot
+Le snapshot 2026-04-13 se lit comme :
+→ **V1.7.0 stable / proto V2 contrôlé, avec session 4 visuelle intégrée, runtime post-VM canonisé et hardening phase 1 validé**
+
+## Capacités réellement présentes
+- classification rule-based pondérée (`task_classifier`)
+- routing centralisé (`router_service`)
+- enrichissement contrôlé pour cas hybrides (`routing_conditions`)
+- mapping statique source de vérité (`TASK_ROUTING`)
+- planner d’exécution explicite
+- exécution step-by-step
+- synthèse web via SearXNG + LLM
+- vision via `qwen2.5vl:3b`
+- génération visuelle via ComfyUI
+- façade OpenAI-compatible pour OpenWebUI
+- prompts d’étape injectés par registre agent
+- santé runtime / frontières canoniques exposées par API
+
+## Apports visuels session 4
+- analyse structurée `subject_type / render_intent / style_flags`
+- sélection de workflow plus robuste
+- enrichissement de prompt visuel V2
+- presets simples de format
+- metadata `prepare_visual` enrichie
+- remontée explicite des variantes et du succès partiel
+- contrat ComfyUI préservé
+
+## Stratégies d’exécution réelles
+- `single_step`
+- `two_step_llm`
+- `web_pipeline`
+- `visual_pipeline`
+
+## Topologie runtime canonique post-VM
+### Dans la VM Hyper-V `AICORE-VM`
+- backend AI_ASSISTANT_CORE
+- `aicore-backend.service`
+- SearXNG
+- `aicore-searxng.service`
+
+### Sur le host Windows
+- Ollama
+- ComfyUI
+- éventuellement OpenWebUI comme UI opérateur distincte du runtime principal
+
+### Frontière produit
+- réseau privé Hyper-V `AICORE-INT`
+- host : `192.168.77.1`
+- VM : `192.168.77.10`
+- le runtime principal vit dans la VM
+- la VM fait partie du produit final et constitue une première couche de sécurité structurelle
+
+### Bridge Ollama réel validé
+- le chemin direct VM → `192.168.77.1:12000` ne fait pas partie du setup runtime validé
+- le chemin actuellement validé est `VM -> http://192.168.77.1:12001`
+- ce point d’entrée repose sur un `portproxy` host `192.168.77.1:12001 -> 127.0.0.1:12000`
+- ce bridge est canonique à court terme et transitoire dans sa forme
+
+## Version exposée
+`app/main.py` annonce :
+→ `version = 1.7.0`

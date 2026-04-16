@@ -1,0 +1,69 @@
+# INFRA & RUNTIME — AI_ASSISTANT_CORE
+
+## Lecture correcte du runtime post-VM
+Le runtime canonique n’est plus à lire comme un stack Docker unique host-side.
+La topologie réellement validée est désormais :
+- VM Hyper-V = runtime principal
+- host Windows = services gardés hors VM quand c’est pertinent
+- réseau privé Hyper-V = frontière d’échange et d’isolation
+
+## Runtime canonique dans la VM
+### Backend
+- repo : `/home/bnhr/aicore/projects/core`
+- service : `aicore-backend.service`
+- bind : `127.0.0.1:8000`
+
+### Web
+- SearXNG tourne dans la VM
+- service : `aicore-searxng.service`
+- conteneur : `searxng`
+- bind : `127.0.0.1:8081 -> 8080`
+
+## Services host canoniques
+### Ollama
+- tourne sur le host Windows
+- endpoint utilisé par la VM : `http://192.168.77.1:12001`
+- healthcheck backend : `http://192.168.77.1:12001/api/tags`
+- dans le setup actuel, l’accès VM → Ollama dépend d’un `portproxy` Windows `192.168.77.1:12001 -> 127.0.0.1:12000`
+- le chemin direct VM → `192.168.77.1:12000` ne doit plus être documenté comme chemin runtime validé
+
+### ComfyUI
+- tourne sur le host Windows
+- endpoint utilisé par la VM : `http://192.168.77.1:8188`
+- état validé : ComfyUI écoute explicitement sur `192.168.77.1:8188`
+- `COMFYUI_AUTO_START=false` côté backend VM reste acceptable si ComfyUI est piloté côté host
+
+### OpenWebUI
+- peut rester sur le host comme UI opérateur
+- ne fait pas partie du runtime principal canonique de la VM
+- son statut produit final doit être décidé explicitement plutôt que laissé flou
+
+## Variables runtime importantes
+### URLs Docker-internes / intégration UI
+- `OLLAMA_BASE_URL`
+- `SEARXNG_BASE_URL`
+
+### URLs host-side utilisées par le backend Python
+- `OLLAMA_URL`
+- `OLLAMA_TAGS_URL`
+- `SEARXNG_SEARCH_URL`
+- `COMFYUI_URL`
+
+Conclusion :
+→ le runtime exposé devient plus lisible et évite de confondre endpoint de génération, endpoint Docker-interne, endpoint VM canonique et endpoint de healthcheck.
+
+## Surface runtime/debug
+`/health/runtime` classe l’état en :
+- `ok`
+- `partial`
+- `degraded`
+
+selon la disponibilité d’Ollama, SearXNG et ComfyUI.
+
+Cette surface est désormais utilisée comme validation canonique du runtime post-VM.
+
+## Gaps runtime encore visibles
+- le `portproxy` Ollama est encore une dépendance transitoire dans sa forme, même s’il est canonique dans le setup actuel
+- ComfyUI reste optionnel au runtime global mais indispensable pour `image_generation`
+- la surface debug doit rester synchronisée avec le statut réel des modules auxiliaires et legacy
+- le firewall host doit rester borné à la VM et aux seuls ports utiles

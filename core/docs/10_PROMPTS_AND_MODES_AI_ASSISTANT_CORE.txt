@@ -1,0 +1,49 @@
+# PROMPTS & MODES — AI_ASSISTANT_CORE
+
+## Agents réellement utilisés dans le routing
+- `AGENT_PROF_IA`
+- `AGENT_EXAM_IA`
+- `AGENT_ARCHI_IA`
+- `AGENT_BUILDER_IA`
+- `AGENT_VISION_IA`
+- `AGENT_CREATIVE_IA`
+
+## Registres de prompts observés
+### 1. `app/agents/prompts.py`
+Prompts historiques plus longs.
+
+### 2. `app/engine/agent_prompt_registry.py`
+Prompts systèmes courts réellement injectés par `prompt_builder`.
+
+Le flux d’exécution actuel utilise le registre court.
+
+## Prompts d’étape réels
+- `build_primary_prompt`
+- `build_second_call_prompt`
+- `build_web_synthesis_prompt`
+
+## Session 4 — enrichissement visuel
+`app/clients/comfyui_client.py` enrichit maintenant le prompt visuel positif selon :
+- `subject_type`
+- `render_intent`
+- `style_flags`
+- `workflow_id`
+
+Cela ajoute une couche V2 légère de préparation visuelle sans déplacer le noyau de décision.
+
+## Contrats de sortie
+`app/engine/output_contracts.py` stabilise la forme attendue des réponses par `task_type`.
+Ce registre fait partie du proto V2 contrôlé sans refondre le noyau.
+
+## Modes OpenAI-compatible
+`openai_compat.py` mappe :
+- `assistant-core-auto` → `auto`
+- `assistant-core-prof` → `explain`
+- `assistant-core-builder` → `build`
+- `assistant-core-archi` → `architecture`
+- `assistant-core-exam` → `critique`
+
+## Point de vigilance
+Il n’existe pas encore de mode public distinct pour `image_generation` ou `vision` côté `/v1/models`.
+La vision passe par détection d’image dans le dernier message utilisateur.
+Le visuel génératif passe encore par le routing général puis le forçage tool `comfyui`.

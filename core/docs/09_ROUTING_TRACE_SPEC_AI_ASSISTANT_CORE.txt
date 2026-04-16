@@ -1,0 +1,65 @@
+# ROUTING TRACE SPEC — AI_ASSISTANT_CORE
+
+## Objectif
+Tracer chaque décision et chaque étape d’exécution.
+
+## Champs observables côté décision
+- `task_type`
+- `classifier_reason`
+- `selected_model`
+- `selected_tool`
+- `matched_rule`
+- `second_call`
+- `reason`
+- `reason_debug`
+- `decision_trace`
+- `decision_path`
+
+## Champs observables côté exécution
+- `execution_strategy`
+- `execution_summary`
+- `request_id`
+- `started_at`
+- `finished_at`
+- `duration_ms`
+- `plan`
+- `step_results`
+- `primary_output`
+- `second_output`
+- `artifact_type`
+- `artifact_path`
+- `artifact_filename`
+- `artifact_paths`
+- `artifact_filenames`
+- `workflow_id`
+- `comfyui_status`
+- `comfyui_prompt_id`
+- `variants_count`
+- `completed_variants`
+- `partial_visual_success`
+
+## Champs observables côté préparation visuelle
+Dans le step `prepare_visual`, la metadata utile inclut notamment :
+- `workflow_id`
+- `workflow_reason`
+- `subject_type`
+- `render_intent`
+- `style_flags`
+- `parameters`
+
+## Exemple de trace attendue
+- classifier → image_generation
+- final_task → image_generation
+- final_tool → comfyui
+- planner → strategy=visual_pipeline
+- planner → step_prepare_visual
+- planner → step_run_comfyui
+- step_executor → start:step_prepare_visual
+- step_executor → step_prepare_visual:success
+- step_executor → start:step_run_comfyui
+- step_executor → step_run_comfyui:success
+- assembler → final_output
+
+## Règle
+Une décision n’est acceptable que si elle est suffisamment visible pour être relue, testée et expliquée.
+La session 4 renforce précisément cette relisibilité sur le pipeline visuel.

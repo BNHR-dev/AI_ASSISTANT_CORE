@@ -1,0 +1,49 @@
+# MENTAL MODEL — AI_ASSISTANT_CORE
+
+## 1. Vision personnelle
+Je ne construis pas un chatbot générique.
+Je construis un orchestrateur local capable de transformer une requête en décision, puis en plan d’exécution explicite.
+
+## 2. Intuition centrale
+Le problème principal n’est pas d’écrire du texte.
+Le problème principal est de décider :
+- quoi faire
+- avec quel agent
+- avec quel modèle
+- avec quel outil
+- dans quel ordre
+
+## 3. Cœur réel du système actuel
+Le système repose sur 5 couches visibles :
+- compréhension initiale (`task_classifier`)
+- décision structurée (`router_service`)
+- planification explicite (`plan_builder` / `planner_service`)
+- exécution pas à pas (`step_executor` / `executor`)
+- assemblage et observabilité (`result_assembler`, `execution_summary`, trace)
+
+## 4. Place de la session 4 dans ce modèle
+La session 4 n’a pas changé ce cœur.
+Elle a ajouté une couche d’analyse visuelle légère avant ComfyUI pour mieux piloter :
+- le choix du workflow
+- l’enrichissement du prompt
+- les formats simples de sortie
+- la metadata visible du pipeline visuel
+
+## 5. Philosophie technique
+- local > cloud-dépendant
+- déterministe > magique
+- explicable > implicite
+- progressif > sur-ingénierie
+- utile en situation réelle > démo vide
+
+## 6. Risque principal
+Le risque n’est pas le manque d’intelligence.
+Le risque est :
+- le drift docs/code
+- la confusion canonique / legacy / auxiliaire
+- les incohérences de runtime
+- la surface debug inexacte
+- l’ajout de couches externes avant stabilisation réelle
+
+## 7. Objectif final
+Un copilote technique créatif local capable de comprendre la demande, router proprement, utiliser code / web / vision / génération visuelle, et rester contrôlable de bout en bout.

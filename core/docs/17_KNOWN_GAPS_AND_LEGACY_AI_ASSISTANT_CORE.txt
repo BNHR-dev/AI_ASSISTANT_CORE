@@ -1,0 +1,37 @@
+# KNOWN GAPS & LEGACY — AI_ASSISTANT_CORE
+
+## Incohérences corrigées par ce refresh
+- README n’est plus laissé au niveau “backend minimal”
+- `ROADMAP.md` racine n’est plus arrêtée au simple post-session 4
+- `ARCHITECTURE.md` ne décrit plus le runtime comme un état flou ou purement host-side
+- le projet est documenté avec les apports visuels de la session 4 et la canonisation runtime post-VM
+- la surface `/execute` et la surface runtime restent alignées sur le récit documentaire
+- le bridge Ollama réel en `12001` est désormais nommé explicitement
+
+## Legacy confirmé
+Les fichiers racine suivants restent des shims de compatibilité :
+- `executor.py`
+- `router_service.py`
+- `task_classifier.py`
+- `tool_selector.py`
+- `task_routing.py`
+- `comfyui_client.py`
+
+## Gaps encore réels
+1. le `portproxy` Ollama côté host reste encore transitoire dans sa forme, même s’il est canonique dans le setup actuel
+2. pas encore de mode OpenAI-compatible public dédié au visuel
+3. dette documentaire historique à ne pas réimporter via d’anciens fichiers
+4. statut produit final d’OpenWebUI côté host encore à décider explicitement
+5. la surface `/debug/canonical` peut encore demander un léger réalignement si certains modules actifs sont signalés comme “dormant”
+6. qualité finale des réponses encore améliorable sans refondre l’architecture
+7. présence de snapshots documentaires anciens susceptibles de réintroduire l’ancien bridge `12000`
+
+## Nuance importante
+“secondaire”, “auxiliaire” et “dormant” ne veulent pas dire la même chose.
+
+Post-session 4, post-VM et post-hardening phase 1 :
+- `visual_workflow_selector.py` et `visual_types.py` participent réellement au pipeline visuel
+- `tool_manager.py` participe réellement à la lecture runtime
+- la VM participe réellement au design produit final
+- le bridge Ollama actuel via `12001` participe réellement au runtime validé
+- si une surface debug classe autrement un module réellement appelé, c’est un gap de surface, pas une vérité de comportement

@@ -1,0 +1,73 @@
+# FAILURE MODES — AI_ASSISTANT_CORE
+
+## 1. Mauvaise classification
+Exemples :
+- collision explain / build / architecture
+- priorité trop forte de certains signaux
+
+Impact :
+→ mauvais `task_type` initial
+
+## 2. Mauvaise décision finale
+Exemples :
+- règle hybride non déclenchée
+- `second_call` manquant
+- tool inadapté
+
+Impact :
+→ plan incomplet ou mauvais
+
+## 3. Mauvaise préparation visuelle
+Exemples :
+- `subject_type` mal inféré
+- `render_intent` mal détecté
+- flags de style incomplets
+- preset de format inadéquat
+
+Impact :
+→ prompt visuel moins bon, workflow moins pertinent, résultat ComfyUI moins propre
+
+## 4. Drift entre code et docs
+Exemples :
+- README / ROADMAP / ARCHITECTURE en retard
+- anciens fichiers de contexte encore basés sur une lecture trop minimale
+- oubli des apports session 4
+
+Impact :
+→ mauvaise lecture du vrai état du projet
+
+## 5. Dette legacy
+Exemples :
+- doublons racine / `app/*`
+- lecture erronée des shims comme source métier
+
+Impact :
+→ confusion sur la vraie source de vérité
+
+## 6. Défaillance runtime outil
+Exemples :
+- Ollama non joignable
+- SearXNG non joignable
+- ComfyUI non joignable
+- mismatch de ports/URLs entre code et env actif
+
+Impact :
+→ pipeline partiellement cassé malgré logique correcte
+
+## 7. Surface debug inexacte
+Exemples :
+- module actif encore marqué comme “dormant”
+- frontières canoniques correctes mais signalements secondaires obsolètes
+
+Impact :
+→ mauvaise interprétation du système alors que le comportement réel est bon
+
+## 8. Qualité de sortie insuffisante
+Exemples :
+- étape 1 qui donne trop de code
+- synthèse web qui manque de netteté
+- sortie build pas assez directement exploitable
+- prompt visuel encore perfectible malgré l’intention mieux captée
+
+Impact :
+→ perception de faiblesse alors que le noyau technique tient
