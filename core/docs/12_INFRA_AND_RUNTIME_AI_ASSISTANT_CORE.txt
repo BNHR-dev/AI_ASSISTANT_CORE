@@ -7,6 +7,26 @@ La topologie réellement validée est désormais :
 - host Windows = services gardés hors VM quand c’est pertinent
 - réseau privé Hyper-V = frontière d’échange et d’isolation
 
+## Profils runtime
+Trois profils runtime sont reconnus, sans ambiguïté.
+
+### Profil A — runtime VM canonique
+- backend FastAPI et SearXNG lancés dans la VM Hyper-V via `systemd`
+- Ollama et ComfyUI côté host, joints depuis la VM via le réseau privé `AICORE-INT`
+- seul profil canonique pour le runtime principal du produit
+
+### Profil B — host-only legacy
+- runtime entièrement sur le host Windows, hors VM
+- ne repose ni sur `systemd` VM ni sur la frontière Hyper-V
+- correspond à un mode historique de compatibilité / dev local encore représenté dans le repo
+- non canonique, mais supporté comme mode de compatibilité ou de dev local
+
+### Profil C — UI opérateur host
+- OpenWebUI côté host Windows
+- optionnelle, non canonique, non requise pour le fonctionnement du cœur du produit
+- se branche au runtime (A ou B) via la surface OpenAI-compatible
+- complémentaire, jamais substitut
+
 ## Runtime canonique dans la VM
 ### Backend
 - repo : `/home/bnhr/aicore/projects/core`
