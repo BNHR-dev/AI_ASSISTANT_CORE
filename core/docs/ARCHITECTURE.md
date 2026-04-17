@@ -205,7 +205,7 @@ Ces fichiers ne doivent pas redevenir des sources métier.
 - pas encore de mode public dédié au visuel dans `/v1/models`
 - surface `/debug/canonical` à surveiller tant qu’elle peut encore marquer certains modules actifs comme “dormant”
 - dette legacy encore présente même si contenue
-- OpenWebUI acté comme UI opérateur optionnelle côté host, non canonique et non requise pour le runtime principal
+- OpenWebUI, optionnelle, comme UI opérateur distincte du runtime principal (non canonique, non requise)
 
 ## Décision d’architecture à préserver
 
