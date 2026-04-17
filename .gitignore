@@ -53,3 +53,4 @@ Thumbs.db
 core/archive_notes/test_localsystem.txt
 core/tests/test_visual_pipeline (2).py
 core/phase5_v171_quality_visible.patch
+.claude/worktrees/
