@@ -34,9 +34,9 @@ La topologie réellement validée est désormais :
 - `COMFYUI_AUTO_START=false` côté backend VM reste acceptable si ComfyUI est piloté côté host
 
 ### OpenWebUI
-- peut rester sur le host comme UI opérateur
-- ne fait pas partie du runtime principal canonique de la VM
-- son statut produit final doit être décidé explicitement plutôt que laissé flou
+- UI opérateur optionnelle côté host
+- ne fait pas partie du runtime principal canonique
+- non requise pour le fonctionnement cœur du produit (routeur + planner + executor)
 
 ## Variables runtime importantes
 ### URLs Docker-internes / intégration UI

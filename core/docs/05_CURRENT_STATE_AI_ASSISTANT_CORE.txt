@@ -28,7 +28,7 @@ Le projet est dans un état intermédiaire solide :
 
 ## Ce qui n’est pas encore complètement propre
 - le `portproxy` Ollama côté host reste une dépendance runtime canonique à court terme, mais encore transitoire dans la forme
-- la présence éventuelle d’OpenWebUI côté host reste un choix de surface produit à expliciter
+- OpenWebUI est acté comme UI opérateur optionnelle côté host, non canonique pour le runtime principal et non requise pour le fonctionnement cœur
 - la surface `/debug/canonical` peut encore être en décalage avec l’usage réel de certains modules de support visuel
 - il n’existe pas encore de mode public visuel dédié côté `/v1/models`
 - la qualité finale des réponses LLM reste un sujet distinct de la stabilité du noyau

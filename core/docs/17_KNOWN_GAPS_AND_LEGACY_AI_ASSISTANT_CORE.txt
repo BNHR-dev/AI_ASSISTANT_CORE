@@ -21,7 +21,7 @@ Les fichiers racine suivants restent des shims de compatibilité :
 1. le `portproxy` Ollama côté host reste encore transitoire dans sa forme, même s’il est canonique dans le setup actuel
 2. pas encore de mode OpenAI-compatible public dédié au visuel
 3. dette documentaire historique à ne pas réimporter via d’anciens fichiers
-4. statut produit final d’OpenWebUI côté host encore à décider explicitement
+4. OpenWebUI acté comme UI opérateur optionnelle côté host, non canonique pour le runtime principal et non requise pour le fonctionnement cœur
 5. le réalignement de `/debug/canonical` est déjà effectif côté code (`active_auxiliary_modules` expose explicitement les modules de support actifs) ; le reste du sujet est désormais purement documentaire
 6. qualité finale des réponses encore améliorable sans refondre l’architecture
 7. vigilance permanente contre la réintroduction de l’ancien bridge `12000` comme chemin runtime ; inventaire à date : toutes les occurrences restantes dans `core/docs/` sont soit des extrémités internes du `portproxy` (`12001 -> 127.0.0.1:12000`), soit des références historiques explicitement marquées comme non-runtime

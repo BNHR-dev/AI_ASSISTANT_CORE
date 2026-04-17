@@ -85,7 +85,7 @@ Le projet doit donc être documenté comme :
 ### Sur le host Windows
 - Ollama
 - ComfyUI
-- éventuellement OpenWebUI comme interface opérateur distincte du runtime principal
+- OpenWebUI, optionnel, comme UI opérateur distincte du runtime principal (non canonique, non requis)
 
 ### Réseau et isolation
 - réseau privé Hyper-V `AICORE-INT`
@@ -118,7 +118,7 @@ Le projet est solide au niveau du noyau, mais pas encore totalement nettoyé au 
 Gaps visibles à garder en tête :
 - le `portproxy` Ollama est **canonique à court terme** mais encore **transitoire dans sa forme**
 - le chemin direct VM → `192.168.77.1:12000` ne doit plus être documenté comme chemin runtime validé
-- le statut produit final d’OpenWebUI côté host reste à décider explicitement
+- OpenWebUI acté comme UI opérateur optionnelle côté host, non canonique et non requise pour le runtime principal
 - il n’existe pas encore de mode public dédié à `image_generation` ou `vision` côté `/v1/models`
 - la surface `/debug/canonical` doit continuer à refléter correctement la frontière entre modules actifs, auxiliaires, optionnels et legacy
 - les fichiers racine legacy existent encore et doivent rester de simples shims de compatibilité
