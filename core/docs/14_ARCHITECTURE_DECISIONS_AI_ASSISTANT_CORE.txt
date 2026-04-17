@@ -82,3 +82,12 @@ Conséquence :
 - `aicore-backend.service` devient la forme normale de lancement du backend
 - `aicore-searxng.service` devient la forme normale de lancement de SearXNG dans la VM
 - `systemd` devient la façade d’exploitation standard côté VM
+
+## Décision 13
+Le projet reconnaît trois profils runtime distincts :
+- Profil A : runtime VM canonique (backend + SearXNG en VM, Ollama + ComfyUI host)
+- Profil B : host-only legacy (supporté, non canonique)
+- Profil C : UI opérateur host (OpenWebUI, optionnelle, non canonique, non requise)
+
+Conséquence :
+toute décision de déploiement, de test ou d’exploitation se rattache explicitement à un de ces trois profils, sans créer de variantes hybrides non nommées.
