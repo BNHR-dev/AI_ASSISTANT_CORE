@@ -21,6 +21,9 @@ Retourne :
 - `version`
 - `canonical_paths`
 - `legacy_shims`
+- `active_runtime_modules`
+- `active_auxiliary_modules`
+- `optional_runtime_services`
 - `dormant_modules`
 - `rule`
 

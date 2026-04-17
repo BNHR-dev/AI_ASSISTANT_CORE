@@ -22,16 +22,18 @@ Les fichiers racine suivants restent des shims de compatibilité :
 2. pas encore de mode OpenAI-compatible public dédié au visuel
 3. dette documentaire historique à ne pas réimporter via d’anciens fichiers
 4. statut produit final d’OpenWebUI côté host encore à décider explicitement
-5. la surface `/debug/canonical` peut encore demander un léger réalignement si certains modules actifs sont signalés comme “dormant”
+5. le réalignement de `/debug/canonical` est déjà effectif côté code (`active_auxiliary_modules` expose explicitement les modules de support actifs) ; le reste du sujet est désormais purement documentaire
 6. qualité finale des réponses encore améliorable sans refondre l’architecture
-7. présence de snapshots documentaires anciens susceptibles de réintroduire l’ancien bridge `12000`
+7. vigilance permanente contre la réintroduction de l’ancien bridge `12000` comme chemin runtime ; inventaire à date : toutes les occurrences restantes dans `core/docs/` sont soit des extrémités internes du `portproxy` (`12001 -> 127.0.0.1:12000`), soit des références historiques explicitement marquées comme non-runtime
 
 ## Nuance importante
 “secondaire”, “auxiliaire” et “dormant” ne veulent pas dire la même chose.
 
-Post-session 4, post-VM et post-hardening phase 1 :
-- `visual_workflow_selector.py` et `visual_types.py` participent réellement au pipeline visuel
-- `tool_manager.py` participe réellement à la lecture runtime
+Post-session 4, post-VM et post-hardening phase 1, le code classe déjà correctement :
+- `visual_workflow_selector.py` et `visual_types.py` → `active_auxiliary_modules` (pipeline visuel)
+- `tool_manager.py` → `active_auxiliary_modules` (lecture runtime)
+- `planner.py` et `comfyui_launcher.py` → `dormant_modules`
 - la VM participe réellement au design produit final
 - le bridge Ollama actuel via `12001` participe réellement au runtime validé
-- si une surface debug classe autrement un module réellement appelé, c’est un gap de surface, pas une vérité de comportement
+
+Il n’y a plus de gap de surface sur `/debug/canonical` : le code distingue explicitement `active_runtime_modules`, `active_auxiliary_modules` et `dormant_modules`. Toute divergence résiduelle sur ce sujet est documentaire.
