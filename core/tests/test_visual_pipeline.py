@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from app.engine.visual_types import VisualRequest
 from app.engine.visual_workflow_selector import select_visual_workflow

@@ -25,6 +25,9 @@ def test_v1_models_endpoint_registered():
         "assistant-core-builder",
         "assistant-core-archi",
         "assistant-core-exam",
+        "assistant-core-vision",
+        "assistant-core-image",
+        "assistant-core-web",
     ]
 
 

@@ -1,0 +1,15 @@
+synthesis_prompt = f"""
+Résume clairement ces résultats web pour répondre à la question utilisateur.
+
+Question :
+{message}
+
+Résultats :
+{context}
+
+Réponse attendue :
+- courte
+- structurée
+- utile
+- sans inventer
+"""

@@ -1,4 +1,4 @@
-# CURRENT STATE — AI_ASSISTANT_CORE
+﻿# CURRENT STATE — AI_ASSISTANT_CORE
 
 ## Résumé court
 Le projet est dans un état intermédiaire solide :
@@ -22,7 +22,7 @@ Le projet est dans un état intermédiaire solide :
 7. `prepare_visual` remonte aussi l’analyse d’intention visuelle
 8. les shims racine restent testés comme simples redirections vers le canonique
 9. le backend est désormais lancé dans la VM via `aicore-backend.service`
-10. SearXNG est désormais lancé dans la VM via `aicore-searxng.service`
+10. SearXNG est désormais lancé dans la VM via Docker `searxng` (`restart: unless-stopped`)
 11. `/health/runtime` reflète la disponibilité d’Ollama, SearXNG et ComfyUI dans cette topologie host + VM
 12. le chemin runtime Ollama validé côté VM est maintenant `http://192.168.77.1:12001`
 

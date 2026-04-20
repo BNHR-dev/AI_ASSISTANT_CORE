@@ -18,6 +18,9 @@ MODEL_TO_MODE = {
     "assistant-core-builder": "build",
     "assistant-core-archi": "architecture",
     "assistant-core-exam": "critique",
+    "assistant-core-vision": "vision",
+    "assistant-core-image": "image_generation",
+    "assistant-core-web": "web_research",
 }
 
 DEFAULT_VISION_PROMPT = "Analyse cette image."

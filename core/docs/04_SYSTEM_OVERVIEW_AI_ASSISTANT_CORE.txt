@@ -1,4 +1,4 @@
-# SYSTEM OVERVIEW — AI_ASSISTANT_CORE
+﻿# SYSTEM OVERVIEW — AI_ASSISTANT_CORE
 
 ## Objectif du projet
 Construire un orchestrateur IA local orienté création numérique, capable de :
@@ -50,7 +50,7 @@ Le snapshot 2026-04-13 se lit comme :
 - backend AI_ASSISTANT_CORE
 - `aicore-backend.service`
 - SearXNG
-- `aicore-searxng.service`
+- Docker `searxng` (`restart: unless-stopped`)
 
 ### Sur le host Windows
 - Ollama

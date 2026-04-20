@@ -139,20 +139,20 @@ def enrich_route_config(
         if wants_code or (wants_example and (mentions_python or mentions_api)):
             enriched["second_call"] = "build"
             enriched["matched_rule"] = "explain_plus_code"
-            enriched["reason_debug"] = "code_request_detected"
+            enriched["reason_debug"] = "demande de code détectée (explicite ou implicite)"
             return enriched
 
     if task_type == "critique" and wants_improvement:
         enriched["second_call"] = "build"
         enriched["matched_rule"] = "critique_plus_improvement"
-        enriched["reason_debug"] = "improvement_request_detected"
+        enriched["reason_debug"] = "demande d'amélioration détectée"
         return enriched
 
     if task_type == "architecture":
         if wants_implementation or wants_code:
             enriched["second_call"] = "build"
             enriched["matched_rule"] = "architecture_plus_implementation"
-            enriched["reason_debug"] = "implementation_request_detected"
+            enriched["reason_debug"] = "demande d'implémentation détectée"
             return enriched
 
     return enriched

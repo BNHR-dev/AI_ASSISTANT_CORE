@@ -28,24 +28,57 @@ LEGACY_SHIMS = [
     "comfyui_client.py",
 ]
 
+# Classification rules:
+#   ACTIVE_RUNTIME_MODULES   -> code that carries the decision -> plan -> exec -> output flow
+#                               (classifier, routing, planner, executor, step, assembly,
+#                                prompt/contract layer used by the executor, visual flow pieces)
+#   ACTIVE_AUXILIARY_MODULES -> technical support code used *by* the runtime but not itself
+#                               part of the decision flow (clients, healthchecks, URL resolution)
+#   DORMANT_MODULES          -> present in the repo but not imported by the runtime flow
+#                               (superseded internals, legacy snapshots, unused helpers)
+#
+# Any app/*.py (except __init__.py) must appear in exactly one of these three lists.
+# This is enforced by tests/test_runtime_debug_classification.py.
+
 ACTIVE_RUNTIME_MODULES = [
     "app/main.py",
+    "app/schemas.py",
+    "app/task_classifier.py",
+    "app/tool_selector.py",
+    "app/engine/task_routing.py",
+    "app/engine/routing_conditions.py",
     "app/engine/router_service.py",
     "app/engine/planner_service.py",
+    "app/engine/plan_builder.py",
+    "app/engine/planner_types.py",
+    "app/engine/state_store.py",
     "app/engine/executor.py",
     "app/engine/step_executor.py",
+    "app/engine/fallbacks.py",
+    "app/engine/prompt_builder.py",
+    "app/engine/agent_prompt_registry.py",
+    "app/engine/output_contracts.py",
     "app/engine/result_assembler.py",
+    "app/engine/runtime_debug.py",
+    "app/engine/visual_workflow_selector.py",
+    "app/engine/visual_types.py",
 ]
 
 ACTIVE_AUXILIARY_MODULES = [
+    "app/clients/ollama_client.py",
+    "app/clients/web_client.py",
+    "app/clients/comfyui_client.py",
+    "app/clients/comfyui_runtime.py",
+    "app/infra/runtime_urls.py",
     "app/infra/tool_manager.py",
-    "app/engine/visual_workflow_selector.py",
-    "app/engine/visual_types.py",
 ]
 
 DORMANT_MODULES = [
     "app/engine/planner.py",
     "app/infra/comfyui_launcher.py",
+    "app/model_selector.py",
+    "app/agents/prompts.py",
+    "app/legacy/task_classifierV1.py",
 ]
 
 OPTIONAL_RUNTIME_SERVICES = [

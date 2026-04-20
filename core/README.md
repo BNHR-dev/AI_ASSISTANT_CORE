@@ -1,4 +1,4 @@
-# AI_ASSISTANT_CORE
+﻿# AI_ASSISTANT_CORE
 
 AI_ASSISTANT_CORE est un orchestrateur IA local orienté création numérique.
 
@@ -79,22 +79,23 @@ Le projet doit donc être documenté comme :
 - `aicore-backend.service`
 - bind `127.0.0.1:8000`
 - SearXNG
-- `aicore-searxng.service`
+- Docker `searxng` (`restart: unless-stopped`)
 - bind `127.0.0.1:8081`
 
 ### Sur le host Windows
 - Ollama
 - ComfyUI
-- OpenWebUI, optionnelle, comme UI opérateur distincte du runtime principal (non canonique, non requise)
+- OpenWebUI (optionnel) comme UI opérateur, **hors runtime canonique** — voir « Décision OpenWebUI » dans `docs/RUNBOOK_POST_VM.md`
 
 ### Réseau et isolation
 - réseau privé Hyper-V `AICORE-INT`
 - host : `192.168.77.1`
 - VM : `192.168.77.10`
-- backend VM → Ollama host : `http://192.168.77.1:12001`
-- backend VM → ComfyUI host : `http://192.168.77.1:8188`
+- flux utiles : VM → Ollama host et VM → ComfyUI host
 
-Dans le setup validé ici, l’accès VM → Ollama repose sur un `portproxy` Windows `192.168.77.1:12001 -> 127.0.0.1:12000`.
+Ports, binds et URL canoniques : voir la section **Invariants runtime (référence canonique)** dans `docs/RUNBOOK_POST_VM.md`. Ce README ne les redéfinit pas pour éviter toute dérive.
+
+Dans le setup validé, l'accès VM → Ollama repose sur un `portproxy` Windows. Ce `portproxy` est une **dépendance runtime canonique à court terme** mais **transitoire dans sa forme** — pas un invariant final de topologie.
 
 La VM n’est donc plus un simple environnement de dev : elle porte déjà le runtime principal du produit et sa première couche de sécurité structurelle.
 
@@ -116,7 +117,7 @@ Couche OpenAI-compatible :
 Le projet est solide au niveau du noyau, mais pas encore totalement nettoyé au niveau runtime et surface externe.
 
 Gaps visibles à garder en tête :
-- le `portproxy` Ollama est **canonique à court terme** mais encore **transitoire dans sa forme**
+- le `portproxy` Ollama est **canonique à court terme** mais **transitoire dans sa forme** (formulation unique partagée avec `docs/ARCHITECTURE.md` et `docs/RUNBOOK_POST_VM.md`)
 - le chemin direct VM → `192.168.77.1:12000` ne doit plus être documenté comme chemin runtime validé
 - OpenWebUI acté comme UI opérateur optionnelle côté host, non canonique et non requise pour le fonctionnement du cœur du produit
 - il n’existe pas encore de mode public dédié à `image_generation` ou `vision` côté `/v1/models`
@@ -129,14 +130,17 @@ Gaps visibles à garder en tête :
 core/
 ├── app/
 ├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── ROADMAP.md
+│   ├── RUNBOOK_POST_VM.md
+│   └── 01..21_*_AI_ASSISTANT_CORE.txt   ← pack de contexte canonique
 ├── scripts/
 ├── tests/
 ├── openai_compat.py
-├── README.md
-├── ROADMAP.md
-├── ARCHITECTURE.md
-└── RUNBOOK_POST_VM.md
+└── README.md   ← présent uniquement à la racine (convention GitHub)
 ```
+
+Les docs détaillées vivent sous `docs/`. Le README à la racine sert d'entrée et pointe vers `docs/` pour l'architecture, la roadmap et le runbook.
 
 ## Tests et validation
 

@@ -10,6 +10,7 @@ def test_ensure_runtime_starts_if_needed(monkeypatch):
     calls = {"start": 0, "wait": 0}
     responses = iter([False])
 
+    monkeypatch.setattr("app.clients.comfyui_runtime.COMFYUI_AUTO_START", True)
     monkeypatch.setattr("app.clients.comfyui_runtime.ping_comfyui", lambda timeout=4: next(responses, False))
     monkeypatch.setattr(
         "app.clients.comfyui_runtime.start_comfyui_process",

@@ -1,4 +1,4 @@
-# RUNBOOK POST-VM — AI_ASSISTANT_CORE
+﻿# RUNBOOK POST-VM — AI_ASSISTANT_CORE
 
 ## Objectif
 Donner la procédure normale d’exploitation du runtime post-VM sans mélanger host Windows et VM Ubuntu.
@@ -8,26 +8,36 @@ Donner la procédure normale d’exploitation du runtime post-VM sans mélanger 
 - backend AI_ASSISTANT_CORE
 - `aicore-backend.service`
 - SearXNG
-- `aicore-searxng.service`
+- Docker `searxng` (`restart: unless-stopped`)
 
 ### Sur le host Windows
 - Ollama
 - ComfyUI
 - `portproxy` Ollama
 - règles firewall bornées à la VM
-- éventuellement OpenWebUI comme UI opérateur
+- OpenWebUI (optionnel) comme UI opérateur côté host, **hors runtime canonique**
 
-## Invariants canoniques actuels
-- backend VM : `127.0.0.1:8000`
-- SearXNG VM : `127.0.0.1:8081`
-- Ollama host vu depuis la VM : `192.168.77.1:12001`
-- ComfyUI host vu depuis la VM : `192.168.77.1:8188`
-- `portproxy` Ollama attendu : `192.168.77.1:12001 -> 127.0.0.1:12000`
+## Invariants runtime (référence canonique)
+
+Ce bloc est la **source unique** pour les ports, binds et URL du runtime réel.
+Les autres documents (`docs/README.md` s'il existe, `docs/ARCHITECTURE.md`, racine `README.md`) s'y réfèrent et ne les redéfinissent pas.
+
+| Composant              | Localisation | Bind / URL                      | Rôle                                      |
+|------------------------|--------------|---------------------------------|-------------------------------------------|
+| backend AI_ASSISTANT_CORE | VM        | `127.0.0.1:8000`                | API FastAPI canonique + `/v1/*`           |
+| SearXNG                | VM           | `127.0.0.1:8081`                | recherche web utilisée par le pipeline    |
+| Ollama                 | Host Windows | `192.168.77.1:12001` (vu VM)    | LLM local                                 |
+| ComfyUI                | Host Windows | `192.168.77.1:8188` (vu VM)     | génération visuelle                       |
+| `portproxy` Ollama     | Host Windows | `192.168.77.1:12001 -> 127.0.0.1:12000` | pont VM → Ollama                  |
+
+### Statut des dépendances
+- Le `portproxy` Ollama est une **dépendance runtime canonique à court terme** mais **transitoire dans sa forme**. Ce n'est pas un invariant final de topologie.
+- Le chemin direct VM → `192.168.77.1:12000` **n'est pas** un chemin runtime validé et ne doit pas être documenté comme tel.
 
 ## Checks normaux dans la VM
 ```bash
 sudo systemctl status aicore-backend --no-pager
-sudo systemctl status aicore-searxng --no-pager
+docker ps --filter name=searxng
 curl -s http://127.0.0.1:8000/health
 curl -s http://127.0.0.1:8000/health/runtime
 ```
@@ -35,13 +45,12 @@ curl -s http://127.0.0.1:8000/health/runtime
 ## Relance dans la VM
 ```bash
 sudo systemctl restart aicore-backend
-sudo systemctl restart aicore-searxng
+docker restart searxng
 ```
 
 ## Logs dans la VM
 ```bash
 journalctl -u aicore-backend -n 50 --no-pager
-journalctl -u aicore-searxng -n 50 --no-pager
 docker logs --tail 50 searxng
 ```
 
@@ -65,7 +74,7 @@ Get-NetFirewallRule | Where-Object DisplayName -like "AICORE *" | Format-Table D
 Après reboot de la VM :
 ```bash
 sudo systemctl status aicore-backend --no-pager
-sudo systemctl status aicore-searxng --no-pager
+docker ps --filter name=searxng
 docker ps --filter name=searxng
 curl -s http://127.0.0.1:8000/health
 curl -s http://127.0.0.1:8000/health/runtime
@@ -80,8 +89,12 @@ curl -s http://127.0.0.1:8000/health/runtime
 
 ## Ce qui est encore transitoire
 - `portproxy` Ollama dans sa forme actuelle
-- statut final d’OpenWebUI côté host
 - normalisation future du bridge Ollama sans changer la topologie host + VM
+
+## Décision OpenWebUI
+
+OpenWebUI, **si utilisée**, est une UI opérateur optionnelle côté host.
+Elle **n'est pas** une composante du runtime principal canonique : le backend AI_ASSISTANT_CORE et sa façade `/v1/*` OpenAI-compatible sont complets sans elle. OpenWebUI consomme cette façade en HTTP comme n'importe quel client.
 
 ## À ne plus documenter comme vrai état
 - le chemin direct VM → `192.168.77.1:12000`

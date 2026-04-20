@@ -1,4 +1,4 @@
-# ARCHITECTURE DECISIONS — AI_ASSISTANT_CORE
+﻿# ARCHITECTURE DECISIONS — AI_ASSISTANT_CORE
 
 ## Décision 1
 Le noyau n’est plus un simple routeur.
@@ -80,7 +80,7 @@ Le cycle de vie du backend et du web runtime principal doit être canonisé dans
 
 Conséquence :
 - `aicore-backend.service` devient la forme normale de lancement du backend
-- `aicore-searxng.service` devient la forme normale de lancement de SearXNG dans la VM
+- Docker `searxng` (`restart: unless-stopped`) devient la forme normale de lancement de SearXNG dans la VM
 - `systemd` devient la façade d’exploitation standard côté VM
 
 ## Décision 13

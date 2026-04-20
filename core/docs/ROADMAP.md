@@ -46,14 +46,14 @@ Lecture correcte du snapshot :
 ## Priorités raisonnables à très court terme
 
 1. **Docs canoniques alignées**
-   - README, ROADMAP, ARCHITECTURE cohérents avec le code et le runtime post-VM
+   - `README.md` au root ; `ARCHITECTURE.md`, `ROADMAP.md`, `RUNBOOK_POST_VM.md` dans `docs/`
+   - cohérence entre root/README et docs (pas de duplicata des 3 autres fichiers)
    - pack `docs/*` régénéré
-   - runbook post-VM ajouté et maintenu à la racine
 
 2. **Consolidation runtime honnête**
    - documenter le bridge Ollama réel `12001` comme dépendance canonique à court terme
    - garder le firewall host minimal et borné à la VM
-   - décider explicitement du statut d’OpenWebUI sur le host
+   - OpenWebUI acté côté host comme UI opérateur optionnelle, hors runtime canonique (voir `docs/RUNBOOK_POST_VM.md`)
 
 3. **Surface debug plus propre**
    - garder `/health/runtime` comme vue utile

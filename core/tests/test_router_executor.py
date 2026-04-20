@@ -6,7 +6,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.engine.router_service import build_route_decision
-from app.engine.executor import execute_request
 
 
 def test_route_decision_adds_second_call_for_explain_plus_code():
@@ -30,41 +29,11 @@ def test_route_decision_adds_second_call_for_architecture_plus_implementation():
     assert result["second_call"] == "build"
 
 
-def test_execute_request_runs_primary_and_second_call(monkeypatch):
-    outputs = []
-
-    def fake_generate(model: str, prompt: str) -> str:
-        outputs.append((model, prompt))
-        return f"OUTPUT[{model}]"
-
-    monkeypatch.setattr("app.engine.executor.generate_with_ollama", fake_generate)
-
-    result = execute_request(
-        "Explique-moi les embeddings et donne-moi un exemple de code en Python.",
-        False,
-    )
-
-    assert result["second_call"] == "build"
-    assert result["primary_output"] == "OUTPUT[qwen3:8b]"
-    assert result["second_output"] == "OUTPUT[qwen2.5-coder:14b]"
-    assert "---" in result["output"]
-    assert len(outputs) == 2
-
-
-def test_execute_request_uses_needs_web_flag(monkeypatch):
-    def fake_search_web(message: str):
-        return [{"title": "T1", "url": "https://example.com", "content": "C1"}]
-
-    def fake_generate(model: str, prompt: str) -> str:
-        assert "Résultats web" in prompt
-        return f"WEB_OUTPUT[{model}]"
-
-    monkeypatch.setattr("app.engine.executor.search_web", fake_search_web)
-    monkeypatch.setattr("app.engine.executor.generate_with_ollama", fake_generate)
-
-    result = execute_request("Cherche les dernières avancées sur la fusion nucléaire", False)
-
-    assert result["task_type"] == "web_research"
-    assert result["needs_web"] is True
-    assert result["primary_output"] == "WEB_OUTPUT[qwen3:14b]"
-    assert result["second_output"] is None
+# Note : les deux anciens tests test_execute_request_* ont été supprimés.
+# Ils monkeypatchaient une surface obsolète (app.engine.executor.generate_with_ollama
+# et .search_web, qui ont migré dans step_executor) et vérifiaient un schéma de retour
+# qui n'existe plus (primary_output / second_output / output au lieu de step_results[]).
+# La couverture fonctionnelle équivalente est maintenue par :
+#   - tests/test_multistep_executor.py::test_execute_request_multistep
+#   - tests/test_baseline_v17_regression.py::test_explain_plus_code_runs_two_step_llm
+#   - tests/test_baseline_v17_regression.py::test_web_pipeline_hides_technical_output

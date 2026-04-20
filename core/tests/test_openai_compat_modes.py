@@ -166,3 +166,75 @@ def test_extract_last_user_turn_raises_when_no_usable_user_message():
         assert "No usable user message" in exc.detail
     else:
         raise AssertionError("Expected HTTPException when no usable user message exists.")
+
+
+def test_openai_compat_vision_mode(monkeypatch):
+    captured = {}
+
+    def fake_execute(message: str, has_image: bool = False, mode: str = "auto"):
+        captured["mode"] = mode
+        captured["has_image"] = has_image
+        return {"output": "VISION_OUTPUT"}
+
+    monkeypatch.setattr("openai_compat.execute_request", fake_execute)
+
+    payload = ChatCompletionRequest(
+        model="assistant-core-vision",
+        messages=[
+            ChatMessage(
+                role="user",
+                content=[
+                    {"type": "text", "text": "décris cette image"},
+                    {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
+                ],
+            )
+        ],
+    )
+
+    response = chat_completions(payload)
+
+    assert captured["mode"] == "vision"
+    assert captured["has_image"] is True
+    assert response["choices"][0]["message"]["content"] == "VISION_OUTPUT"
+
+
+def test_openai_compat_image_generation_mode(monkeypatch):
+    captured = {}
+
+    def fake_execute(message: str, has_image: bool = False, mode: str = "auto"):
+        captured["mode"] = mode
+        captured["message"] = message
+        return {"output": "IMAGE_OUTPUT"}
+
+    monkeypatch.setattr("openai_compat.execute_request", fake_execute)
+
+    payload = ChatCompletionRequest(
+        model="assistant-core-image",
+        messages=[ChatMessage(role="user", content="génère une scène cyberpunk")],
+    )
+
+    response = chat_completions(payload)
+
+    assert captured["mode"] == "image_generation"
+    assert captured["message"] == "génère une scène cyberpunk"
+    assert response["choices"][0]["message"]["content"] == "IMAGE_OUTPUT"
+
+
+def test_openai_compat_web_research_mode(monkeypatch):
+    captured = {}
+
+    def fake_execute(message: str, has_image: bool = False, mode: str = "auto"):
+        captured["mode"] = mode
+        return {"output": "WEB_OUTPUT"}
+
+    monkeypatch.setattr("openai_compat.execute_request", fake_execute)
+
+    payload = ChatCompletionRequest(
+        model="assistant-core-web",
+        messages=[ChatMessage(role="user", content="dernières avancées en IA")],
+    )
+
+    response = chat_completions(payload)
+
+    assert captured["mode"] == "web_research"
+    assert response["choices"][0]["message"]["content"] == "WEB_OUTPUT"

@@ -20,6 +20,9 @@ FORCED_MODE_TO_TASK_TYPE = {
     "build": "build",
     "architecture": "architecture",
     "critique": "critique",
+    "vision": "vision",
+    "image_generation": "image_generation",
+    "web_research": "web_research",
 }
 
 

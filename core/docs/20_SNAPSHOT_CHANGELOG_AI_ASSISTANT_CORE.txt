@@ -1,11 +1,11 @@
-# SNAPSHOT CHANGELOG — AI_ASSISTANT_CORE
+﻿# SNAPSHOT CHANGELOG — AI_ASSISTANT_CORE
 
 ## Ce que ce refresh corrige par rapport au pack précédent
 - le pack n’est plus figé sur un récit seulement post-session 4
 - le runtime principal n’est plus décrit implicitement comme un stack host-side unique
 - la VM Hyper-V est désormais intégrée explicitement comme brique du produit final
 - backend canonisé via `aicore-backend.service`
-- SearXNG canonisé via `aicore-searxng.service`
+- SearXNG canonisé via Docker `searxng` (`restart: unless-stopped`)
 - SearXNG resserré à `127.0.0.1:8081`
 - surface `/health/runtime` relue dans la topologie réelle host + VM
 - le `portproxy` Ollama est nommé comme dépendance runtime canonique à court terme dans le setup actuel

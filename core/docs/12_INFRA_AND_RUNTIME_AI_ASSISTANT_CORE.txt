@@ -1,4 +1,4 @@
-# INFRA & RUNTIME — AI_ASSISTANT_CORE
+﻿# INFRA & RUNTIME — AI_ASSISTANT_CORE
 
 ## Lecture correcte du runtime post-VM
 Le runtime canonique n’est plus à lire comme un stack Docker unique host-side.
@@ -35,7 +35,7 @@ Trois profils runtime sont reconnus, sans ambiguïté.
 
 ### Web
 - SearXNG tourne dans la VM
-- service : `aicore-searxng.service`
+- service : Docker `searxng` (`restart: unless-stopped`)
 - conteneur : `searxng`
 - bind : `127.0.0.1:8081 -> 8080`
 
