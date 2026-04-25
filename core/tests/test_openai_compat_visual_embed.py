@@ -66,7 +66,7 @@ def test_missing_artifact_type_falls_back_to_text(monkeypatch):
     assert content == "pas d'artefact"
 
 
-def test_single_artifact_path_returns_multimodal(monkeypatch, tmp_path):
+def test_single_artifact_path_returns_markdown_with_data_uri(monkeypatch, tmp_path):
     img = _make_png(tmp_path / "out.png")
     response = _run(
         monkeypatch,
@@ -78,16 +78,21 @@ def test_single_artifact_path_returns_multimodal(monkeypatch, tmp_path):
         },
     )
     content = response["choices"][0]["message"]["content"]
-    assert isinstance(content, list)
-    assert content[0] == {"type": "text", "text": "image générée"}
-    assert len(content) == 2
-    assert content[1]["type"] == "image_url"
-    url = content[1]["image_url"]["url"]
-    assert url.startswith("data:image/png;base64,")
-    assert base64.b64decode(url.split(",", 1)[1]) == _PNG_BYTES
+    # Phase 5: content is ALWAYS a string for OpenAI spec compliance
+    assert isinstance(content, str)
+    # narrative text preserved at the top
+    assert content.startswith("image générée")
+    # markdown image syntax with data URI
+    assert "![" in content
+    assert "](data:image/png;base64," in content
+    # round-trip: the embedded base64 decodes back to the original bytes
+    prefix = "data:image/png;base64,"
+    start = content.index(prefix) + len(prefix)
+    end = content.index(")", start)
+    assert base64.b64decode(content[start:end]) == _PNG_BYTES
 
 
-def test_multiple_artifact_paths_return_all_images(monkeypatch, tmp_path):
+def test_multiple_artifact_paths_embed_all_images(monkeypatch, tmp_path):
     p1 = _make_png(tmp_path / "a.png")
     p2 = _make_png(tmp_path / "b.png")
     response = _run(
@@ -100,9 +105,9 @@ def test_multiple_artifact_paths_return_all_images(monkeypatch, tmp_path):
         },
     )
     content = response["choices"][0]["message"]["content"]
-    assert isinstance(content, list)
-    image_parts = [part for part in content if part["type"] == "image_url"]
-    assert len(image_parts) == 2
+    assert isinstance(content, str)
+    # two markdown image blocks, one per artifact
+    assert content.count("](data:image/png;base64,") == 2
 
 
 def test_oversized_image_falls_back_to_explicit_text(monkeypatch, tmp_path):
@@ -156,6 +161,5 @@ def test_max_embed_images_is_respected(monkeypatch, tmp_path):
         },
     )
     content = response["choices"][0]["message"]["content"]
-    assert isinstance(content, list)
-    image_parts = [part for part in content if part["type"] == "image_url"]
-    assert len(image_parts) == MAX_EMBED_IMAGES
+    assert isinstance(content, str)
+    assert content.count("](data:image/png;base64,") == MAX_EMBED_IMAGES

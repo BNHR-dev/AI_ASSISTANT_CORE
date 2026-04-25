@@ -67,6 +67,10 @@ def _extract_visual_artifact(state) -> dict:
         artifact_filename = meta.get("filename")
         artifact_paths = meta.get("output_paths") or ([] if artifact_path is None else [artifact_path])
         artifact_filenames = meta.get("filenames") or ([] if artifact_filename is None else [artifact_filename])
+        artifact_view_url = meta.get("artifact_view_url")
+        artifact_view_urls = meta.get("artifact_view_urls") or (
+            [] if artifact_view_url is None else [artifact_view_url]
+        )
         workflow_id = meta.get("workflow_id")
         comfyui_status = meta.get("status") or result.status
 
@@ -76,6 +80,8 @@ def _extract_visual_artifact(state) -> dict:
             "artifact_filename": artifact_filename,
             "artifact_paths": artifact_paths,
             "artifact_filenames": artifact_filenames,
+            "artifact_view_url": artifact_view_url,
+            "artifact_view_urls": artifact_view_urls,
             "workflow_id": workflow_id,
             "comfyui_status": comfyui_status,
             "comfyui_prompt_id": meta.get("prompt_id"),

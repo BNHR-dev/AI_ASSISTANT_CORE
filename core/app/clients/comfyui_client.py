@@ -8,6 +8,7 @@ import re
 import unicodedata
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 import requests
 
@@ -470,6 +471,72 @@ def extract_output_file(history: dict[str, Any]) -> tuple[str | None, str | None
     return None, None
 
 
+def _build_view_url(filename: str, subfolder: str, image_type: str) -> str:
+    """
+    Build a ComfyUI HTTP view URL for an image declared in the run history.
+
+    The endpoint is the standard ComfyUI `/view` route, which serves the raw
+    bytes of an output image identified by (filename, subfolder, type).
+    This URL is reachable from anywhere that can reach the ComfyUI HTTP API,
+    including the backend VM via the host bridge (e.g. 192.168.77.1:8188).
+    """
+    query = urlencode(
+        {
+            "filename": filename,
+            "subfolder": subfolder or "",
+            "type": image_type or "output",
+        }
+    )
+    return f"{COMFYUI_URL}/view?{query}"
+
+
+def extract_output_descriptors(history: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Return a list of image descriptors from a ComfyUI run history.
+
+    Each descriptor is shaped as:
+        {
+            "filename": str,
+            "subfolder": str,
+            "type": str,        # usually "output"
+            "view_url": str,    # absolute ComfyUI /view URL
+        }
+
+    Unlike extract_output_file(), this helper does NOT try to resolve a local
+    filesystem path. It only exposes what ComfyUI itself reports plus the HTTP
+    URL that any client (host or VM) can use to download the bytes.
+    """
+    descriptors: list[dict[str, Any]] = []
+    outputs = history.get("outputs", {})
+
+    for node_data in outputs.values():
+        images = node_data.get("images", [])
+        if not images:
+            continue
+
+        for image in images:
+            if not isinstance(image, dict):
+                continue
+
+            filename = image.get("filename")
+            if not filename:
+                continue
+
+            subfolder = image.get("subfolder") or ""
+            image_type = image.get("type") or "output"
+
+            descriptors.append(
+                {
+                    "filename": filename,
+                    "subfolder": subfolder,
+                    "type": image_type,
+                    "view_url": _build_view_url(filename, subfolder, image_type),
+                }
+            )
+
+    return descriptors
+
+
 def extract_output_path(history: dict[str, Any]) -> str | None:
     _filename, output_path = extract_output_file(history)
     return output_path
@@ -532,6 +599,8 @@ def run_comfyui_workflow(request_or_prompt: str | VisualRequest) -> dict[str, An
             prompt_id = queue_prompt(workflow)
             history = wait_for_completion(prompt_id)
             filename, output_path = extract_output_file(history)
+            descriptors = extract_output_descriptors(history)
+            first_descriptor = descriptors[0] if descriptors else {}
 
             if not output_path:
                 error_message = (
@@ -544,6 +613,9 @@ def run_comfyui_workflow(request_or_prompt: str | VisualRequest) -> dict[str, An
                         "prompt_id": prompt_id,
                         "filename": filename,
                         "output_path": output_path,
+                        "subfolder": first_descriptor.get("subfolder"),
+                        "type": first_descriptor.get("type"),
+                        "view_url": first_descriptor.get("view_url"),
                         "history": history,
                         "seed": run_seed,
                         "error": error_message,
@@ -556,6 +628,9 @@ def run_comfyui_workflow(request_or_prompt: str | VisualRequest) -> dict[str, An
                     "prompt_id": prompt_id,
                     "filename": filename,
                     "output_path": output_path,
+                    "subfolder": first_descriptor.get("subfolder"),
+                    "type": first_descriptor.get("type"),
+                    "view_url": first_descriptor.get("view_url"),
                     "history": history,
                     "seed": run_seed,
                 }
@@ -568,6 +643,9 @@ def run_comfyui_workflow(request_or_prompt: str | VisualRequest) -> dict[str, An
                     "prompt_id": None,
                     "filename": None,
                     "output_path": None,
+                    "subfolder": None,
+                    "type": None,
+                    "view_url": None,
                     "history": None,
                     "seed": run_seed,
                     "error": error_message,
@@ -608,9 +686,16 @@ def run_comfyui_workflow(request_or_prompt: str | VisualRequest) -> dict[str, An
             "prompt_id": first_prompt_id,
             "variant_prompt_ids": [item.get("prompt_id") for item in results if item.get("prompt_id")],
             "variant_seeds": [item.get("seed") for item in results],
+            "artifact_view_url": None,
+            "artifact_view_urls": [],
         }
 
     first_result = valid_results[0]
+    artifact_view_urls = [
+        item.get("view_url")
+        for item in valid_results
+        if item.get("view_url")
+    ]
     result = VisualResult(
         status="success",
         workflow_id=request.workflow_id,
@@ -632,4 +717,6 @@ def run_comfyui_workflow(request_or_prompt: str | VisualRequest) -> dict[str, An
         "prompt_id": first_result.get("prompt_id"),
         "variant_prompt_ids": [item.get("prompt_id") for item in results if item.get("prompt_id")],
         "variant_seeds": [item.get("seed") for item in results],
+        "artifact_view_url": first_result.get("view_url"),
+        "artifact_view_urls": artifact_view_urls,
     }

@@ -4,9 +4,11 @@ import time
 import uuid
 import base64
 import mimetypes
+import os
 from pathlib import Path
 from typing import Any, Literal
 
+import requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -30,6 +32,7 @@ DEFAULT_VISION_PROMPT = "Analyse cette image."
 
 MAX_EMBED_IMAGES = 4
 MAX_EMBED_BYTES_PER_IMAGE = 4 * 1024 * 1024  # 4 MiB
+COMFYUI_VIEW_TIMEOUT = float(os.getenv("COMFYUI_VIEW_TIMEOUT", "15"))
 _PROJECT_ROOT = Path(__file__).resolve().parent
 
 class ChatMessage(BaseModel):
@@ -137,7 +140,7 @@ def extract_last_user_turn(messages: list[ChatMessage]) -> ExtractedUserTurn:
 
 def format_openai_response(
     model: str,
-    content: str | list[dict[str, Any]],
+    content: str,
 ) -> dict[str, Any]:
     return {
         "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
@@ -202,7 +205,63 @@ def _collect_artifact_paths(result: dict[str, Any]) -> list[str]:
     return []
 
 
-def _build_visual_response_content(result: Any) -> str | list[dict[str, Any]]:
+def _collect_artifact_view_urls(result: dict[str, Any]) -> list[str]:
+    raw = result.get("artifact_view_urls")
+    if isinstance(raw, list) and raw:
+        return [u for u in raw if isinstance(u, str) and u]
+    single = result.get("artifact_view_url")
+    if isinstance(single, str) and single:
+        return [single]
+    return []
+
+
+def _fetch_image_as_data_uri(view_url: str, timeout: float) -> tuple[str | None, int, str]:
+    """
+    Download an image from a ComfyUI /view URL and return it as a data URI.
+
+    Returns:
+        (data_uri, byte_size, failure_reason)
+
+    On success: (data_uri, len(content), "").
+    On HTTP error / timeout / network error: (None, 0, reason).
+    Note: this function does not enforce the size limit. The caller compares
+    byte_size against MAX_EMBED_BYTES_PER_IMAGE so that one centralized policy
+    governs both the local and HTTP branches.
+    """
+    try:
+        response = requests.get(view_url, timeout=timeout)
+    except requests.Timeout:
+        return None, 0, "timeout"
+    except requests.RequestException:
+        return None, 0, "network_error"
+
+    if not response.ok:
+        return None, 0, f"http_{response.status_code}"
+
+    content = response.content
+    if not content:
+        return None, 0, "empty_body"
+
+    mime = response.headers.get("Content-Type", "").split(";", 1)[0].strip()
+    if not mime or not mime.startswith("image/"):
+        mime = "image/png"
+
+    encoded = base64.b64encode(content).decode("ascii")
+    return f"data:{mime};base64,{encoded}", len(content), ""
+
+
+def _build_visual_response_content(result: Any) -> str:
+    """
+    Assemble the assistant response for an image_generation result.
+
+    Phase 5 contract: always return a STRING. Images are inlined as markdown
+    data-URI image syntax `![filename](data:image/png;base64,...)`.
+
+    Rationale: the OpenAI Chat Completions spec requires the assistant
+    message `content` to be a string. Clients like OpenWebUI stringify any
+    array via `JSON.stringify` -> `[object Object],[object Object]`.
+    Returning a markdown string makes the response universally renderable.
+    """
     fallback_text = normalize_execute_output(result)
 
     if not isinstance(result, dict):
@@ -210,48 +269,83 @@ def _build_visual_response_content(result: Any) -> str | list[dict[str, Any]]:
     if result.get("artifact_type") != "image":
         return fallback_text
 
+    view_urls = _collect_artifact_view_urls(result)
     raw_paths = _collect_artifact_paths(result)
-    if not raw_paths:
+
+    if not view_urls and not raw_paths:
         return fallback_text
 
-    image_parts: list[dict[str, Any]] = []
+    image_lines: list[str] = []
     oversized = 0
     missing = 0
     read_errors = 0
+    http_errors = 0
 
-    for raw in raw_paths:
-        if len(image_parts) >= MAX_EMBED_IMAGES:
-            break
-
-        resolved = _resolve_artifact_path(raw)
-        if not resolved.is_file():
-            missing += 1
-            continue
-
+    def _alt_text_from_url(url: str) -> str:
+        # Extract ?filename=... from a ComfyUI /view URL; fall back to a
+        # generic label. Pure cosmetics for the markdown alt attribute.
         try:
-            size = resolved.stat().st_size
-        except OSError:
-            missing += 1
-            continue
+            from urllib.parse import urlsplit, parse_qs
+            q = parse_qs(urlsplit(url).query)
+            fn = (q.get("filename") or [""])[0]
+            return fn or "image"
+        except Exception:
+            return "image"
 
-        if size > MAX_EMBED_BYTES_PER_IMAGE:
-            oversized += 1
-            continue
+    # Branch 1: HTTP via ComfyUI /view (canonical post-VM path).
+    if view_urls:
+        for url in view_urls:
+            if len(image_lines) >= MAX_EMBED_IMAGES:
+                break
 
-        data_uri = _read_image_as_data_uri(resolved)
-        if data_uri is None:
-            read_errors += 1
-            continue
+            data_uri, size, reason = _fetch_image_as_data_uri(url, COMFYUI_VIEW_TIMEOUT)
+            if data_uri is None:
+                http_errors += 1
+                continue
 
-        image_parts.append(
-            {"type": "image_url", "image_url": {"url": data_uri}}
-        )
+            if size > MAX_EMBED_BYTES_PER_IMAGE:
+                oversized += 1
+                continue
 
-    if not image_parts:
-        if oversized and not missing and not read_errors:
+            alt = _alt_text_from_url(url)
+            image_lines.append(f"![{alt}]({data_uri})")
+
+    # Branch 2: local filesystem (legacy host-only profile fallback).
+    else:
+        for raw in raw_paths:
+            if len(image_lines) >= MAX_EMBED_IMAGES:
+                break
+
+            resolved = _resolve_artifact_path(raw)
+            if not resolved.is_file():
+                missing += 1
+                continue
+
+            try:
+                size = resolved.stat().st_size
+            except OSError:
+                missing += 1
+                continue
+
+            if size > MAX_EMBED_BYTES_PER_IMAGE:
+                oversized += 1
+                continue
+
+            data_uri = _read_image_as_data_uri(resolved)
+            if data_uri is None:
+                read_errors += 1
+                continue
+
+            alt = resolved.name or "image"
+            image_lines.append(f"![{alt}]({data_uri})")
+
+    if not image_lines:
+        if oversized and not missing and not read_errors and not http_errors:
             reason = "taille supérieure à la limite d'intégration"
-        elif missing and not oversized and not read_errors:
+        elif missing and not oversized and not read_errors and not http_errors:
             reason = "fichier introuvable"
+        elif http_errors and not oversized and not missing and not read_errors:
+            reason = "non récupérable depuis ComfyUI"
         else:
             reason = "non intégrable"
         mention = f"[Image générée mais non intégrée à la réponse : {reason}.]"
@@ -259,14 +353,14 @@ def _build_visual_response_content(result: Any) -> str | list[dict[str, Any]]:
             return f"{fallback_text}\n\n{mention}"
         return mention
 
-    parts: list[dict[str, Any]] = []
+    # Final assembly: narrative text on top, then a blank line, then one
+    # markdown image per successfully embedded artifact.
     if fallback_text:
-        parts.append({"type": "text", "text": fallback_text})
-    parts.extend(image_parts)
-    return parts
+        return fallback_text + "\n\n" + "\n\n".join(image_lines)
+    return "\n\n".join(image_lines)
 
 
-def _assemble_assistant_content(result: Any) -> str | list[dict[str, Any]]:
+def _assemble_assistant_content(result: Any) -> str:
     if isinstance(result, dict):
         return _build_visual_response_content(result)
     return normalize_execute_output(result)

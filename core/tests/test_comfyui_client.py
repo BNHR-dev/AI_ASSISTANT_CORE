@@ -1,4 +1,10 @@
-from app.clients.comfyui_client import extract_output_file, inject_visual_request, load_workflow_template, enrich_visual_positive_prompt
+from app.clients.comfyui_client import (
+    enrich_visual_positive_prompt,
+    extract_output_descriptors,
+    extract_output_file,
+    inject_visual_request,
+    load_workflow_template,
+)
 from app.engine.visual_types import VisualRequest
 
 
@@ -72,3 +78,107 @@ def test_enrich_visual_positive_prompt_adds_cyberpunk_portrait_signals():
     enriched = enrich_visual_positive_prompt("portrait cyberpunk sous la pluie", "portrait_basic_v1")
     assert "neon reflections" in enriched
     assert "subtle cybernetic details" in enriched
+
+
+def test_extract_output_descriptors_single_image(monkeypatch):
+    monkeypatch.setattr("app.clients.comfyui_client.COMFYUI_URL", "http://192.168.77.1:8188")
+
+    history = {
+        "outputs": {
+            "9": {
+                "images": [
+                    {
+                        "filename": "cinematic_scene_v1_00023_.png",
+                        "subfolder": "",
+                        "type": "output",
+                    }
+                ]
+            }
+        }
+    }
+
+    descriptors = extract_output_descriptors(history)
+
+    assert len(descriptors) == 1
+    desc = descriptors[0]
+    assert desc["filename"] == "cinematic_scene_v1_00023_.png"
+    assert desc["subfolder"] == ""
+    assert desc["type"] == "output"
+    assert desc["view_url"] == (
+        "http://192.168.77.1:8188/view"
+        "?filename=cinematic_scene_v1_00023_.png&subfolder=&type=output"
+    )
+
+
+def test_extract_output_descriptors_with_subfolder(monkeypatch):
+    monkeypatch.setattr("app.clients.comfyui_client.COMFYUI_URL", "http://comfyui.local:8188")
+
+    history = {
+        "outputs": {
+            "9": {
+                "images": [
+                    {
+                        "filename": "image.png",
+                        "subfolder": "phase4/run_a",
+                        "type": "output",
+                    }
+                ]
+            }
+        }
+    }
+
+    descriptors = extract_output_descriptors(history)
+
+    assert len(descriptors) == 1
+    url = descriptors[0]["view_url"]
+    # urlencode escapes the slash in the subfolder; ComfyUI accepts both forms.
+    assert url.startswith("http://comfyui.local:8188/view?")
+    assert "filename=image.png" in url
+    assert "subfolder=phase4%2Frun_a" in url
+    assert "type=output" in url
+
+
+def test_extract_output_descriptors_multiple_images_one_node(monkeypatch):
+    monkeypatch.setattr("app.clients.comfyui_client.COMFYUI_URL", "http://host:8188")
+
+    history = {
+        "outputs": {
+            "9": {
+                "images": [
+                    {"filename": "a.png", "subfolder": "", "type": "output"},
+                    {"filename": "b.png", "subfolder": "", "type": "output"},
+                ]
+            }
+        }
+    }
+
+    descriptors = extract_output_descriptors(history)
+
+    assert [d["filename"] for d in descriptors] == ["a.png", "b.png"]
+    assert all(d["view_url"].startswith("http://host:8188/view?") for d in descriptors)
+
+
+def test_extract_output_descriptors_skips_entries_without_filename(monkeypatch):
+    monkeypatch.setattr("app.clients.comfyui_client.COMFYUI_URL", "http://host:8188")
+
+    history = {
+        "outputs": {
+            "9": {
+                "images": [
+                    {"filename": "", "subfolder": "", "type": "output"},
+                    {"filename": "ok.png", "subfolder": "", "type": "output"},
+                ]
+            }
+        }
+    }
+
+    descriptors = extract_output_descriptors(history)
+
+    assert len(descriptors) == 1
+    assert descriptors[0]["filename"] == "ok.png"
+
+
+def test_extract_output_descriptors_empty_history():
+    assert extract_output_descriptors({}) == []
+    assert extract_output_descriptors({"outputs": {}}) == []
+    assert extract_output_descriptors({"outputs": {"9": {"images": []}}}) == []
