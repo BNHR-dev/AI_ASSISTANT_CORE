@@ -302,6 +302,35 @@ def test_no_artifact_type_skips_http_branch_entirely(monkeypatch):
     assert calls == []
 
 
+# GAP E — Content-Type non-image
+def test_http_non_image_content_type_falls_back_to_explicit_text(monkeypatch):
+    """HTTP 200 + Content-Type: text/html → non_image_content_type → 'non récupérable depuis ComfyUI'."""
+    _install_fake_get(
+        monkeypatch,
+        lambda url, timeout: _FakeResponse(
+            status_code=200,
+            content=b"<html>ComfyUI error page</html>",
+            content_type="text/html",
+        ),
+    )
+
+    response = _run(
+        monkeypatch,
+        "assistant-core-image",
+        {
+            "output": "image faite",
+            "artifact_type": "image",
+            "artifact_view_url": "http://comfyui/view?filename=error.png&subfolder=&type=output",
+        },
+    )
+
+    content = response["choices"][0]["message"]["content"]
+    assert isinstance(content, str)
+    assert "image faite" in content
+    assert "non récupérable depuis ComfyUI" in content
+    assert "html" not in content.lower().replace("image faite", "")
+
+
 # GAP A — HTTP 200 body vide
 def test_http_200_empty_body_falls_back_to_explicit_text(monkeypatch):
     """HTTP 200 + empty body → empty_body reason counted as http_error → 'non récupérable depuis ComfyUI'."""

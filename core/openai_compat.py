@@ -244,7 +244,7 @@ def _fetch_image_as_data_uri(view_url: str, timeout: float) -> tuple[str | None,
 
     mime = response.headers.get("Content-Type", "").split(";", 1)[0].strip()
     if not mime or not mime.startswith("image/"):
-        mime = "image/png"
+        return None, 0, "non_image_content_type"
 
     encoded = base64.b64encode(content).decode("ascii")
     return f"data:{mime};base64,{encoded}", len(content), ""
