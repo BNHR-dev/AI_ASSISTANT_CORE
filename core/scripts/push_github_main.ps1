@@ -142,17 +142,54 @@ try {
     else {
         Write-Host ""
         Write-Host "Exécution : git push origin main ..."
-        $pushOutput = @(& git push origin main 2>&1)
-        $pushExit = $LASTEXITCODE
-        $pushOutput | ForEach-Object { Write-Host "  $_" }
+
+        # System.Diagnostics.Process : stdout/stderr captures separement sans
+        # envelopper stderr en ErrorRecord rouge (comportement PS 5.1 + 2>&1).
+        # git push ecrit ses messages informatifs sur stderr meme en succes.
+        $psi                        = [System.Diagnostics.ProcessStartInfo]::new()
+        $psi.FileName               = "git"
+        $psi.Arguments              = "push origin main"
+        $psi.WorkingDirectory       = $RepoRoot
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError  = $true
+        $psi.UseShellExecute        = $false
+
+        $proc = [System.Diagnostics.Process]::new()
+        $proc.StartInfo = $psi
+        $proc.Start() | Out-Null
+
+        # Lecture asynchrone pour eviter le deadlock stdout/stderr.
+        $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+        $stderrTask = $proc.StandardError.ReadToEndAsync()
+        $proc.WaitForExit()
+        $pushStdout = $stdoutTask.GetAwaiter().GetResult()
+        $pushStderr = $stderrTask.GetAwaiter().GetResult()
+        $pushExit   = $proc.ExitCode
+
+        foreach ($line in ($pushStdout -split "`r?`n" | Where-Object { $_ -ne "" })) {
+            Write-Host "  $line"
+        }
+        foreach ($line in ($pushStderr -split "`r?`n" | Where-Object { $_ -ne "" })) {
+            Write-Host "  $line"
+        }
 
         if ($pushExit -ne 0) {
             Write-Host ""
-            Write-Host "ERREUR : git push a échoué (exit=$pushExit)." -ForegroundColor Red
+            Write-Host "ERREUR : git push a echoue (exit=$pushExit)." -ForegroundColor Red
             exit 1
         }
-        Write-Host ""
-        Write-Host "Push OK." -ForegroundColor Green
+
+        # Verification post-push : origin/main doit etre aligne sur HEAD (0 0).
+        $revCount = (& git rev-list --left-right --count origin/main...HEAD 2>&1).Trim()
+        if ($revCount -match '^0\s+0$') {
+            Write-Host ""
+            Write-Host "Push OK — origin/main aligne sur HEAD." -ForegroundColor Green
+        }
+        else {
+            Write-Host ""
+            Write-Host "Push exit=0 mais origin/main...HEAD = $revCount" -ForegroundColor Yellow
+            Write-Host "Verifiez manuellement." -ForegroundColor Yellow
+        }
     }
 
 }
