@@ -300,3 +300,51 @@ def test_no_artifact_type_skips_http_branch_entirely(monkeypatch):
 
     assert response["choices"][0]["message"]["content"] == "pas un visuel"
     assert calls == []
+
+
+# GAP A — HTTP 200 body vide
+def test_http_200_empty_body_falls_back_to_explicit_text(monkeypatch):
+    """HTTP 200 + empty body → empty_body reason counted as http_error → 'non récupérable depuis ComfyUI'."""
+    _install_fake_get(
+        monkeypatch,
+        lambda url, timeout: _FakeResponse(status_code=200, content=b""),
+    )
+
+    response = _run(
+        monkeypatch,
+        "assistant-core-image",
+        {
+            "output": "image faite",
+            "artifact_type": "image",
+            "artifact_view_url": "http://comfyui/view?filename=empty.png&subfolder=&type=output",
+        },
+    )
+
+    content = response["choices"][0]["message"]["content"]
+    assert isinstance(content, str)
+    assert "image faite" in content
+    assert "non récupérable depuis ComfyUI" in content
+
+
+# GAP D — URL sans ?filename=
+def test_view_url_without_filename_param_uses_generic_alt_text(monkeypatch):
+    """URL without ?filename= query param → alt text defaults to 'image'."""
+    _install_fake_get(
+        monkeypatch,
+        lambda url, timeout: _FakeResponse(content=_PNG_BYTES),
+    )
+
+    response = _run(
+        monkeypatch,
+        "assistant-core-image",
+        {
+            "output": "image faite",
+            "artifact_type": "image",
+            "artifact_view_url": "http://comfyui/view",
+        },
+    )
+
+    content = response["choices"][0]["message"]["content"]
+    assert isinstance(content, str)
+    assert "](data:image/png;base64," in content
+    assert "![image]" in content

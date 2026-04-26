@@ -238,3 +238,81 @@ def test_openai_compat_web_research_mode(monkeypatch):
 
     assert captured["mode"] == "web_research"
     assert response["choices"][0]["message"]["content"] == "WEB_OUTPUT"
+
+
+# GAP H — prof / archi / exam modes non testés explicitement
+def test_openai_compat_prof_mode(monkeypatch):
+    captured = {}
+
+    def fake_execute(message: str, has_image: bool = False, mode: str = "auto"):
+        captured["mode"] = mode
+        return {"output": "PROF_OUTPUT"}
+
+    monkeypatch.setattr("openai_compat.execute_request", fake_execute)
+
+    payload = ChatCompletionRequest(
+        model="assistant-core-prof",
+        messages=[ChatMessage(role="user", content="explique les transformers")],
+    )
+
+    response = chat_completions(payload)
+
+    assert captured["mode"] == "explain"
+    assert response["choices"][0]["message"]["content"] == "PROF_OUTPUT"
+
+
+def test_openai_compat_archi_mode(monkeypatch):
+    captured = {}
+
+    def fake_execute(message: str, has_image: bool = False, mode: str = "auto"):
+        captured["mode"] = mode
+        return {"output": "ARCHI_OUTPUT"}
+
+    monkeypatch.setattr("openai_compat.execute_request", fake_execute)
+
+    payload = ChatCompletionRequest(
+        model="assistant-core-archi",
+        messages=[ChatMessage(role="user", content="décris l'architecture MVC")],
+    )
+
+    response = chat_completions(payload)
+
+    assert captured["mode"] == "architecture"
+    assert response["choices"][0]["message"]["content"] == "ARCHI_OUTPUT"
+
+
+def test_openai_compat_exam_mode(monkeypatch):
+    captured = {}
+
+    def fake_execute(message: str, has_image: bool = False, mode: str = "auto"):
+        captured["mode"] = mode
+        return {"output": "EXAM_OUTPUT"}
+
+    monkeypatch.setattr("openai_compat.execute_request", fake_execute)
+
+    payload = ChatCompletionRequest(
+        model="assistant-core-exam",
+        messages=[ChatMessage(role="user", content="critique ce code python")],
+    )
+
+    response = chat_completions(payload)
+
+    assert captured["mode"] == "critique"
+    assert response["choices"][0]["message"]["content"] == "EXAM_OUTPUT"
+
+
+# GAP G — type input_text dans le contenu multimodal
+def test_extract_last_user_turn_supports_input_text_type():
+    turn = extract_last_user_turn(
+        [
+            ChatMessage(
+                role="user",
+                content=[
+                    {"type": "input_text", "text": "requête via input_text"},
+                ],
+            )
+        ]
+    )
+
+    assert turn.text == "requête via input_text"
+    assert turn.has_image is False

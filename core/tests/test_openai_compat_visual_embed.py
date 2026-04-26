@@ -163,3 +163,41 @@ def test_max_embed_images_is_respected(monkeypatch, tmp_path):
     content = response["choices"][0]["message"]["content"]
     assert isinstance(content, str)
     assert content.count("](data:image/png;base64,") == MAX_EMBED_IMAGES
+
+
+# GAP B — artifact_type == "image" sans chemin ni URL
+def test_image_artifact_with_no_paths_and_no_urls_returns_fallback_text(monkeypatch):
+    """artifact_type == 'image' with empty paths list and no view URLs → returns output text, no crash."""
+    response = _run(
+        monkeypatch,
+        "assistant-core-image",
+        {
+            "output": "image faite",
+            "artifact_type": "image",
+            "artifact_paths": [],
+        },
+    )
+    content = response["choices"][0]["message"]["content"]
+    assert isinstance(content, str)
+    assert content == "image faite"
+
+
+# GAP C — échecs mixtes (oversized + missing) → "non intégrable"
+def test_mixed_oversized_and_missing_falls_back_to_non_integrable(monkeypatch, tmp_path):
+    """1 oversized + 1 missing → both counters non-zero → generic 'non intégrable' message."""
+    big = _make_png(tmp_path / "big.png", padded_size=MAX_EMBED_BYTES_PER_IMAGE + 1024)
+    absent = tmp_path / "absent.png"  # intentionally never created
+
+    response = _run(
+        monkeypatch,
+        "assistant-core-image",
+        {
+            "output": "image faite",
+            "artifact_type": "image",
+            "artifact_paths": [str(big), str(absent)],
+        },
+    )
+    content = response["choices"][0]["message"]["content"]
+    assert isinstance(content, str)
+    assert "image faite" in content
+    assert "non intégrable" in content
