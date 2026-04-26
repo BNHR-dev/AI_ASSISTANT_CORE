@@ -1,3 +1,5 @@
+import datetime
+
 from app.clients.web_client import WebSearchClientError, prepare_search_query, search_web
 from app.engine.executor import execute_request
 from app.engine.prompt_builder import build_web_synthesis_prompt
@@ -212,25 +214,28 @@ def test_search_web_marks_single_generic_topic_page_as_generic(monkeypatch):
 
 def test_latest_news_pipeline_keeps_only_recent_news_articles_for_prompt(monkeypatch):
     captured = {}
+    _today = datetime.date.today()
+    _d5 = (_today - datetime.timedelta(days=5)).isoformat()
+    _d7 = (_today - datetime.timedelta(days=7)).isoformat()
 
     monkeypatch.setattr(
         "app.engine.step_executor.search_web",
         lambda query: [
             {
-                "title": "AWS Summit Paris 2026-04-01 : annonces IA",
-                "url": "https://example.com/actualites/aws-summit-paris-2026-04-01-annonces-ia.html",
-                "content": "Article daté 2026-04-01 sur les annonces IA.",
+                "title": "AWS Summit Paris : annonces IA",
+                "url": "https://example.com/actualites/aws-summit-paris-annonces-ia.html",
+                "content": "Article récent sur les annonces IA.",
                 "source": "example.com",
-                "published_at": "2026-04-01",
+                "published_at": _d5,
                 "kind": "article",
                 "news_like": True,
             },
             {
-                "title": "Meta améliore le raisonnement LLM 2026-04-03",
-                "url": "https://example.org/ia/meta-ameliore-le-raisonnement-llm-2026-04-03.html",
-                "content": "Article daté 2026-04-03 sur Meta.",
+                "title": "Meta améliore le raisonnement LLM",
+                "url": "https://example.org/ia/meta-ameliore-le-raisonnement-llm.html",
+                "content": "Article récent sur Meta.",
                 "source": "example.org",
-                "published_at": "2026-04-03",
+                "published_at": _d7,
                 "kind": "article",
                 "news_like": True,
             },
@@ -399,25 +404,28 @@ def test_search_web_latest_broad_query_uses_fallback_variants(monkeypatch):
 
 def test_latest_news_pipeline_allows_30d_fallback_scope(monkeypatch):
     captured = {}
+    _today = datetime.date.today()
+    _d25 = (_today - datetime.timedelta(days=25)).isoformat()
+    _d27 = (_today - datetime.timedelta(days=27)).isoformat()
 
     monkeypatch.setattr(
         "app.engine.step_executor.search_web",
         lambda query: [
             {
-                "title": "OpenAI annonce une mise à jour 2026-03-22",
-                "url": "https://example.com/openai-update-2026-03-22",
-                "content": "Article de news encore pertinent.",
+                "title": "OpenAI annonce une mise à jour",
+                "url": "https://example.com/openai-update",
+                "content": "Article de news encore dans la fenêtre fallback.",
                 "source": "example.com",
-                "published_at": "2026-03-22",
+                "published_at": _d25,
                 "kind": "article",
                 "news_like": True,
             },
             {
-                "title": "Anthropic publie une annonce 2026-03-24",
-                "url": "https://example.org/anthropic-update-2026-03-24",
-                "content": "Deuxième article de news récent.",
+                "title": "Anthropic publie une annonce",
+                "url": "https://example.org/anthropic-update",
+                "content": "Deuxième article dans la fenêtre fallback.",
                 "source": "example.org",
-                "published_at": "2026-03-24",
+                "published_at": _d27,
                 "kind": "article",
                 "news_like": True,
             },

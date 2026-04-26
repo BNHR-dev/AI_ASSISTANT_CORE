@@ -1,3 +1,5 @@
+import pytest
+
 from app.engine.executor import _build_forced_mode_decision
 
 
@@ -43,3 +45,65 @@ def test_forced_build_mode_stays_single_step_without_extra_rule():
     assert decision["second_call"] is None
     assert decision["matched_rule"] is None
     assert decision["selected_tool"] is None
+
+
+# GAP B — modes forcés manquants
+
+
+def test_forced_vision_mode_task_type_and_classifier_reason():
+    decision = _build_forced_mode_decision(
+        "décris ce que tu vois dans cette image",
+        "vision",
+    )
+
+    assert decision["task_type"] == "vision"
+    assert decision["classifier_reason"] == "Mode forcé: vision"
+    assert decision["decision_path"][:2] == [
+        "forced_mode → vision",
+        "forced_task → vision",
+    ]
+
+
+def test_forced_image_generation_mode_forces_comfyui_tool():
+    decision = _build_forced_mode_decision(
+        "génère une image cyberpunk",
+        "image_generation",
+    )
+
+    assert decision["task_type"] == "image_generation"
+    assert decision["selected_tool"] == "comfyui"
+    assert decision["classifier_reason"] == "Mode forcé: image_generation"
+    assert "forced_tool → comfyui" in decision["decision_trace"]
+
+
+def test_forced_web_research_mode_enables_web():
+    decision = _build_forced_mode_decision(
+        "cherche les dernières news sur l'IA",
+        "web_research",
+    )
+
+    assert decision["task_type"] == "web_research"
+    assert decision["needs_web"] is True
+    assert decision["classifier_reason"] == "Mode forcé: web_research"
+
+
+def test_forced_critique_mode_task_type_and_classifier_reason():
+    decision = _build_forced_mode_decision(
+        "critique ce code python",
+        "critique",
+    )
+
+    assert decision["task_type"] == "critique"
+    assert decision["classifier_reason"] == "Mode forcé: critique"
+    assert decision["decision_path"][:2] == [
+        "forced_mode → critique",
+        "forced_task → critique",
+    ]
+
+
+# GAP F — mode inconnu
+
+
+def test_forced_unknown_mode_raises_value_error():
+    with pytest.raises(ValueError):
+        _build_forced_mode_decision("peu importe", "unknown_mode")
