@@ -175,10 +175,16 @@ Le pipeline visuel remonte maintenant :
 - `POST /execute`
 
 ### OpenAI-compatible
-- `GET /v1/models`
-- `POST /v1/chat/completions`
+- `GET /v1/models` — 8 model cards statiques (`MODEL_TO_MODE`) ; model ID inconnu → fallback `auto`
+- `POST /v1/chat/completions` — `choices[0].message.content` est **toujours une string** (Phase 5)
 
-Cette couche sert d’interface avec OpenWebUI sans couplage spécifique à l’outil.
+La couche sert d’interface avec OpenWebUI sans couplage spécifique à l’outil.
+
+Pour les résultats `artifact_type == "image"`, le content est un markdown data-URI lorsque l’image est récupérable et son `Content-Type` est `image/*` :
+- **branche HTTP** (`artifact_view_url(s)`) : téléchargement depuis ComfyUI `/view` → `![filename](data:<mime>;base64,...)`
+- **branche locale** (`artifact_path(s)`) : lecture filesystem → même embed
+- `Content-Type` non-image → rejeté, fallback texte "non récupérable depuis ComfyUI"
+- `MAX_EMBED_IMAGES = 4` — `MAX_EMBED_BYTES_PER_IMAGE = 4 MiB` — `COMFYUI_VIEW_TIMEOUT` env var (défaut 15s)
 
 ## Canonique vs legacy
 
@@ -200,7 +206,6 @@ Ces fichiers ne doivent pas redevenir des sources métier.
 ## Gaps structurels encore réels
 
 - `portproxy` Ollama **canonique à court terme** mais **transitoire dans sa forme** (formulation unique partagée avec `README.md` et `docs/RUNBOOK_POST_VM.md`)
-- pas encore de mode public dédié au visuel dans `/v1/models`
 - dette legacy encore présente même si contenue
 - OpenWebUI acté comme UI opérateur optionnelle côté host, non canonique et non requise pour le fonctionnement du cœur du produit
 

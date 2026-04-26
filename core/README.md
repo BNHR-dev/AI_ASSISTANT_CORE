@@ -109,8 +109,28 @@ Endpoints FastAPI canoniques :
 - `POST /execute`
 
 Couche OpenAI-compatible :
-- `GET /v1/models`
-- `POST /v1/chat/completions`
+- `GET /v1/models` — 8 model cards statiques ; model ID inconnu → fallback silencieux `auto`
+- `POST /v1/chat/completions` — `choices[0].message.content` est **toujours une string**
+
+Model IDs disponibles :
+
+| Model ID | Mode |
+|---|---|
+| `assistant-core-auto` | `auto` |
+| `assistant-core-prof` | `explain` |
+| `assistant-core-builder` | `build` |
+| `assistant-core-archi` | `architecture` |
+| `assistant-core-exam` | `critique` |
+| `assistant-core-vision` | `vision` |
+| `assistant-core-image` | `image_generation` |
+| `assistant-core-web` | `web_research` |
+
+Pour `image_generation`, les artefacts image sont intégrés dans `content` sous forme de markdown data-URI lorsque l'image est récupérable et que son `Content-Type` est `image/*` :
+- **Branche HTTP** (canonique VM) : `artifact_view_url(s)` → ComfyUI `/view` → `![filename](data:<mime>;base64,...)`
+- **Branche locale** (fallback host-only) : `artifact_path(s)` → lecture filesystem → même embed
+- `MAX_EMBED_IMAGES = 4` — `MAX_EMBED_BYTES_PER_IMAGE = 4 MiB`
+- `COMFYUI_VIEW_TIMEOUT` configurable via env var (défaut 15s)
+- `Content-Type` non-image depuis `/view` → rejeté, fallback texte
 
 ## Gaps encore réels
 
@@ -120,7 +140,6 @@ Gaps visibles à garder en tête :
 - le `portproxy` Ollama est **canonique à court terme** mais **transitoire dans sa forme** (formulation unique partagée avec `docs/ARCHITECTURE.md` et `docs/RUNBOOK_POST_VM.md`)
 - le chemin direct VM → `192.168.77.1:12000` ne doit plus être documenté comme chemin runtime validé
 - OpenWebUI acté comme UI opérateur optionnelle côté host, non canonique et non requise pour le fonctionnement du cœur du produit
-- il n’existe pas encore de mode public dédié à `image_generation` ou `vision` côté `/v1/models`
 - la surface `/debug/canonical` doit continuer à refléter correctement la frontière entre modules actifs, auxiliaires, optionnels et legacy
 - les fichiers racine legacy existent encore et doivent rester de simples shims de compatibilité
 
