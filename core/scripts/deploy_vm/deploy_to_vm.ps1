@@ -307,7 +307,15 @@ if ($probeText -notmatch "SHA256_OK") {
     Fail-Preflight "Réponse VM inattendue (ni SHA256_OK ni SHA256_MISSING). Sortie : $probeText"
 }
 
-Write-Host "  [OK] SSH $VmTarget joignable, sha256sum présent côté VM"
+if ($probeText -match "TAR_MISSING") {
+    Fail-Preflight "tar absent côté VM. Nécessaire pour le snapshot pré-push. Installer : sudo apt install tar"
+}
+
+if ($probeText -notmatch "TAR_OK") {
+    Fail-Preflight "Réponse VM inattendue (ni TAR_OK ni TAR_MISSING). Sortie : $probeText"
+}
+
+Write-Host "  [OK] SSH $VmTarget joignable, sha256sum et tar présents côté VM"
 Write-Host "Pré-flight OK."
 Write-Host "----------------------------------------------------------"
 
@@ -461,7 +469,9 @@ foreach ($absPath in $ResolvedFiles) {
 
 $ManifestHostPath = [System.IO.Path]::GetTempFileName()
 try {
-    $ManifestLines | Set-Content -LiteralPath $ManifestHostPath -Encoding UTF8
+    $utf8NoBom       = [System.Text.UTF8Encoding]::new($false)
+    $manifestContent = ($ManifestLines -join "`n") + "`n"
+    [System.IO.File]::WriteAllText($ManifestHostPath, $manifestContent, $utf8NoBom)
     Write-Host "  [OK] Manifest : $($ManifestLines.Count) entrée(s)"
 }
 catch {
@@ -538,7 +548,7 @@ if (-not $Apply) {
     }
     Write-Host "  [VM] mkdir -p : $($DirsPreview.Count) répertoire(s)"
     Write-Host "  [SCP] $($ResolvedFiles.Count) fichier(s) → $VmTarget`:$VmRoot"
-    Write-Host "  [SCP] verify_manifest.sh → $VmTarget`:$VerifyScriptVmPath"
+    Write-Host "  [SCP] verify_manifest.sh (LF normalisé) → $VmTarget`:$VerifyScriptVmPath"
     Write-Host "  [SCP] manifest → $VmTarget`:$ManifestVmPath"
     Write-Host "  [VM] bash $VerifyScriptVmPath $ManifestVmPath $VmRoot"
     Write-Host ""
@@ -595,10 +605,26 @@ try {
     Write-Host "  [OK] Fichiers copiés"
 
     # -- 4.4 SCP de verify_manifest.sh (cas spécial hors whitelist) ----------
-    Write-Host "  [4.4] Copie de verify_manifest.sh..."
-    Invoke-ScpCmd -Source $VerifyScriptPath -Destination "$VmTarget`:$VerifyScriptVmPath" -ThrowOnError | Out-Null
+    # La working tree Windows peut contenir du CRLF (git core.autocrlf=true).
+    # Bash cote VM rejette les CRLF avec "$'\r': command not found".
+    # On normalise LF avant SCP via une copie temp locale sans BOM.
+    Write-Host "  [4.4] Copie de verify_manifest.sh (normalisation LF)..."
+    $VerifyScriptTempPath = $null
+    try {
+        $verifyRaw = [System.IO.File]::ReadAllText($VerifyScriptPath)
+        $verifyLF  = $verifyRaw -replace "`r`n", "`n" -replace "`r", "`n"
+        $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+        $VerifyScriptTempPath = [System.IO.Path]::GetTempFileName()
+        [System.IO.File]::WriteAllText($VerifyScriptTempPath, $verifyLF, $utf8NoBom)
+        Invoke-ScpCmd -Source $VerifyScriptTempPath -Destination "$VmTarget`:$VerifyScriptVmPath" -ThrowOnError | Out-Null
+    }
+    finally {
+        if ($null -ne $VerifyScriptTempPath -and (Test-Path -LiteralPath $VerifyScriptTempPath)) {
+            Remove-Item -LiteralPath $VerifyScriptTempPath -ErrorAction SilentlyContinue
+        }
+    }
     Invoke-SshCmd -Command "chmod +x $VerifyScriptVmPath" -ThrowOnError | Out-Null
-    Write-Host "  [OK] verify_manifest.sh poussé et rendu exécutable"
+    Write-Host "  [OK] verify_manifest.sh normalise LF, pousse et rendu executable"
 
     # -- 4.5 SCP du manifest -------------------------------------------------
     Write-Host "  [4.5] Copie du manifest SHA-256..."
@@ -649,8 +675,8 @@ if ($PushSuccess) {
     Write-Host "  Snapshot : $VmSnapshotsDir/$RunStamp.tar.gz"
     Write-Host ""
     Write-Host "  Prochaines étapes manuelles si nécessaire :"
-    Write-Host "    ssh $VmTarget sudo systemctl restart aicore-backend"
-    Write-Host "    ssh $VmTarget curl -s http://127.0.0.1:8000/health"
+    Write-Host "    ssh -t $VmTarget `"sudo systemctl restart aicore-backend`""
+    Write-Host "    ssh $VmTarget curl -s http://$($VmTarget.Split('@')[1]):8000/health"
 }
 else {
     Write-Host "  ECHEC" -ForegroundColor Red

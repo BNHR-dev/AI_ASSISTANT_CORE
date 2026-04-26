@@ -24,7 +24,7 @@ Les autres documents (`docs/README.md` s'il existe, `docs/ARCHITECTURE.md`, raci
 
 | Composant              | Localisation | Bind / URL                      | Rôle                                      |
 |------------------------|--------------|---------------------------------|-------------------------------------------|
-| backend AI_ASSISTANT_CORE | VM        | `127.0.0.1:8000`                | API FastAPI canonique + `/v1/*`           |
+| backend AI_ASSISTANT_CORE | VM        | `192.168.77.10:8000` (override-bind.conf) | API FastAPI canonique + `/v1/*`  |
 | SearXNG                | VM           | `127.0.0.1:8081`                | recherche web utilisée par le pipeline    |
 | Ollama                 | Host Windows | `192.168.77.1:12001` (vu VM)    | LLM local                                 |
 | ComfyUI                | Host Windows | `192.168.77.1:8188` (vu VM)     | génération visuelle                       |
@@ -38,8 +38,8 @@ Les autres documents (`docs/README.md` s'il existe, `docs/ARCHITECTURE.md`, raci
 ```bash
 sudo systemctl status aicore-backend --no-pager
 docker ps --filter name=searxng
-curl -s http://127.0.0.1:8000/health
-curl -s http://127.0.0.1:8000/health/runtime
+curl -s http://192.168.77.10:8000/health
+curl -s http://192.168.77.10:8000/health/runtime
 ```
 
 ## Relance dans la VM
@@ -76,8 +76,8 @@ Après reboot de la VM :
 sudo systemctl status aicore-backend --no-pager
 docker ps --filter name=searxng
 docker ps --filter name=searxng
-curl -s http://127.0.0.1:8000/health
-curl -s http://127.0.0.1:8000/health/runtime
+curl -s http://192.168.77.10:8000/health
+curl -s http://192.168.77.10:8000/health/runtime
 ```
 
 ## Ce qui est canonique
