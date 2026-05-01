@@ -1,6 +1,6 @@
 import datetime
 
-from app.clients.web_client import WebSearchClientError, prepare_search_query, search_web
+from app.clients.web_client import WebSearchClientError, _looks_like_news_result, prepare_search_query, search_web
 from app.engine.executor import execute_request
 from app.engine.prompt_builder import build_web_synthesis_prompt
 
@@ -445,3 +445,17 @@ def test_latest_news_pipeline_allows_30d_fallback_scope(monkeypatch):
     assert search_meta["scope"] == "broad_fallback_30d"
     assert search_meta["selected_results_count"] == 2
     assert "fallback élargi" in captured["prompt"].lower()
+
+
+def test_social_networks_not_news_like():
+    social_urls = [
+        ("https://www.facebook.com/LaGeneraleNordEst/posts/1234", "Un titre quelconque"),
+        ("https://m.facebook.com/events/1234", "Événement Facebook"),
+        ("https://www.instagram.com/p/abc123/", "Photo Instagram"),
+        ("https://twitter.com/user/status/1234", "Tweet"),
+        ("https://x.com/user/status/1234", "Post X"),
+        ("https://www.tiktok.com/@user/video/1234", "Vidéo TikTok"),
+        ("https://www.linkedin.com/posts/user-1234", "Post LinkedIn"),
+    ]
+    for url, title in social_urls:
+        assert not _looks_like_news_result(url, title, ""), f"Expected not news_like: {url}"

@@ -131,6 +131,12 @@ NON_NEWS_HOST_MARKERS = (
     "medium.com",
     "blogspot.",
     "substack.com",
+    "instagram.com",
+    "twitter.com",
+    "x.com",
+    "facebook.com",
+    "tiktok.com",
+    "linkedin.com",
 )
 
 QUERY_FR_MARKERS = (
@@ -224,7 +230,7 @@ def _looks_like_french_query(query: str) -> bool:
 
 
 def _safe_text(value: object, max_len: int) -> str:
-    text = str(value or "").strip()
+    text = str(value if value is not None else "").strip()
     return text[:max_len]
 
 
@@ -274,6 +280,8 @@ def _parse_datetime(value: str | None) -> datetime | None:
         return None
 
     candidates = [text]
+    if "T" not in text and " " in text:
+        candidates.append(text.replace(" ", "T", 1))
     if text.endswith("Z"):
         candidates.append(text[:-1] + "+00:00")
 

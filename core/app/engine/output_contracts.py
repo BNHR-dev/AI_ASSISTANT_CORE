@@ -44,6 +44,8 @@ OUTPUT_CONTRACTS: dict[str, dict[str, Any]] = {
             "Le code doit être cohérent, copiable-collable et sans TODO, pseudo-code ou trous.",
             "Indique explicitement les hypothèses minimales si certaines entrées ne sont pas précisées.",
             "Ajoute des tests ou vérifications rapides minimales.",
+            "Si la demande mentionne une technologie, une méthode ou un algorithme précis, implémente-le réellement. Si une alternative est proposée, annonce-la explicitement comme alternative.",
+            "Les assertions de test doivent être sémantiquement valides ; ne pas affirmer une valeur exacte quand elle dépend du modèle, de l'entrée ou d'une approximation.",
         ],
     },
     "quiz": {
@@ -66,6 +68,7 @@ OUTPUT_CONTRACTS: dict[str, dict[str, Any]] = {
         "rules": [
             "Ne cite que les sources réellement fournies.",
             "Les points clés doivent venir des résultats retenus, pas d'une connaissance inventée.",
+            "Les points clés doivent être concrets : dates, noms de produits, annonces, chiffres, changements techniques ou éléments vérifiables extraits des sources.",
         ],
     },
     "vision": {
