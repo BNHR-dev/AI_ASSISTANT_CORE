@@ -9,7 +9,7 @@
       - denylist de garde (.env, secrets, settings, data, outputs, etc.)
       - manifest SHA-256 généré côté host, vérifié côté VM
       - snapshot tar.gz pré-push obligatoire dans la VM
-      - aucun restart automatique (backend ou SearXNG)
+      - restart aicore-backend NON automatique (sudo interactif requis côté VM — voir ACTION REQUISE en fin de script)
       - dry-run par défaut
 
     Voir RUNBOOK_POST_VM.md, section "Synchro host -> VM".
@@ -674,9 +674,15 @@ if ($PushSuccess) {
     Write-Host "  $($ResolvedFiles.Count) fichier(s) synchronisés vers $VmTarget`:$VmRoot"
     Write-Host "  Snapshot : $VmSnapshotsDir/$RunStamp.tar.gz"
     Write-Host ""
-    Write-Host "  Prochaines étapes manuelles si nécessaire :"
-    Write-Host "    ssh -t $VmTarget `"sudo systemctl restart aicore-backend`""
-    Write-Host "    ssh $VmTarget curl -s http://$($VmTarget.Split('@')[1]):8000/health"
+    Write-Host ""
+    Write-Host "  ----------------------------------------------------------" -ForegroundColor Yellow
+    Write-Host "  [ACTION REQUISE] Restart backend non automatique (sudo interactif)." -ForegroundColor Yellow
+    Write-Host "  Exécute dans un terminal :" -ForegroundColor Yellow
+    Write-Host "    ssh -t $VmTarget 'sudo systemctl restart aicore-backend'" -ForegroundColor Cyan
+    Write-Host "  Puis vérifie :" -ForegroundColor Yellow
+    Write-Host "    ssh $VmTarget 'systemctl is-active aicore-backend'" -ForegroundColor Cyan
+    Write-Host "    curl -s http://$($VmTarget.Split('@')[1]):8000/health" -ForegroundColor Cyan
+    Write-Host "  ----------------------------------------------------------" -ForegroundColor Yellow
 }
 else {
     Write-Host "  ECHEC" -ForegroundColor Red
