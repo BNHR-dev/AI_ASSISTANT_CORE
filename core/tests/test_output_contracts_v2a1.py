@@ -38,3 +38,13 @@ def test_build_contract_forbids_tfidf_as_silent_embedding_substitute():
     assert "tfidfvectorizer" in rules_text or "countvectorizer" in rules_text
     assert "silencieusement" in rules_text or "alternative" in rules_text
     assert "vectorizer" in rules_text or "approximation" in rules_text
+
+
+def test_build_contract_has_blender_bpy_rule():
+    contract = get_output_contract("build")
+    rules_text = " ".join(contract["rules"]).lower()
+
+    assert "blender" in rules_text or "bpy" in rules_text
+    assert "import bpy" in rules_text
+    assert "bpy.ops" in rules_text or "bpy.data" in rules_text
+    assert "bpy.ops.render.render" in rules_text
