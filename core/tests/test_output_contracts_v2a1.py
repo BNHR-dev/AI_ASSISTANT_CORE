@@ -28,3 +28,13 @@ def test_build_contract_adds_copy_pasteable_guardrails():
 
     assert any("copiable-collable" in rule.lower() for rule in contract["rules"])
     assert any("hypothèses" in rule.lower() for rule in contract["rules"])
+
+
+def test_build_contract_forbids_tfidf_as_silent_embedding_substitute():
+    contract = get_output_contract("build")
+    rules_text = " ".join(contract["rules"]).lower()
+
+    assert "embeddings" in rules_text or "vecteurs numériques" in rules_text
+    assert "tfidfvectorizer" in rules_text or "countvectorizer" in rules_text
+    assert "silencieusement" in rules_text or "alternative" in rules_text
+    assert "vectorizer" in rules_text or "approximation" in rules_text

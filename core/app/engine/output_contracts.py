@@ -45,7 +45,8 @@ OUTPUT_CONTRACTS: dict[str, dict[str, Any]] = {
             "Indique explicitement les hypothèses minimales si certaines entrées ne sont pas précisées.",
             "Ajoute des tests ou vérifications rapides minimales.",
             "Si la demande mentionne une technologie, une méthode ou un algorithme précis, implémente-le réellement. Si une alternative est proposée, annonce-la explicitement comme alternative.",
-            "Les assertions de test doivent être sémantiquement valides ; ne pas affirmer une valeur exacte quand elle dépend du modèle, de l'entrée ou d'une approximation.",
+            "Si la demande porte sur des embeddings ou des vecteurs numériques, utilise des vecteurs numériques explicites (tableaux, listes ou numpy arrays). Ne substitue pas silencieusement TfidfVectorizer ou CountVectorizer aux embeddings sans l'annoncer explicitement comme alternative.",
+            "Les assertions de test doivent être sémantiquement valides ; ne pas affirmer une valeur exacte quand elle dépend du modèle, de l'entrée, d'un vectorizer ou d'une approximation.",
         ],
     },
     "quiz": {
