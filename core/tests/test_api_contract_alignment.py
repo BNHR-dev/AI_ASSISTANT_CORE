@@ -1,3 +1,5 @@
+from app.engine.output_contracts import OUTPUT_CONTRACTS
+from app.engine.task_routing import TASK_ROUTING
 from app.main import execute, route_request
 from app.schemas import ExecuteRequest, RouteRequest
 
@@ -163,3 +165,8 @@ def test_execute_response_exposes_runtime_observability_fields(monkeypatch):
     assert response.finished_at == "2026-04-06T10:00:01+00:00"
     assert response.duration_ms == 1000
     assert response.step_results[0].duration_ms == 1000
+
+
+def test_all_routed_task_types_have_explicit_output_contract():
+    for task_type in TASK_ROUTING:
+        assert task_type in OUTPUT_CONTRACTS, f"Missing contract for '{task_type}'"
