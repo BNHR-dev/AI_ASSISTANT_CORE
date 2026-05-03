@@ -283,15 +283,17 @@ def test_latest_news_pipeline_keeps_only_recent_news_articles_for_prompt(monkeyp
 
 
 def test_latest_news_pipeline_refuses_single_recent_news_article(monkeypatch):
+    _today = datetime.date.today()
+    _d10 = (_today - datetime.timedelta(days=10)).isoformat()
     monkeypatch.setattr(
         "app.engine.step_executor.search_web",
         lambda query: [
             {
-                "title": "AWS Summit Paris 2026-04-01 : annonces IA",
-                "url": "https://example.com/actualites/aws-summit-paris-2026-04-01-annonces-ia.html",
-                "content": "Article daté 2026-04-01 sur les annonces IA.",
+                "title": "AWS Summit Paris : annonces IA",
+                "url": "https://example.com/actualites/aws-summit-paris-annonces-ia.html",
+                "content": "Article récent sur les annonces IA.",
                 "source": "example.com",
-                "published_at": "2026-04-01",
+                "published_at": _d10,
                 "kind": "article",
                 "news_like": True,
             },
