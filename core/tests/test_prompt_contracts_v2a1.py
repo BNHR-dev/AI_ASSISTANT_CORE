@@ -105,3 +105,25 @@ def test_second_call_build_prompt_forbids_intro():
     )
 
     assert "produis directement le livrable" in prompt.lower()
+
+
+def test_web_synthesis_prompt_forbids_meta_reproduction():
+    prompt = build_web_synthesis_prompt(
+        agent="AGENT_PROF_IA",
+        output_format="synthèse + sources utiles + résumé clair",
+        user_question="cherche les dernières news IA",
+        results=[
+            {
+                "title": "Titre",
+                "url": "https://example.com/a",
+                "content": "Contenu",
+                "source": "example.com",
+                "published_at": "2026-04-05",
+                "kind": "article",
+                "news_like": True,
+            }
+        ],
+    )
+
+    assert "résumé technique" in prompt.lower()
+    assert "contexte interne" in prompt.lower()

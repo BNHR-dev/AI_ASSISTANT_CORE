@@ -48,3 +48,19 @@ def test_build_contract_has_blender_bpy_rule():
     assert "import bpy" in rules_text
     assert "bpy.ops" in rules_text or "bpy.data" in rules_text
     assert "bpy.ops.render.render" in rules_text
+
+
+def test_web_research_contract_requires_source_domain_and_date():
+    contract = get_output_contract("web_research")
+    rules_text = " ".join(contract["rules"]).lower()
+
+    assert "domaine" in rules_text or "url courte" in rules_text
+    assert "date de publication" in rules_text
+
+
+def test_web_research_contract_has_insufficiency_fallback_rule():
+    contract = get_output_contract("web_research")
+    rules_text = " ".join(contract["rules"]).lower()
+
+    assert "insuffisants" in rules_text or "insuffisant" in rules_text
+    assert "explicitement" in rules_text

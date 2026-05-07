@@ -74,6 +74,8 @@ OUTPUT_CONTRACTS: dict[str, dict[str, Any]] = {
             "Ne cite que les sources réellement fournies.",
             "Les points clés doivent venir des résultats retenus, pas d'une connaissance inventée.",
             "Les points clés doivent être concrets : dates, noms de produits, annonces, chiffres, changements techniques ou éléments vérifiables extraits des sources.",
+            "Dans la section 'Sources retenues', chaque entrée doit mentionner au minimum le domaine (ou l'URL courte) et la date de publication si disponible.",
+            "Si les résultats fournis sont insuffisants, peu fiables ou ne permettent pas de répondre à la question, indique-le explicitement plutôt que de produire une synthèse vague.",
         ],
     },
     "vision": {

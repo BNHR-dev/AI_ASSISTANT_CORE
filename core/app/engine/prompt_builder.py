@@ -43,6 +43,7 @@ PROMPT_LABELS = {
         "only_given_sources": "N'ajoute pas de source non présente dans le contexte.",
         "cite_only_real_links": "Cite uniquement les liens réellement fournis.",
         "be_concise": "Va à l'essentiel.",
+        "web_no_reproduce_meta": "Ne reproduis pas le résumé technique des résultats dans ta réponse ; il est fourni uniquement pour ton contexte interne.",
         "latest_recent_news_1": "La question porte sur des actualités récentes.",
         "latest_recent_news_2": "Date du jour : {today}.",
         "latest_recent_news_3": "N'utilise pas une page générique, une rubrique, une homepage ou un contenu evergreen comme preuve d'un fait d'actualité.",
@@ -105,6 +106,7 @@ PROMPT_LABELS = {
         "only_given_sources": "Do not add sources that are not in the context.",
         "cite_only_real_links": "Cite only the links that were actually provided.",
         "be_concise": "Be concise.",
+        "web_no_reproduce_meta": "Do not reproduce the technical result summary in your response; it is provided for your internal context only.",
         "latest_recent_news_1": "The request is about recent news.",
         "latest_recent_news_2": "Today's date: {today}.",
         "latest_recent_news_3": "Do not use a generic page, section page, homepage, or evergreen content as evidence of a current news fact.",
@@ -343,6 +345,7 @@ def build_web_synthesis_prompt(
 - {labels["only_given_sources"]}
 - {labels["cite_only_real_links"]}
 - {labels["be_concise"]}
+- {labels["web_no_reproduce_meta"]}
 {recency_block}
 
 {output_contract}
