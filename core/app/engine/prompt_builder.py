@@ -29,6 +29,7 @@ PROMPT_LABELS = {
         "build_state_assumptions": "Si une hypothèse est nécessaire, écris-la explicitement puis continue avec la version minimale raisonnable.",
         "build_small_dependencies": "Évite les dépendances inutiles ; préfère la bibliothèque standard sauf demande contraire.",
         "build_edge_cases": "Prévois un minimum de validation d'entrée, d'erreur simple ou de garde-fous utiles.",
+        "build_no_intro": "Ne commence pas par une introduction, une reformulation de la demande ou un commentaire sur ta propre réponse. Produis directement le livrable.",
         "architecture_priority": "Priorité à la décision pragmatique.",
         "architecture_avoid_academic": "Évite le blabla académique et la sur-ingénierie.",
         "secondary_step_pipeline": "Tu es dans l'étape 2 d'un pipeline multi-step.",
@@ -90,6 +91,7 @@ PROMPT_LABELS = {
         "build_state_assumptions": "If an assumption is required, state it explicitly and continue with the smallest reasonable version.",
         "build_small_dependencies": "Avoid unnecessary dependencies; prefer the standard library unless the user asked otherwise.",
         "build_edge_cases": "Include minimal input validation, simple error handling, or useful guardrails.",
+        "build_no_intro": "Do not start with an introduction, a restatement of the request, or a comment about your own response. Produce the deliverable directly.",
         "architecture_priority": "Prioritize pragmatic decision-making.",
         "architecture_avoid_academic": "Avoid academic filler and over-engineering.",
         "secondary_step_pipeline": "You are in step 2 of a multi-step pipeline.",
@@ -162,6 +164,7 @@ def build_primary_prompt(
                 labels["build_state_assumptions"],
                 labels["build_small_dependencies"],
                 labels["build_edge_cases"],
+                labels["build_no_intro"],
             ]
         )
 
@@ -229,6 +232,7 @@ def build_second_call_prompt(
                 labels["build_reuse_handoff"],
                 labels["build_keep_decisions"],
                 labels["avoid_repeating_theory"],
+                labels["build_no_intro"],
             ]
         )
 

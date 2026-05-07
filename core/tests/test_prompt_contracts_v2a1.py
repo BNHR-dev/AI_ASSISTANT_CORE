@@ -71,6 +71,17 @@ def test_primary_build_prompt_adds_quality_guardrails():
     assert "bibliothèque standard".lower() in prompt.lower()
 
 
+def test_primary_build_prompt_forbids_intro():
+    prompt = build_primary_prompt(
+        agent="AGENT_BUILDER_IA",
+        output_format="module python + structure + instructions de test + usage",
+        message="écris un parseur csv minimal",
+        task_type="build",
+    )
+
+    assert "produis directement le livrable" in prompt.lower()
+
+
 def test_second_call_prompt_reuses_handoff_constraints_for_build():
     prompt = build_second_call_prompt(
         agent="AGENT_BUILDER_IA",
@@ -82,3 +93,15 @@ def test_second_call_prompt_reuses_handoff_constraints_for_build():
 
     assert "réutilise explicitement".lower() in prompt.lower()
     assert "ne repars pas de zéro".lower() in prompt.lower()
+
+
+def test_second_call_build_prompt_forbids_intro():
+    prompt = build_second_call_prompt(
+        agent="AGENT_BUILDER_IA",
+        output_format="module python + structure + instructions de test + usage",
+        user_question="explique puis code un parseur csv",
+        primary_output="Utilise csv.DictReader et gère les lignes vides.",
+        requested_task_type="build",
+    )
+
+    assert "produis directement le livrable" in prompt.lower()
