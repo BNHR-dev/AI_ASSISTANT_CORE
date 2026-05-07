@@ -30,6 +30,7 @@ PROMPT_LABELS = {
         "build_small_dependencies": "Évite les dépendances inutiles ; préfère la bibliothèque standard sauf demande contraire.",
         "build_edge_cases": "Prévois un minimum de validation d'entrée, d'erreur simple ou de garde-fous utiles.",
         "build_no_intro": "Ne commence pas par une introduction, une reformulation de la demande ou un commentaire sur ta propre réponse. Produis directement le livrable.",
+        "vision_anchor_on_image": "Appuie-toi uniquement sur ce qui est visible dans l'image fournie. Si tu n'as pas accès à l'image ou qu'elle est illisible, indique-le sans décrire un sujet générique.",
         "architecture_priority": "Priorité à la décision pragmatique.",
         "architecture_avoid_academic": "Évite le blabla académique et la sur-ingénierie.",
         "secondary_step_pipeline": "Tu es dans l'étape 2 d'un pipeline multi-step.",
@@ -93,6 +94,7 @@ PROMPT_LABELS = {
         "build_small_dependencies": "Avoid unnecessary dependencies; prefer the standard library unless the user asked otherwise.",
         "build_edge_cases": "Include minimal input validation, simple error handling, or useful guardrails.",
         "build_no_intro": "Do not start with an introduction, a restatement of the request, or a comment about your own response. Produce the deliverable directly.",
+        "vision_anchor_on_image": "Base your answer solely on what is visible in the provided image. If you have no access to the image or it is unreadable, say so instead of describing a generic subject.",
         "architecture_priority": "Prioritize pragmatic decision-making.",
         "architecture_avoid_academic": "Avoid academic filler and over-engineering.",
         "secondary_step_pipeline": "You are in step 2 of a multi-step pipeline.",
@@ -177,6 +179,9 @@ def build_primary_prompt(
                 labels["architecture_avoid_academic"],
             ]
         )
+
+    if task_type == "vision":
+        stage_constraints.append(labels["vision_anchor_on_image"])
 
     if suppress_code:
         stage_constraints.extend(

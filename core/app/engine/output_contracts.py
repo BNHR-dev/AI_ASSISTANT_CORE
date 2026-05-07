@@ -92,6 +92,8 @@ OUTPUT_CONTRACTS: dict[str, dict[str, Any]] = {
         "sections": ["Sujet", "Style", "Cadrage", "Lumière", "Paramètres"],
         "rules": [
             "Transforme la demande en intention visuelle claire et exploitable.",
+            "Si ComfyUI ou le moteur de génération est indisponible, indique-le explicitement sans produire un texte descriptif à la place de l'image.",
+            "La sortie attendue est un artefact image (fichier PNG/JPEG) ; tout résultat textuel sans artefact doit être traité comme un état d'erreur ou de dégradation.",
         ],
     },
 }

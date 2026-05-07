@@ -50,6 +50,15 @@ def test_build_contract_has_blender_bpy_rule():
     assert "bpy.ops.render.render" in rules_text
 
 
+def test_image_generation_contract_documents_artefact_and_fallback():
+    contract = get_output_contract("image_generation")
+    rules_text = " ".join(contract["rules"]).lower()
+
+    assert "comfyui" in rules_text or "moteur de génération" in rules_text
+    assert "png" in rules_text or "jpeg" in rules_text or "artefact image" in rules_text
+    assert "erreur" in rules_text or "dégradation" in rules_text
+
+
 def test_web_research_contract_requires_source_domain_and_date():
     contract = get_output_contract("web_research")
     rules_text = " ".join(contract["rules"]).lower()

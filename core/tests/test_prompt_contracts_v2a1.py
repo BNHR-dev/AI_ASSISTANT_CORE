@@ -107,6 +107,30 @@ def test_second_call_build_prompt_forbids_intro():
     assert "produis directement le livrable" in prompt.lower()
 
 
+def test_vision_primary_prompt_includes_contract_sections():
+    prompt = build_primary_prompt(
+        agent="AGENT_VISION_IA",
+        output_format="description + analysis + visual_interpretation",
+        message="que vois-tu dans cette image ?",
+        task_type="vision",
+    )
+
+    assert "1. Description" in prompt
+    assert "2. Analyse" in prompt
+    assert "3. Interprétation prudente" in prompt
+
+
+def test_vision_primary_prompt_anchors_on_image():
+    prompt = build_primary_prompt(
+        agent="AGENT_VISION_IA",
+        output_format="description + analysis + visual_interpretation",
+        message="que vois-tu dans cette image ?",
+        task_type="vision",
+    )
+
+    assert "image fournie" in prompt.lower() or "visible dans l'image" in prompt.lower()
+
+
 def test_web_synthesis_prompt_forbids_meta_reproduction():
     prompt = build_web_synthesis_prompt(
         agent="AGENT_PROF_IA",
