@@ -33,6 +33,7 @@ OUTPUT_CONTRACTS: dict[str, dict[str, Any]] = {
         "rules": [
             "Reste pragmatique et orienté décision.",
             "Évite les architectures trop larges ou spéculatives.",
+            "Ancre l'analyse dans le contexte fourni ; évite les recommandations génériques qui s'appliqueraient à n'importe quel projet.",
         ],
     },
     "build": {
@@ -48,6 +49,7 @@ OUTPUT_CONTRACTS: dict[str, dict[str, Any]] = {
             "Si la demande porte sur des embeddings ou des vecteurs numériques, utilise des vecteurs numériques explicites (tableaux, listes ou numpy arrays). Ne substitue pas silencieusement TfidfVectorizer ou CountVectorizer aux embeddings sans l'annoncer explicitement comme alternative.",
             "Les assertions de test doivent être sémantiquement valides ; ne pas affirmer une valeur exacte quand elle dépend du modèle, de l'entrée, d'un vectorizer ou d'une approximation.",
             "Si la demande porte sur Blender ou bpy, produire un script Python destiné à Blender : commencer le code par import bpy, utiliser les API bpy.ops, bpy.data et bpy.context, créer explicitement caméra/lumière/matériaux si utile, éviter les chemins fichier hardcodés y compris les chemins relatifs comme output.png sauf si l'utilisateur fournit un chemin explicite, et ne pas exécuter bpy.ops.render.render() sauf demande explicite. Idiomes qualité : pour un matériau métallique, utiliser le Principled BSDF avec Metallic = 1.0 ; pour une animation, définir scene.frame_start et scene.frame_end et utiliser keyframe_insert ; pour un texte 3D extrudé, utiliser text_obj.data.extrude et non un resize sur Z ; éviter nodes.clear() suivi d'une référence à un nœud supprimé ; si math.pi est nécessaire, importer math en début de script et ne pas utiliser bpy.math.pi.",
+            "La réponse doit être concise et directement exploitable : évite les introductions, les récapitulatifs inutiles et les sections vides.",
         ],
     },
     "quiz": {
@@ -62,6 +64,7 @@ OUTPUT_CONTRACTS: dict[str, dict[str, Any]] = {
         "sections": ["Constat", "Erreurs ou limites", "Améliorations", "Justification"],
         "rules": [
             "Sépare clairement le diagnostic des recommandations.",
+            "Sois concis et précis ; une critique courte et ancrée vaut mieux qu'une longue liste de généralités.",
         ],
     },
     "web_research": {
@@ -78,6 +81,8 @@ OUTPUT_CONTRACTS: dict[str, dict[str, Any]] = {
         "sections": ["Description", "Analyse", "Interprétation prudente"],
         "rules": [
             "Distingue les faits visibles des hypothèses.",
+            "Réponds directement à la demande posée ; ne dévie pas vers une description générale si une question précise est posée.",
+            "Si l'image est illisible, ambiguë ou ne contient pas l'élément demandé, indique-le explicitement sans inventer de contenu.",
         ],
     },
     "image_generation": {
