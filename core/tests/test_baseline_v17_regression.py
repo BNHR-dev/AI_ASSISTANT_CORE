@@ -1,4 +1,10 @@
+from datetime import date, timedelta
+
 from app.engine.executor import execute_request
+
+
+def _recent(days_ago: int) -> str:
+    return str(date.today() - timedelta(days=days_ago))
 
 
 def test_explain_plus_code_runs_two_step_llm(monkeypatch):
@@ -26,20 +32,20 @@ def test_web_pipeline_hides_technical_output(monkeypatch):
         "app.engine.step_executor.search_web",
         lambda query: [
             {
-                "title": "Annonce produit 2026-04-05",
-                "url": "https://example.com/news/annonce-produit-2026-04-05.html",
+                "title": "Annonce produit récente",
+                "url": "https://example.com/news/annonce-produit-recent.html",
                 "content": "Article de news récent.",
                 "source": "example.com",
-                "published_at": "2026-04-05",
+                "published_at": _recent(3),
                 "kind": "article",
                 "news_like": True,
             },
             {
-                "title": "Meta publie une mise à jour 2026-04-04",
-                "url": "https://example.org/news/meta-publie-2026-04-04.html",
+                "title": "Meta publie une mise à jour récente",
+                "url": "https://example.org/news/meta-publie-recent.html",
                 "content": "Autre article de news récent.",
                 "source": "example.org",
-                "published_at": "2026-04-04",
+                "published_at": _recent(4),
                 "kind": "article",
                 "news_like": True,
             },
