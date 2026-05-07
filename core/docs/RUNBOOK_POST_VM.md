@@ -80,6 +80,68 @@ curl -s http://192.168.77.10:8000/health
 curl -s http://192.168.77.10:8000/health/runtime
 ```
 
+## ComfyUI host runtime — procédure validée F.3b
+
+ComfyUI tourne sur le **host Windows**, pas dans la VM. Le backend VM le contacte via l'IP bridge Hyper-V.
+
+### Configuration actuelle
+
+| Variable | Valeur |
+|---|---|
+| `COMFYUI_URL` | `http://192.168.77.1:8188` (défini dans `.env`) |
+| `COMFYUI_AUTO_START` | `false` — relance manuelle uniquement |
+| `COMFYUI_BAT_PATH` | vide — ne pas activer l'auto-start sans le renseigner |
+
+### Lancement manuel
+
+```powershell
+# Sur le host Windows — depuis un terminal standard (pas admin requis)
+& "E:\ComfyUI_windows_portable\run_nvidia_gpu.bat"
+```
+
+ComfyUI écoute sur `192.168.77.1:8188` uniquement (pas `localhost:8188`) — comportement attendu, configuré par `--listen 192.168.77.1`.
+
+### Garde RAM avant lancement
+
+Vérifier que la RAM libre est suffisante avant de lancer une génération SDXL :
+
+```powershell
+(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB
+# Viser 8 GB libres minimum ; ne pas lancer si < 6 GB
+```
+
+### Healthcheck host
+
+```powershell
+# Vérifier que ComfyUI est up (réponse JSON avec version et GPU)
+Invoke-WebRequest http://192.168.77.1:8188/system_stats -UseBasicParsing
+```
+
+### Healthcheck backend (depuis host)
+
+```powershell
+# Vérifier que le backend VM voit ComfyUI comme ready
+Invoke-RestMethod -Uri "http://192.168.77.10:8000/health/runtime" -Method GET
+# Attendu : comfyui.ready = true, reason = "http 200"
+```
+
+### Smoke image_generation minimal
+
+```powershell
+$body = [System.Text.Encoding]::UTF8.GetBytes('{"message":"Genere une image simple, style studio, une variante.","has_image":false}')
+Invoke-RestMethod -Uri "http://192.168.77.10:8000/execute" -Method POST -ContentType "application/json; charset=utf-8" -Body $body -TimeoutSec 300
+# Attendu : execution_strategy = visual_pipeline, comfyui_status = success, artifact_filename présent
+```
+
+### Points fragiles connus
+
+- ComfyUI crash probable OOM si RAM libre < 6 GB au moment de la génération.
+- `localhost:8188` ne répond pas si ComfyUI est bind sur `192.168.77.1` uniquement.
+- `COMFYUI_BAT_PATH` vide = auto-start non disponible ; relance manuelle requise.
+- Ne pas modifier `.env` sans plan explicite.
+
+---
+
 ## Ce qui est canonique
 - backend sous `systemd` dans la VM
 - SearXNG sous `systemd` + Docker dans la VM
