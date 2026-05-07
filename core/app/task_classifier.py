@@ -178,6 +178,12 @@ SIGNALS_BY_LOCALE = {
             "fastapi",
             "ecris du code",
             "implemente",
+            "blender",
+            "bpy",
+            "script blender",
+            "script bpy",
+            "scene blender",
+            "objet blender",
         ],
     },
     "en": {
@@ -281,6 +287,12 @@ SIGNALS_BY_LOCALE = {
             "fastapi",
             "write code",
             "implement",
+            "blender",
+            "bpy",
+            "blender script",
+            "bpy script",
+            "blender scene",
+            "blender object",
         ],
     },
 }
@@ -345,6 +357,9 @@ def contains_build_intent(text: str) -> bool:
         "fastapi",
         "implemente",
         "write code",
+        "bpy",
+        "script blender",
+        "blender script",
     ]
     return any(term in text for term in build_terms)
 
