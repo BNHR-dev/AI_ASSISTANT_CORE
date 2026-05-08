@@ -7,6 +7,7 @@ import unicodedata
 TASKS = [
     "vision",
     "image_generation",
+    "blender_script",
     "quiz",
     "critique",
     "web_research",
@@ -19,6 +20,7 @@ TASKS = [
 PRIORITY = [
     "vision",
     "image_generation",
+    "blender_script",
     "critique",
     "web_research",
     "architecture",
@@ -33,6 +35,7 @@ PRIORITY = [
 # - weights stay intentionally simple: small, visible, testable rules.
 TASK_WEIGHTS = {
     "image_generation": 6,
+    "blender_script": 8,
     "explain_basic": 3,
     "explain_advanced": 3,
     "build": 2,
@@ -44,6 +47,7 @@ TASK_WEIGHTS = {
 
 TASK_REASON_CODES = {
     "image_generation": "visual_generation_request",
+    "blender_script": "blender_script_request",
     "explain_basic": "basic_explanation_request",
     "explain_advanced": "advanced_explanation_request",
     "build": "build_request",
@@ -178,12 +182,17 @@ SIGNALS_BY_LOCALE = {
             "fastapi",
             "ecris du code",
             "implemente",
+        ],
+        "blender_script": [
             "blender",
-            "bpy",
-            "script blender",
             "script bpy",
+            "bpy",
             "scene blender",
-            "objet blender",
+            "scene 3d blender",
+            "objet 3d blender",
+            "cree une scene blender",
+            "creer une scene blender",
+            "modelise",
         ],
     },
     "en": {
@@ -287,11 +296,16 @@ SIGNALS_BY_LOCALE = {
             "fastapi",
             "write code",
             "implement",
+        ],
+        "blender_script": [
             "blender",
-            "bpy",
-            "blender script",
             "bpy script",
+            "bpy",
             "blender scene",
+            "blender 3d scene",
+            "model in blender",
+            "blender python",
+            "create a blender scene",
             "blender object",
         ],
     },
@@ -357,9 +371,6 @@ def contains_build_intent(text: str) -> bool:
         "fastapi",
         "implemente",
         "write code",
-        "bpy",
-        "script blender",
-        "blender script",
     ]
     return any(term in text for term in build_terms)
 
@@ -502,6 +513,39 @@ def apply_mixed_signal_pack(
             )
 
 
+def contains_explicit_blender_intent(text: str) -> bool:
+    """
+    Retourne True si le texte contient explicitement "blender" ou "bpy".
+    Utilisé pour forcer blender_script et éviter les collisions avec build.
+    """
+    return "blender" in text or "bpy" in text
+
+
+def apply_blender_guardrails(
+    text: str,
+    scores: dict[str, int],
+    reasons: dict[str, list[str]],
+) -> None:
+    """
+    Si "blender" ou "bpy" est explicitement présent, force blender_script dominant.
+    Pénalise build pour éviter la collision ("script bpy" score aussi build via "script").
+    """
+    if not contains_explicit_blender_intent(text):
+        return
+
+    # Garantir un score blender_script significatif même si les signaux
+    # n'ont pas matché (locale inconnue, orthographe atypique).
+    if scores["blender_script"] == 0:
+        add_score(scores, reasons, "blender_script", TASK_WEIGHTS["blender_script"],
+                  "guardrail:explicit_blender_intent")
+
+    # Pénaliser build si blender est clairement l'intent ("script" seul → build,
+    # mais "script bpy" ou "blender script" doit aller à blender_script).
+    if scores["build"] > 0:
+        penalize_score(scores, reasons, "build", scores["build"],
+                       "guardrail:blender_over_build")
+
+
 def apply_visual_guardrails(
     text: str,
     scores: dict[str, int],
@@ -573,6 +617,7 @@ def classify_task_v2(message: str, has_image: bool = False) -> tuple[str, str]:
     else:
         apply_mixed_signal_pack(text, scores, reasons)
 
+    apply_blender_guardrails(text, scores, reasons)
     apply_visual_guardrails(text, scores, reasons)
 
     task = best_task(scores, PRIORITY)

@@ -58,6 +58,8 @@ ACTIVE_RUNTIME_MODULES = [
     "app/engine/prompt_builder.py",
     "app/engine/agent_prompt_registry.py",
     "app/engine/output_contracts.py",
+    "app/engine/blender_script_quality.py",
+    "app/engine/blender_types.py",
     "app/engine/result_assembler.py",
     "app/engine/runtime_debug.py",
     "app/engine/visual_workflow_selector.py",
@@ -69,6 +71,7 @@ ACTIVE_AUXILIARY_MODULES = [
     "app/clients/web_client.py",
     "app/clients/comfyui_client.py",
     "app/clients/comfyui_runtime.py",
+    "app/clients/blender_client.py",
     "app/infra/runtime_urls.py",
     "app/infra/tool_manager.py",
 ]

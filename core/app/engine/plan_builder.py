@@ -13,6 +13,31 @@ def build_plan_from_decision(decision: dict, message: str) -> ExecutionPlan:
 
     steps: list[PlanStep] = []
 
+    if selected_tool == "blender":
+        steps.append(
+            PlanStep(
+                step_id="step_prepare_blender",
+                step_type="prepare_blender_script",
+                goal="Générer le script bpy via Ollama et préparer la BlenderRequest",
+                agent="AGENT_BUILDER_IA",
+                model="qwen2.5-coder:7b",
+            )
+        )
+        steps.append(
+            PlanStep(
+                step_id="step_run_blender",
+                step_type="tool_blender",
+                goal="Exécuter Blender en background et produire le fichier .blend",
+                tool="blender",
+                depends_on=["step_prepare_blender"],
+            )
+        )
+        return ExecutionPlan(
+            task_type=task_type,
+            steps=steps,
+            strategy="blender_pipeline",
+        )
+
     if selected_tool == "comfyui":
         steps.append(
             PlanStep(

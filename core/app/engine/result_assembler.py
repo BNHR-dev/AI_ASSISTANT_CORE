@@ -8,6 +8,7 @@ VISIBLE_STEP_TYPES = {
     "llm_secondary",
     "llm_synthesis",
     "tool_comfyui",
+    "tool_blender",
 }
 
 

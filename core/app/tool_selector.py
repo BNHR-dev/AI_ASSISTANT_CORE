@@ -28,6 +28,9 @@ def select_tool(message: str, task_type: str) -> Optional[str]:
     if task_type == "image_generation":
         return "comfyui"
 
+    if task_type == "blender_script":
+        return "blender"
+
     if any(signal in text for signal in IMAGE_TOOL_SIGNALS):
         return "comfyui"
 

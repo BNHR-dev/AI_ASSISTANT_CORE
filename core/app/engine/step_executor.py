@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from app.clients.blender_client import build_blender_script, run_blender_script
 from app.clients.comfyui_client import (
     build_visual_request_from_text,
     run_comfyui_workflow,
@@ -663,6 +664,69 @@ def execute_step(state: ExecutionState, step: PlanStep) -> StepResult:
                 meta=meta,
             )
 
+        if step.step_type == "prepare_blender_script":
+            request_id = (
+                state.context.get("request_id")
+                or state.decision.get("request_id")
+                or str(__import__("uuid").uuid4())
+            )
+            blender_request = build_blender_script(state.message, state.context, request_id)
+            state.context["blender_request"] = blender_request
+            return StepResult(
+                step_id=step.step_id,
+                step_type=step.step_type,
+                status="success",
+                output=None,
+                meta={
+                    "request_id": blender_request.request_id,
+                    "script_path": blender_request.script_path,
+                    "output_path": blender_request.output_path,
+                    "output_dir": blender_request.output_dir,
+                },
+            )
+
+        if step.step_type == "tool_blender":
+            blender_request = state.context.get("blender_request")
+            if blender_request is None:
+                return StepResult(
+                    step_id=step.step_id,
+                    step_type=step.step_type,
+                    status="error",
+                    error="blender_request manquant dans le contexte d'exécution.",
+                )
+
+            result = run_blender_script(blender_request)
+            status = "success" if result.status == "success" else "error"
+
+            if result.status == "success":
+                output_text = (
+                    f"Fichier .blend produit : {result.output_path}\n"
+                    f"Script utilisé : {result.script_path}"
+                )
+            else:
+                output_text = (
+                    f"Blender terminé avec erreur : {result.status}"
+                    + (f"\n{result.error}" if result.error else "")
+                )
+
+            return StepResult(
+                step_id=step.step_id,
+                step_type=step.step_type,
+                status=status,
+                output=output_text,
+                error=result.error if status == "error" else None,
+                meta={
+                    "status": result.status,
+                    "request_id": result.request_id,
+                    "script_path": result.script_path,
+                    "output_path": result.output_path,
+                    "output_dir": result.output_dir,
+                    "returncode": result.returncode,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "error": result.error,
+                },
+            )
 
         return StepResult(
             step_id=step.step_id,

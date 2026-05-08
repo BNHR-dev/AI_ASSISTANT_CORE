@@ -58,6 +58,41 @@ def _build_execution_summary(plan, state) -> dict:
     }
 
 
+def _extract_blender_artifact(state) -> dict:
+    for result in reversed(state.step_results):
+        if result.step_type != "tool_blender":
+            continue
+
+        meta = result.meta if isinstance(result.meta, dict) else {}
+        blender_status = meta.get("status") or result.status
+        output_path = meta.get("output_path")
+
+        # artifact_type/path/filename seulement si success et fichier produit
+        if blender_status == "success" and output_path:
+            artifact_type = "blend"
+            artifact_path = output_path
+            artifact_filename = "scene.blend"
+        else:
+            artifact_type = None
+            artifact_path = None
+            artifact_filename = None
+
+        return {
+            "artifact_type": artifact_type,
+            "artifact_path": artifact_path,
+            "artifact_filename": artifact_filename,
+            "blender_status": blender_status,
+            "blender_script_path": meta.get("script_path"),
+            "blender_output_path": output_path,
+            "blender_returncode": meta.get("returncode"),
+            "blender_stdout": meta.get("stdout"),
+            "blender_stderr": meta.get("stderr"),
+            "blender_error": meta.get("error"),
+        }
+
+    return {}
+
+
 def _extract_visual_artifact(state) -> dict:
     for result in reversed(state.step_results):
         if result.step_type != "tool_comfyui":
@@ -247,6 +282,7 @@ def execute_request(message: str, has_image: bool = False, mode: str = "auto") -
     state.add_trace(f"executor → duration_ms:{duration_ms}")
 
     visual_artifact = _extract_visual_artifact(state)
+    blender_artifact = _extract_blender_artifact(state)
 
     _raw_quality = analyze_blender_script_quality(message, final_output)
     blender_quality_report = (
@@ -300,4 +336,5 @@ def execute_request(message: str, has_image: bool = False, mode: str = "auto") -
         "output": final_output,
         "blender_quality_report": blender_quality_report,
         **visual_artifact,
+        **blender_artifact,
     }

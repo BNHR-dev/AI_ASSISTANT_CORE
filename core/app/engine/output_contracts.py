@@ -87,6 +87,16 @@ OUTPUT_CONTRACTS: dict[str, dict[str, Any]] = {
             "Si l'image est illisible, ambiguë ou ne contient pas l'élément demandé, indique-le explicitement sans inventer de contenu.",
         ],
     },
+    "blender_script": {
+        "description": "script bpy exécutable + fichier .blend produit",
+        "sections": ["Script", "Scène", "Sortie"],
+        "rules": [
+            "Le script doit être directement exécutable via blender --background --python.",
+            "Ne pas appeler bpy.ops.render.render() sauf demande explicite.",
+            "Ne jamais utiliser de chemins hardcodés pour les fichiers de sortie.",
+            "La sortie attendue est un fichier .blend ; tout résultat sans artefact .blend est un état d'erreur.",
+        ],
+    },
     "image_generation": {
         "description": "prompt structuré + paramètres visuels",
         "sections": ["Sujet", "Style", "Cadrage", "Lumière", "Paramètres"],

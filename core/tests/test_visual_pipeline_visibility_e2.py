@@ -34,6 +34,7 @@ def test_visible_step_types_are_the_expected_set():
         "llm_secondary",
         "llm_synthesis",
         "tool_comfyui",
+        "tool_blender",
     }
 
 

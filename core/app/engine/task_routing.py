@@ -85,4 +85,12 @@ TASK_ROUTING: Dict[str, TaskRoute] = {
         second_call=None,
         output_format="structured_prompt + visual_parameters",
     ),
+    "blender_script": TaskRoute(
+        task_type="blender_script",
+        primary_agent="AGENT_BUILDER_IA",
+        model="qwen2.5-coder:7b",
+        web=False,
+        second_call=None,
+        output_format="blender_script",
+    ),
 }

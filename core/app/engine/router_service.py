@@ -44,6 +44,10 @@ def build_route_decision(message: str, has_image: bool = False) -> dict:
         selected_tool = "comfyui"
         decision_trace.append("forced_tool → comfyui")
 
+    elif enriched_config["task_type"] == "blender_script":
+        selected_tool = "blender"
+        decision_trace.append("forced_tool → blender")
+
     decision_trace.append(f"final_tool → {selected_tool}")
 
     final_decision = {

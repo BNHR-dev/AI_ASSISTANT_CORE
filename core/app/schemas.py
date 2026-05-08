@@ -126,4 +126,11 @@ class ExecuteResponse(BaseModel):
     completed_variants: Optional[int] = None
     partial_visual_success: Optional[bool] = None
     blender_quality_report: Optional[dict[str, Any]] = None
+    blender_status: Optional[str] = None
+    blender_script_path: Optional[str] = None
+    blender_output_path: Optional[str] = None
+    blender_returncode: Optional[int] = None
+    blender_stdout: Optional[str] = None
+    blender_stderr: Optional[str] = None
+    blender_error: Optional[str] = None
     output: str

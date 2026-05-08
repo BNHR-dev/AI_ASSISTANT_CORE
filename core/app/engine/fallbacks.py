@@ -10,6 +10,10 @@ FALLBACK_LABELS = {
         "web_error": "La recherche web n'a pas pu aboutir. Détail: {error}",
         "ollama_error": "Le moteur LLM local n'a pas pu répondre. Détail: {error}",
         "tool_unavailable": "Outil indisponible: {tool_name}. Détail: {error}",
+        "blender_error": "Blender a retourné une erreur lors de l'exécution du script. Détail: {error}",
+        "blender_not_found": "Blender est introuvable sur ce système. Définissez BLENDER_EXE ou installez Blender.",
+        "blender_no_output": "Blender a terminé sans produire le fichier .blend attendu.",
+        "blender_timeout": "Blender a dépassé le délai d'exécution configuré.",
     },
     "en": {
         "comfyui_error": "ComfyUI could not complete the task. Detail: {error}",
@@ -19,6 +23,10 @@ FALLBACK_LABELS = {
         "web_error": "Web search could not complete successfully. Detail: {error}",
         "ollama_error": "The local LLM engine could not respond. Detail: {error}",
         "tool_unavailable": "Tool unavailable: {tool_name}. Detail: {error}",
+        "blender_error": "Blender returned an error while executing the script. Detail: {error}",
+        "blender_not_found": "Blender executable not found. Set BLENDER_EXE or install Blender.",
+        "blender_no_output": "Blender completed but did not produce the expected .blend file.",
+        "blender_timeout": "Blender exceeded the configured execution timeout.",
     },
 }
 
@@ -46,6 +54,18 @@ def fallback_text_for_tool_error(
             return labels["comfyui_no_output"]
 
         return labels["comfyui_error"].format(error=error)
+
+    if tool_name == "blender":
+        if "not found" in normalized_error or "blender_not_found" in normalized_error:
+            return labels["blender_not_found"]
+
+        if "timeout" in normalized_error:
+            return labels["blender_timeout"]
+
+        if "no_output" in normalized_error or "no .blend" in normalized_error:
+            return labels["blender_no_output"]
+
+        return labels["blender_error"].format(error=error)
 
     if tool_name == "web":
         return labels["web_error"].format(error=error)
