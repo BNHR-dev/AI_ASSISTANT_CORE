@@ -125,4 +125,5 @@ class ExecuteResponse(BaseModel):
     variants_count: Optional[int] = None
     completed_variants: Optional[int] = None
     partial_visual_success: Optional[bool] = None
+    blender_quality_report: Optional[dict[str, Any]] = None
     output: str

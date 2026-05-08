@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from time import perf_counter
 from uuid import uuid4
 
+from app.engine.blender_script_quality import analyze_blender_script_quality
 from app.engine.planner_service import build_execution_plan
 from app.engine.planner_types import StepResult
 from app.engine.result_assembler import assemble_final_output
@@ -247,6 +248,17 @@ def execute_request(message: str, has_image: bool = False, mode: str = "auto") -
 
     visual_artifact = _extract_visual_artifact(state)
 
+    _raw_quality = analyze_blender_script_quality(message, final_output)
+    blender_quality_report = (
+        {
+            "is_blender": True,
+            "violations": _raw_quality["violations"],
+            "passed": len(_raw_quality["violations"]) == 0,
+        }
+        if _raw_quality["is_blender"]
+        else None
+    )
+
     return {
         **decision,
         "execution_strategy": plan.strategy,
@@ -286,5 +298,6 @@ def execute_request(message: str, has_image: bool = False, mode: str = "auto") -
         "primary_output": state.get_output("step_primary"),
         "second_output": state.get_output("step_secondary"),
         "output": final_output,
+        "blender_quality_report": blender_quality_report,
         **visual_artifact,
     }
