@@ -91,7 +91,9 @@ def _inject_output_paths(script: str, output_path: str, render_path: str) -> str
     Enveloppe le script LLM dans un try/finally pour garantir :
     1. La sauvegarde canonique .blend même si le script LLM plante.
     2. Un contenu minimal (mesh, caméra, lumière) si le LLM a produit une scène vide.
-    3. Un rendu PNG preview canonique après la sauvegarde .blend.
+
+    Le rendu PNG preview est géré séparément dans un second subprocess Blender
+    (voir run_blender_script) afin qu'un crash du rendu ne fasse pas échouer le pipeline.
 
     Structure produite :
 
@@ -106,13 +108,8 @@ def _inject_output_paths(script: str, output_path: str, render_path: str) -> str
             ...
             # sauvegarde canonique .blend
             _bpy.ops.wm.save_as_mainfile(filepath=r"<output_path>")
-            # rendu PNG preview
-            _bpy.context.scene.render.image_settings.file_format = 'PNG'
-            _bpy.context.scene.render.filepath = r"<render_path>"
-            _bpy.ops.render.render(write_still=True)
 
-    Les chemins sont injektés en string littérales — jamais via des variables LLM.
-    Le PNG est best-effort : son absence ne bloque pas le pipeline.
+    Les chemins sont injectés en string littérales — jamais via des variables LLM.
     """
     # Variables en tête (pour les scripts qui les utilisent correctement)
     header = (
@@ -130,7 +127,8 @@ def _inject_output_paths(script: str, output_path: str, render_path: str) -> str
     # Indenter le script LLM pour l'intégrer dans le try
     indented_script = textwrap.indent(script, "    ")
 
-    # Bloc finally : fallbacks + sauvegarde .blend canonique + rendu PNG
+    # Bloc finally : fallbacks contenu minimal + sauvegarde .blend canonique uniquement
+    # Le rendu PNG est dans un subprocess séparé (best-effort, ne bloque pas success)
     finally_block = (
         f'finally:\n'
         f'    import bpy as _bpy\n'
@@ -144,10 +142,6 @@ def _inject_output_paths(script: str, output_path: str, render_path: str) -> str
         f'        _bpy.ops.object.light_add(type="SUN", location=(4, 4, 6))\n'
         f'    # -- aicore: forced canonical save --\n'
         f'    _bpy.ops.wm.save_as_mainfile(filepath=r"{output_path}")\n'
-        f'    # -- aicore: PNG preview render --\n'
-        f'    _bpy.context.scene.render.image_settings.file_format = "PNG"\n'
-        f'    _bpy.context.scene.render.filepath = r"{render_path}"\n'
-        f'    _bpy.ops.render.render(write_still=True)\n'
     )
 
     return header + "try:\n" + indented_script + "\n" + finally_block
@@ -187,6 +181,39 @@ def build_blender_script(
         output_dir=str(output_dir),
         timeout=BLENDER_TIMEOUT,
     )
+
+
+def _render_preview(exe: str, request: BlenderRequest) -> str | None:
+    """
+    Lance un second subprocess Blender best-effort pour produire preview.png depuis le .blend.
+    Écrit un script temporaire render_preview.py dans output_dir, l'exécute, puis le supprime.
+    Retourne le chemin du PNG si produit, None sinon. Ne lève jamais d'exception.
+    """
+    render_script_path = Path(request.output_dir) / "render_preview.py"
+    render_script = (
+        f'import bpy\n'
+        f'bpy.context.scene.render.image_settings.file_format = "PNG"\n'
+        f'bpy.context.scene.render.filepath = r"{request.render_path}"\n'
+        f'bpy.ops.render.render(write_still=True)\n'
+    )
+    try:
+        render_script_path.write_text(render_script, encoding="utf-8")
+        proc = subprocess.run(
+            [exe, "--background", request.output_path, "--python", str(render_script_path)],
+            capture_output=True,
+            text=True,
+            timeout=request.timeout,
+        )
+        if proc.returncode == 0 and Path(request.render_path).exists():
+            return request.render_path
+    except Exception:
+        pass
+    finally:
+        try:
+            render_script_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+    return None
 
 
 def run_blender_script(request: BlenderRequest) -> BlenderResult:
@@ -264,8 +291,9 @@ def run_blender_script(request: BlenderRequest) -> BlenderResult:
             error="Blender completed but no .blend file was produced.",
         )
 
-    # PNG preview : best-effort — son absence ne bloque pas le pipeline
-    render_path = request.render_path if Path(request.render_path).exists() else None
+    # PNG preview : second subprocess best-effort depuis le .blend produit.
+    # Un crash ou une erreur du rendu ne fait pas échouer le pipeline.
+    render_path = _render_preview(exe, request)
 
     return BlenderResult(
         status="success",
