@@ -24,6 +24,16 @@ _RENDER_EXPLICIT_SIGNALS = (
 
 _CUBE_REQUEST_SIGNALS = ("cube", "cubo")
 
+_METALLIC_REQUEST_SIGNALS = ("métallique", "metallic", "metal", "acier", "chrome")
+
+_SCENE_REQUEST_SIGNALS = (
+    "scène", "scene", "créer une scène", "create a scene",
+    "crée une scène", "blender scene",
+)
+
+_NODES_CLEAR_RE = re.compile(r"nodes\.clear\s*\(\s*\)")
+_NODES_ACCESS_AFTER_CLEAR_RE = re.compile(r"nodes\s*[\[.]")
+
 _EMPTY_NAMED_MESH_RE = re.compile(
     r'bpy\.data\.meshes\.new\s*\(\s*["\'](?:Cube|Sphere)["\']'
 )
@@ -72,5 +82,21 @@ def analyze_blender_script_quality(message: str, output: str) -> dict:
 
     if _EMPTY_NAMED_MESH_RE.search(output) and "from_pydata" not in output:
         violations.append("empty_named_mesh_without_geometry")
+
+    # nodes.clear() suivi d'un accès à un nœud (nodes[...] ou nodes.get(...))
+    # Pattern cassant : nœuds supprimés puis référencés
+    if _NODES_CLEAR_RE.search(output) and _NODES_ACCESS_AFTER_CLEAR_RE.search(output):
+        violations.append("nodes_clear_then_node_access")
+
+    # Matériau métallique demandé mais Metallic non configuré dans le script
+    if any(sig in msg_lower for sig in _METALLIC_REQUEST_SIGNALS):
+        if "Metallic" not in output and "metallic" not in output:
+            violations.append("metallic_requested_without_metallic_value")
+
+    # Scène demandée mais aucune caméra créée dans le script
+    # Informatif uniquement — le fallback finally en crée une si besoin
+    if any(sig in msg_lower for sig in _SCENE_REQUEST_SIGNALS):
+        if "camera_add" not in output and "CAMERA" not in output:
+            violations.append("camera_missing_in_script")
 
     return {"is_blender": True, "violations": violations}

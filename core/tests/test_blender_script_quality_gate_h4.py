@@ -96,3 +96,115 @@ def test_quality_module_does_not_import_bpy():
         if line.strip().startswith("import bpy") or line.strip().startswith("from bpy")
     ]
     assert real_bpy_imports == []
+
+
+# ---------------------------------------------------------------------------
+# Nouvelles violations : nodes_clear, metallic, camera_missing
+# ---------------------------------------------------------------------------
+
+_NODES_CLEAR_THEN_ACCESS_BRACKET = """
+import bpy
+
+mat = bpy.data.materials.new(name="Metal")
+mat.use_nodes = True
+nodes = mat.node_tree.nodes
+nodes.clear()
+output_node = nodes["Material Output"]
+bsdf = nodes.new(type='ShaderNodeBsdfPrincipled')
+"""
+
+_NODES_CLEAR_THEN_ACCESS_GET = """
+import bpy
+
+mat = bpy.data.materials.new(name="Metal")
+mat.use_nodes = True
+nodes = mat.node_tree.nodes
+nodes.clear()
+output_node = nodes.get("Material Output")
+bsdf = nodes.new(type='ShaderNodeBsdfPrincipled')
+"""
+
+_GOOD_METALLIC_SCRIPT = """
+import bpy
+
+bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 0))
+mat = bpy.data.materials.new(name="Metal")
+mat.use_nodes = True
+bsdf = mat.node_tree.nodes.get("Principled BSDF")
+bsdf.inputs["Metallic"].default_value = 1.0
+bsdf.inputs["Roughness"].default_value = 0.2
+bpy.context.object.data.materials.append(mat)
+"""
+
+_METALLIC_WITHOUT_METALLIC_VALUE = """
+import bpy
+
+bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 0))
+mat = bpy.data.materials.new(name="Metal")
+mat.use_nodes = True
+bpy.context.object.data.materials.append(mat)
+"""
+
+_SCENE_WITHOUT_CAMERA = """
+import bpy
+
+bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 0))
+bpy.ops.object.light_add(type='SUN', location=(4, 4, 6))
+"""
+
+_SCENE_WITH_CAMERA = """
+import bpy
+
+bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 0))
+bpy.ops.object.camera_add(location=(7, -7, 5))
+bpy.ops.object.light_add(type='SUN', location=(4, 4, 6))
+"""
+
+
+def test_nodes_clear_then_bracket_access_flags_violation():
+    """nodes.clear() suivi de nodes[...] doit être détecté."""
+    result = analyze_blender_script_quality("créer un matériau métallique", _NODES_CLEAR_THEN_ACCESS_BRACKET)
+    assert result["is_blender"] is True
+    assert "nodes_clear_then_node_access" in result["violations"]
+
+
+def test_nodes_clear_then_get_access_flags_violation():
+    """nodes.clear() suivi de nodes.get(...) doit aussi être détecté."""
+    result = analyze_blender_script_quality("créer un matériau métallique", _NODES_CLEAR_THEN_ACCESS_GET)
+    assert result["is_blender"] is True
+    assert "nodes_clear_then_node_access" in result["violations"]
+
+
+def test_metallic_requested_without_metallic_value_flags_violation():
+    """Message demande un métal mais le script ne configure pas Metallic."""
+    result = analyze_blender_script_quality("crée un cube métallique", _METALLIC_WITHOUT_METALLIC_VALUE)
+    assert result["is_blender"] is True
+    assert "metallic_requested_without_metallic_value" in result["violations"]
+
+
+def test_good_metallic_script_has_no_metallic_violation():
+    """Script avec Metallic configuré → pas de violation métallique."""
+    result = analyze_blender_script_quality("crée un cube métallique", _GOOD_METALLIC_SCRIPT)
+    assert result["is_blender"] is True
+    assert "metallic_requested_without_metallic_value" not in result["violations"]
+
+
+def test_scene_without_camera_flags_violation():
+    """Scène demandée sans camera_add dans le script → violation informative."""
+    result = analyze_blender_script_quality("crée une scène Blender avec un cube", _SCENE_WITHOUT_CAMERA)
+    assert result["is_blender"] is True
+    assert "camera_missing_in_script" in result["violations"]
+
+
+def test_scene_with_camera_no_camera_violation():
+    """Scène avec camera_add → pas de violation caméra."""
+    result = analyze_blender_script_quality("crée une scène Blender avec un cube", _SCENE_WITH_CAMERA)
+    assert result["is_blender"] is True
+    assert "camera_missing_in_script" not in result["violations"]
+
+
+def test_non_scene_request_no_camera_violation():
+    """Requête non-scène (ex. objet seul) → pas de violation caméra même sans caméra."""
+    result = analyze_blender_script_quality("crée un cube simple", _SCENE_WITHOUT_CAMERA)
+    assert result["is_blender"] is True
+    assert "camera_missing_in_script" not in result["violations"]
