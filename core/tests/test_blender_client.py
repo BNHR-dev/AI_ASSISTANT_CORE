@@ -287,3 +287,61 @@ def test_inject_output_path_llm_crash_before_save():
     finally_block = result[finally_idx:]
     assert f'r"{canonical}"' in finally_block
     assert "save_as_mainfile" in finally_block
+
+
+# ---------------------------------------------------------------------------
+# Fallback contenu minimal dans le finally
+# ---------------------------------------------------------------------------
+
+def test_inject_output_path_finally_has_mesh_fallback():
+    """Le finally doit contenir un fallback conditionnel pour MESH."""
+    script = "import bpy\nbpy.ops.mesh.primitive_cube_add()"
+    result = _inject_output_path(script, "/tmp/scene.blend")
+    finally_idx = result.index("finally:")
+    finally_block = result[finally_idx:]
+    assert '"MESH"' in finally_block
+    assert "primitive_cube_add" in finally_block
+
+
+def test_inject_output_path_finally_has_camera_fallback():
+    """Le finally doit contenir un fallback conditionnel pour CAMERA."""
+    script = "import bpy\nbpy.ops.mesh.primitive_cube_add()"
+    result = _inject_output_path(script, "/tmp/scene.blend")
+    finally_idx = result.index("finally:")
+    finally_block = result[finally_idx:]
+    assert '"CAMERA"' in finally_block
+    assert "camera_add" in finally_block
+
+
+def test_inject_output_path_finally_has_light_fallback():
+    """Le finally doit contenir un fallback conditionnel pour LIGHT."""
+    script = "import bpy\nbpy.ops.mesh.primitive_cube_add()"
+    result = _inject_output_path(script, "/tmp/scene.blend")
+    finally_idx = result.index("finally:")
+    finally_block = result[finally_idx:]
+    assert '"LIGHT"' in finally_block
+    assert "light_add" in finally_block
+
+
+def test_inject_output_path_fallback_before_save():
+    """Les fallbacks doivent apparaître avant save_as_mainfile dans le finally."""
+    script = "import bpy\nbpy.ops.mesh.primitive_cube_add()"
+    result = _inject_output_path(script, "/tmp/scene.blend")
+    finally_idx = result.index("finally:")
+    finally_block = result[finally_idx:]
+    mesh_idx = finally_block.index("primitive_cube_add")
+    camera_idx = finally_block.index("camera_add")
+    light_idx = finally_block.index("light_add")
+    save_idx = finally_block.index("save_as_mainfile")
+    assert mesh_idx < save_idx, "primitive_cube_add doit précéder save_as_mainfile"
+    assert camera_idx < save_idx, "camera_add doit précéder save_as_mainfile"
+    assert light_idx < save_idx, "light_add doit précéder save_as_mainfile"
+
+
+def test_inject_output_path_fallback_conditional_not_overwrite():
+    """Les fallbacks sont conditionnels (if not any) — ils ne suppriment pas les objets existants."""
+    script = "import bpy\nbpy.ops.mesh.primitive_cube_add()"
+    result = _inject_output_path(script, "/tmp/scene.blend")
+    finally_idx = result.index("finally:")
+    finally_block = result[finally_idx:]
+    assert finally_block.count("if not any") >= 3

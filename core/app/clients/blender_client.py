@@ -68,8 +68,9 @@ def _extract_python_from_markdown(text: str) -> str:
 
 def _inject_output_path(script: str, output_path: str) -> str:
     """
-    Enveloppe le script LLM dans un try/finally pour garantir la sauvegarde canonique
-    même si le script LLM lève une exception avant d'atteindre sa propre sauvegarde.
+    Enveloppe le script LLM dans un try/finally pour garantir :
+    1. La sauvegarde canonique même si le script LLM plante.
+    2. Un contenu minimal (mesh, caméra, lumière) si le LLM a produit une scène vide.
 
     Structure produite :
 
@@ -79,11 +80,20 @@ def _inject_output_path(script: str, output_path: str) -> str:
             <script LLM indenté>
         finally:
             import bpy as _bpy
+            # fallback mesh
+            if not any(o.type == "MESH" for o in _bpy.context.scene.objects):
+                _bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 0))
+            # fallback caméra
+            if not any(o.type == "CAMERA" for o in _bpy.context.scene.objects):
+                _bpy.ops.object.camera_add(location=(7, -7, 5))
+                _bpy.context.scene.camera = _bpy.context.object
+            # fallback lumière
+            if not any(o.type == "LIGHT" for o in _bpy.context.scene.objects):
+                _bpy.ops.object.light_add(type="SUN", location=(4, 4, 6))
             _bpy.ops.wm.save_as_mainfile(filepath=r"<chemin canonique>")
 
     Le finally utilise le chemin canonique en string littérale — jamais OUTPUT_BLEND_PATH.
-    Blender retourne 0 même si le script plante ; le finally garantit que scene.blend
-    est produit avant que le backend vérifie son existence.
+    Les fallbacks ne suppriment ni n'écrasent les objets déjà créés par le LLM.
     """
     # Définir la variable en tête (pour les scripts qui l'utilisent correctement)
     header = f'OUTPUT_BLEND_PATH = r"{output_path}"\n\n'
@@ -98,10 +108,19 @@ def _inject_output_path(script: str, output_path: str) -> str:
     # Indenter le script LLM pour l'intégrer dans le try
     indented_script = textwrap.indent(script, "    ")
 
-    # Bloc finally avec chemin canonique en string littérale
+    # Bloc finally : fallback contenu minimal + sauvegarde canonique
     finally_block = (
         f'finally:\n'
         f'    import bpy as _bpy\n'
+        f'    # -- aicore: fallback contenu minimal --\n'
+        f'    if not any(o.type == "MESH" for o in _bpy.context.scene.objects):\n'
+        f'        _bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 0))\n'
+        f'    if not any(o.type == "CAMERA" for o in _bpy.context.scene.objects):\n'
+        f'        _bpy.ops.object.camera_add(location=(7, -7, 5))\n'
+        f'        _bpy.context.scene.camera = _bpy.context.object\n'
+        f'    if not any(o.type == "LIGHT" for o in _bpy.context.scene.objects):\n'
+        f'        _bpy.ops.object.light_add(type="SUN", location=(4, 4, 6))\n'
+        f'    # -- aicore: forced canonical save --\n'
         f'    _bpy.ops.wm.save_as_mainfile(filepath=r"{output_path}")\n'
     )
 
