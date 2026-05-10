@@ -13,6 +13,7 @@ import pytest
 from app.clients.blender_client import (
     _extract_python_from_markdown,
     _inject_output_paths,
+    _render_preview,
     resolve_blender_exe,
     run_blender_script,
 )
@@ -421,3 +422,76 @@ def test_run_blender_script_render_crash_does_not_fail_pipeline(tmp_path):
 
     assert result.status == "success"
     assert result.render_path is None
+
+
+# ---------------------------------------------------------------------------
+# Structure du script render_preview.py généré par _render_preview()
+# On capture le fichier écrit sur disque avant que subprocess soit appelé.
+# ---------------------------------------------------------------------------
+
+def _capture_render_script(tmp_path, render_path: str | None = None) -> str:
+    """
+    Appelle _render_preview() avec un subprocess mocké qui capture le contenu
+    de render_preview.py au moment où il est écrit, avant l'exécution.
+    Retourne le contenu du script.
+    """
+    output_path = str(tmp_path / "scene.blend")
+    rp = render_path or str(tmp_path / "preview.png")
+    Path(output_path).write_bytes(b"BLEND")
+    request = _make_request(output_path=output_path, render_path=rp)
+    # output_dir doit exister pour que _render_preview puisse écrire le script
+    Path(request.output_dir).mkdir(parents=True, exist_ok=True)
+
+    captured = {}
+
+    def fake_subprocess(cmd, **kwargs):
+        # Lire le script juste avant qu'il soit exécuté
+        script_path = Path(request.output_dir) / "render_preview.py"
+        if script_path.exists():
+            captured["script"] = script_path.read_text(encoding="utf-8")
+        return MagicMock(returncode=0)
+
+    with patch("subprocess.run", side_effect=fake_subprocess):
+        _render_preview("/usr/bin/blender", request)
+
+    return captured.get("script", "")
+
+
+def test_render_preview_script_imports_mathutils(tmp_path):
+    """Le script render_preview doit importer mathutils.Vector."""
+    script = _capture_render_script(tmp_path)
+    assert "from mathutils import Vector" in script
+
+
+def test_render_preview_script_has_camera_logic(tmp_path):
+    """Le script doit gérer une caméra active (vérif + création si absente)."""
+    script = _capture_render_script(tmp_path)
+    assert "bpy.context.scene.camera" in script
+    assert "camera_add" in script
+
+
+def test_render_preview_script_has_mesh_target(tmp_path):
+    """Le script doit calculer la cible à partir des MESH présents."""
+    script = _capture_render_script(tmp_path)
+    assert '"MESH"' in script
+    assert "target" in script
+
+
+def test_render_preview_script_has_track_quat(tmp_path):
+    """Le script doit orienter la caméra avec to_track_quat('-Z', 'Y').to_euler()."""
+    script = _capture_render_script(tmp_path)
+    assert 'to_track_quat("-Z", "Y").to_euler()' in script
+
+
+def test_render_preview_script_has_render_filepath(tmp_path):
+    """Le script doit configurer render.filepath vers le chemin canonique PNG."""
+    render_path = str(tmp_path / "preview.png")
+    script = _capture_render_script(tmp_path, render_path=render_path)
+    assert f'r"{render_path}"' in script
+    assert 'file_format = "PNG"' in script
+
+
+def test_render_preview_script_calls_render_render(tmp_path):
+    """Le script doit appeler render.render(write_still=True)."""
+    script = _capture_render_script(tmp_path)
+    assert "render.render(write_still=True)" in script

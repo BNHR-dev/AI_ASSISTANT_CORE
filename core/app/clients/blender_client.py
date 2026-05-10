@@ -188,10 +188,38 @@ def _render_preview(exe: str, request: BlenderRequest) -> str | None:
     Lance un second subprocess Blender best-effort pour produire preview.png depuis le .blend.
     Écrit un script temporaire render_preview.py dans output_dir, l'exécute, puis le supprime.
     Retourne le chemin du PNG si produit, None sinon. Ne lève jamais d'exception.
+
+    Le script oriente la caméra active vers le centre des objets MESH présents
+    (fallback : origine) via mathutils, pour éviter un rendu vide/gris.
     """
     render_script_path = Path(request.output_dir) / "render_preview.py"
     render_script = (
         f'import bpy\n'
+        f'from mathutils import Vector\n'
+        f'\n'
+        f'# -- Caméra active : créer si absente --\n'
+        f'cam_obj = bpy.context.scene.camera\n'
+        f'if cam_obj is None:\n'
+        f'    bpy.ops.object.camera_add(location=(7, -7, 5))\n'
+        f'    cam_obj = bpy.context.object\n'
+        f'    bpy.context.scene.camera = cam_obj\n'
+        f'\n'
+        f'# -- Cible : centre des MESH, fallback origine --\n'
+        f'mesh_objects = [o for o in bpy.context.scene.objects if o.type == "MESH"]\n'
+        f'if mesh_objects:\n'
+        f'    target = sum(\n'
+        f'        (Vector(o.location) for o in mesh_objects),\n'
+        f'        Vector((0.0, 0.0, 0.0)),\n'
+        f'    ) / len(mesh_objects)\n'
+        f'else:\n'
+        f'    target = Vector((0.0, 0.0, 0.0))\n'
+        f'\n'
+        f'# -- Orienter la caméra vers la cible --\n'
+        f'direction = target - Vector(cam_obj.location)\n'
+        f'if direction.length > 0:\n'
+        f'    cam_obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()\n'
+        f'\n'
+        f'# -- Rendu PNG --\n'
         f'bpy.context.scene.render.image_settings.file_format = "PNG"\n'
         f'bpy.context.scene.render.filepath = r"{request.render_path}"\n'
         f'bpy.ops.render.render(write_still=True)\n'
