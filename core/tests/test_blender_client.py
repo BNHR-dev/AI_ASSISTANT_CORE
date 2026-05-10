@@ -203,12 +203,49 @@ def test_inject_output_path_replaces_hardcoded():
     result = _inject_output_path(script, "/controlled/scene.blend")
     assert "/hardcoded/path.blend" not in result
     assert "OUTPUT_BLEND_PATH" in result
-    # Ne doit pas avoir deux save_as_mainfile
-    assert result.count("save_as_mainfile") == 1
+    # Le bloc canonique final est toujours ajouté → au moins 2 occurrences de save_as_mainfile
+    assert result.count("save_as_mainfile") >= 2
+    # La dernière sauvegarde utilise le chemin canonique en littéral
+    assert r'filepath=r"/controlled/scene.blend"' in result
 
 
 def test_inject_output_path_no_double_save():
-    """Si save_as_mainfile est déjà présent avec OUTPUT_BLEND_PATH, ne pas le dupliquer."""
+    """Le bloc canonique final est toujours ajouté, même si save_as_mainfile était déjà présent."""
     script = "import bpy\nbpy.ops.wm.save_as_mainfile(filepath=OUTPUT_BLEND_PATH)"
     result = _inject_output_path(script, "/tmp/scene.blend")
-    assert result.count("save_as_mainfile") == 1
+    # Le bloc final est ajouté → 2 occurrences minimum
+    assert result.count("save_as_mainfile") >= 2
+    # La dernière sauvegarde est le chemin canonique en littéral
+    assert r'filepath=r"/tmp/scene.blend"' in result
+
+
+def test_inject_output_path_llm_overwrites_variable():
+    """
+    Reproduit le bug terrain : le LLM réécrit OUTPUT_BLEND_PATH = "output_scene.blend"
+    et appelle save_as_mainfile(filepath=OUTPUT_BLEND_PATH).
+    Le pipeline doit quand même forcer la sauvegarde vers le chemin canonique.
+    """
+    canonical = "outputs/blender/test-uuid-1234/scene.blend"
+    # Script LLM qui réécrit la variable et l'utilise dans save_as_mainfile
+    llm_script = (
+        'import bpy\n'
+        'OUTPUT_BLEND_PATH = "output_scene.blend"\n'
+        'bpy.ops.mesh.primitive_cube_add()\n'
+        'bpy.ops.wm.save_as_mainfile(filepath=OUTPUT_BLEND_PATH)\n'
+    )
+    result = _inject_output_path(llm_script, canonical)
+
+    # Le chemin canonique doit apparaître en string littérale dans le résultat final
+    assert f'r"{canonical}"' in result
+
+    # La dernière occurrence de save_as_mainfile doit pointer vers le chemin canonique littéral
+    last_save_idx = result.rfind("save_as_mainfile")
+    assert last_save_idx != -1
+    tail = result[last_save_idx:]
+    assert f'r"{canonical}"' in tail, (
+        f"La dernière sauvegarde ne pointe pas vers le chemin canonique.\nTail: {tail!r}"
+    )
+
+    # "output_scene.blend" ne doit pas être le chemin final utilisé dans save_as_mainfile
+    assert 'filepath="output_scene.blend"' not in tail
+    assert "filepath=OUTPUT_BLEND_PATH" not in tail

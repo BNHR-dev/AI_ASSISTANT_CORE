@@ -70,23 +70,30 @@ def _inject_output_path(script: str, output_path: str) -> str:
     Injecte OUTPUT_BLEND_PATH en tête du script (raw string pour les chemins Windows/Linux).
     Neutralise aussi tout save_as_mainfile avec un chemin hardcodé en le remplaçant
     par la version contrôlée.
-    Si le script ne contient pas save_as_mainfile, l'ajoute à la fin.
+    Ajoute TOUJOURS un bloc de sauvegarde forcée à la fin du script, avec le chemin
+    canonique en string littérale — indépendant de OUTPUT_BLEND_PATH.
+    Ainsi, même si le LLM réécrit OUTPUT_BLEND_PATH ou utilise une variable,
+    la dernière sauvegarde pointe toujours vers le chemin attendu par le backend.
     """
-    # Définir la variable en tête
+    # Définir la variable en tête (pour les scripts qui l'utilisent correctement)
     header = f'OUTPUT_BLEND_PATH = r"{output_path}"\n'
 
-    # Remplacer les éventuels save_as_mainfile(filepath=...) hardcodés
+    # Remplacer les éventuels save_as_mainfile(filepath="literal") hardcodés
     script = re.sub(
         r'bpy\.ops\.wm\.save_as_mainfile\s*\(\s*filepath\s*=\s*["\'][^"\']*["\']\s*\)',
         "bpy.ops.wm.save_as_mainfile(filepath=OUTPUT_BLEND_PATH)",
         script,
     )
 
-    # Ajouter save_as_mainfile si absent
-    if "save_as_mainfile" not in script:
-        script = script + "\nbpy.ops.wm.save_as_mainfile(filepath=OUTPUT_BLEND_PATH)\n"
+    # Bloc de sauvegarde forcée vers le chemin canonique (string littérale, pas une variable).
+    # Ajouté APRÈS tout le code LLM : le LLM ne peut pas l'écraser.
+    canonical_save = (
+        f'\n# -- aicore: forced canonical save --\n'
+        f'import bpy as _bpy\n'
+        f'_bpy.ops.wm.save_as_mainfile(filepath=r"{output_path}")\n'
+    )
 
-    return header + script
+    return header + script + canonical_save
 
 
 def build_blender_script(
