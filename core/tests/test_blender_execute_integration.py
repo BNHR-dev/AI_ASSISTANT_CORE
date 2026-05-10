@@ -14,11 +14,14 @@ _FAKE_OUTPUT_PATH = f"outputs/blender/{_FAKE_REQUEST_ID}/scene.blend"
 _FAKE_SCRIPT_PATH = f"outputs/blender/{_FAKE_REQUEST_ID}/scene.py"
 _FAKE_OUTPUT_DIR = f"outputs/blender/{_FAKE_REQUEST_ID}"
 
+_FAKE_RENDER_PATH = f"outputs/blender/{_FAKE_REQUEST_ID}/preview.png"
+
 _FAKE_BLENDER_REQUEST = BlenderRequest(
     request_id=_FAKE_REQUEST_ID,
     script_content="import bpy",
     script_path=_FAKE_SCRIPT_PATH,
     output_path=_FAKE_OUTPUT_PATH,
+    render_path=_FAKE_RENDER_PATH,
     output_dir=_FAKE_OUTPUT_DIR,
     timeout=60,
 )
@@ -28,6 +31,7 @@ _FAKE_BLENDER_RESULT_SUCCESS = BlenderResult(
     request_id=_FAKE_REQUEST_ID,
     script_path=_FAKE_SCRIPT_PATH,
     output_path=_FAKE_OUTPUT_PATH,
+    render_path=_FAKE_RENDER_PATH,
     output_dir=_FAKE_OUTPUT_DIR,
     returncode=0,
     stdout="Blender saved\n",
@@ -99,12 +103,22 @@ def test_execute_blender_error_is_none_on_success():
     assert result.get("blender_error") is None
 
 
+def test_execute_blender_render_path_exposed():
+    """blender_render_path est exposé dans le résultat quand le PNG existe."""
+    result = _run_with_mocks(
+        "crée une scène Blender avec un cube",
+        _FAKE_BLENDER_RESULT_SUCCESS,
+    )
+    assert result.get("blender_render_path") == _FAKE_RENDER_PATH
+
+
 def test_execute_blender_not_found_no_artifact():
     blender_not_found = BlenderResult(
         status="blender_not_found",
         request_id=_FAKE_REQUEST_ID,
         script_path=_FAKE_SCRIPT_PATH,
         output_path=None,
+        render_path=None,
         output_dir=_FAKE_OUTPUT_DIR,
         returncode=None,
         stdout=None,

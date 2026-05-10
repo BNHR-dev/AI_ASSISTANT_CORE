@@ -133,4 +133,5 @@ class ExecuteResponse(BaseModel):
     blender_stdout: Optional[str] = None
     blender_stderr: Optional[str] = None
     blender_error: Optional[str] = None
+    blender_render_path: Optional[str] = None
     output: str

@@ -49,7 +49,7 @@ Recette obligatoire :
 
 Interdits stricts :
 - Ne jamais utiliser de chemins hardcodés pour les fichiers de sortie.
-- Ne jamais appeler bpy.ops.render.render() ni lancer de rendu image.
+- Ne pas appeler bpy.ops.render.render() librement — le pipeline gère le rendu via OUTPUT_RENDER_PATH.
 - Ne pas utiliser import sys, os pour modifier les chemins de sortie.
 - Ne pas utiliser bpy.path.abspath() pour construire le chemin de sortie.
 
@@ -86,37 +86,39 @@ def _extract_python_from_markdown(text: str) -> str:
     return text.strip()
 
 
-def _inject_output_path(script: str, output_path: str) -> str:
+def _inject_output_paths(script: str, output_path: str, render_path: str) -> str:
     """
     Enveloppe le script LLM dans un try/finally pour garantir :
-    1. La sauvegarde canonique même si le script LLM plante.
+    1. La sauvegarde canonique .blend même si le script LLM plante.
     2. Un contenu minimal (mesh, caméra, lumière) si le LLM a produit une scène vide.
+    3. Un rendu PNG preview canonique après la sauvegarde .blend.
 
     Structure produite :
 
-        OUTPUT_BLEND_PATH = r"<chemin canonique>"
+        OUTPUT_BLEND_PATH = r"<output_path>"
+        OUTPUT_RENDER_PATH = r"<render_path>"
 
         try:
             <script LLM indenté>
         finally:
             import bpy as _bpy
-            # fallback mesh
-            if not any(o.type == "MESH" for o in _bpy.context.scene.objects):
-                _bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 0))
-            # fallback caméra
-            if not any(o.type == "CAMERA" for o in _bpy.context.scene.objects):
-                _bpy.ops.object.camera_add(location=(7, -7, 5))
-                _bpy.context.scene.camera = _bpy.context.object
-            # fallback lumière
-            if not any(o.type == "LIGHT" for o in _bpy.context.scene.objects):
-                _bpy.ops.object.light_add(type="SUN", location=(4, 4, 6))
-            _bpy.ops.wm.save_as_mainfile(filepath=r"<chemin canonique>")
+            # fallbacks mesh / caméra / lumière
+            ...
+            # sauvegarde canonique .blend
+            _bpy.ops.wm.save_as_mainfile(filepath=r"<output_path>")
+            # rendu PNG preview
+            _bpy.context.scene.render.image_settings.file_format = 'PNG'
+            _bpy.context.scene.render.filepath = r"<render_path>"
+            _bpy.ops.render.render(write_still=True)
 
-    Le finally utilise le chemin canonique en string littérale — jamais OUTPUT_BLEND_PATH.
-    Les fallbacks ne suppriment ni n'écrasent les objets déjà créés par le LLM.
+    Les chemins sont injektés en string littérales — jamais via des variables LLM.
+    Le PNG est best-effort : son absence ne bloque pas le pipeline.
     """
-    # Définir la variable en tête (pour les scripts qui l'utilisent correctement)
-    header = f'OUTPUT_BLEND_PATH = r"{output_path}"\n\n'
+    # Variables en tête (pour les scripts qui les utilisent correctement)
+    header = (
+        f'OUTPUT_BLEND_PATH = r"{output_path}"\n'
+        f'OUTPUT_RENDER_PATH = r"{render_path}"\n\n'
+    )
 
     # Remplacer les éventuels save_as_mainfile(filepath="literal") hardcodés dans le script LLM
     script = re.sub(
@@ -128,7 +130,7 @@ def _inject_output_path(script: str, output_path: str) -> str:
     # Indenter le script LLM pour l'intégrer dans le try
     indented_script = textwrap.indent(script, "    ")
 
-    # Bloc finally : fallback contenu minimal + sauvegarde canonique
+    # Bloc finally : fallbacks + sauvegarde .blend canonique + rendu PNG
     finally_block = (
         f'finally:\n'
         f'    import bpy as _bpy\n'
@@ -142,6 +144,10 @@ def _inject_output_path(script: str, output_path: str) -> str:
         f'        _bpy.ops.object.light_add(type="SUN", location=(4, 4, 6))\n'
         f'    # -- aicore: forced canonical save --\n'
         f'    _bpy.ops.wm.save_as_mainfile(filepath=r"{output_path}")\n'
+        f'    # -- aicore: PNG preview render --\n'
+        f'    _bpy.context.scene.render.image_settings.file_format = "PNG"\n'
+        f'    _bpy.context.scene.render.filepath = r"{render_path}"\n'
+        f'    _bpy.ops.render.render(write_still=True)\n'
     )
 
     return header + "try:\n" + indented_script + "\n" + finally_block
@@ -162,12 +168,13 @@ def build_blender_script(
 
     script_path = str(output_dir / "scene.py")
     output_path = str(output_dir / "scene.blend")
+    render_path = str(output_dir / "preview.png")
 
     prompt = f"{_BLENDER_SYSTEM_PROMPT}\n\nDemande utilisateur : {message}"
     raw_response = generate_with_ollama("qwen2.5-coder:7b", prompt)
 
     raw_code = _extract_python_from_markdown(raw_response)
-    final_script = _inject_output_path(raw_code, output_path)
+    final_script = _inject_output_paths(raw_code, output_path, render_path)
 
     Path(script_path).write_text(final_script, encoding="utf-8")
 
@@ -176,6 +183,7 @@ def build_blender_script(
         script_content=final_script,
         script_path=script_path,
         output_path=output_path,
+        render_path=render_path,
         output_dir=str(output_dir),
         timeout=BLENDER_TIMEOUT,
     )
@@ -195,6 +203,7 @@ def run_blender_script(request: BlenderRequest) -> BlenderResult:
             request_id=request.request_id,
             script_path=request.script_path,
             output_path=None,
+            render_path=None,
             output_dir=request.output_dir,
             returncode=None,
             stdout=None,
@@ -215,6 +224,7 @@ def run_blender_script(request: BlenderRequest) -> BlenderResult:
             request_id=request.request_id,
             script_path=request.script_path,
             output_path=None,
+            render_path=None,
             output_dir=request.output_dir,
             returncode=None,
             stdout=None,
@@ -231,6 +241,7 @@ def run_blender_script(request: BlenderRequest) -> BlenderResult:
             request_id=request.request_id,
             script_path=request.script_path,
             output_path=None,
+            render_path=None,
             output_dir=request.output_dir,
             returncode=proc.returncode,
             stdout=stdout,
@@ -245,6 +256,7 @@ def run_blender_script(request: BlenderRequest) -> BlenderResult:
             request_id=request.request_id,
             script_path=request.script_path,
             output_path=None,
+            render_path=None,
             output_dir=request.output_dir,
             returncode=proc.returncode,
             stdout=stdout,
@@ -252,11 +264,15 @@ def run_blender_script(request: BlenderRequest) -> BlenderResult:
             error="Blender completed but no .blend file was produced.",
         )
 
+    # PNG preview : best-effort — son absence ne bloque pas le pipeline
+    render_path = request.render_path if Path(request.render_path).exists() else None
+
     return BlenderResult(
         status="success",
         request_id=request.request_id,
         script_path=request.script_path,
         output_path=request.output_path,
+        render_path=render_path,
         output_dir=request.output_dir,
         returncode=proc.returncode,
         stdout=stdout,

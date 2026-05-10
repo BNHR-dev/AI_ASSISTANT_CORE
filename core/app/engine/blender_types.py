@@ -9,6 +9,7 @@ class BlenderRequest:
     script_content: str   # code bpy généré, extrait du markdown
     script_path: str      # outputs/blender/<request_id>/scene.py  (imposé système)
     output_path: str      # outputs/blender/<request_id>/scene.blend (imposé système)
+    render_path: str      # outputs/blender/<request_id>/preview.png (imposé système)
     output_dir: str       # outputs/blender/<request_id>/
     timeout: int          # BLENDER_TIMEOUT, défaut 60
 
@@ -19,6 +20,7 @@ class BlenderResult:
     request_id: str
     script_path: str | None
     output_path: str | None   # chemin vers le .blend produit si success
+    render_path: str | None   # chemin vers le PNG preview si produit (best-effort)
     output_dir: str | None
     returncode: int | None
     stdout: str | None

@@ -720,6 +720,7 @@ def execute_step(state: ExecutionState, step: PlanStep) -> StepResult:
                     "request_id": result.request_id,
                     "script_path": result.script_path,
                     "output_path": result.output_path,
+                    "render_path": result.render_path,
                     "output_dir": result.output_dir,
                     "returncode": result.returncode,
                     "stdout": result.stdout,

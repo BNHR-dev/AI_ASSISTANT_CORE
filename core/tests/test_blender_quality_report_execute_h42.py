@@ -45,6 +45,7 @@ def test_quality_report_does_not_block_execute_assembly(monkeypatch):
         script_content=_GOOD_SCRIPT,
         script_path=f"{fake_output_dir}/scene.py",
         output_path=f"{fake_output_dir}/scene.blend",
+        render_path=f"{fake_output_dir}/preview.png",
         output_dir=fake_output_dir,
         timeout=60,
     )
@@ -53,6 +54,7 @@ def test_quality_report_does_not_block_execute_assembly(monkeypatch):
         request_id=fake_request_id,
         script_path=f"{fake_output_dir}/scene.py",
         output_path=f"{fake_output_dir}/scene.blend",
+        render_path=None,
         output_dir=fake_output_dir,
         returncode=0,
         stdout=_GOOD_SCRIPT,
@@ -95,6 +97,7 @@ def test_execute_request_bad_blender_script_has_violations(monkeypatch):
         script_content=_BAD_SCRIPT,
         script_path=f"{fake_output_dir}/scene.py",
         output_path=f"{fake_output_dir}/scene.blend",
+        render_path=f"{fake_output_dir}/preview.png",
         output_dir=fake_output_dir,
         timeout=60,
     )
@@ -103,6 +106,7 @@ def test_execute_request_bad_blender_script_has_violations(monkeypatch):
         request_id=fake_request_id,
         script_path=f"{fake_output_dir}/scene.py",
         output_path=f"{fake_output_dir}/scene.blend",
+        render_path=None,
         output_dir=fake_output_dir,
         returncode=0,
         stdout=_BAD_SCRIPT,

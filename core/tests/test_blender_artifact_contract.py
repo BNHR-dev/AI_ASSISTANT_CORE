@@ -33,6 +33,16 @@ def test_blender_fields_optional_by_default():
     assert resp.blender_stdout is None
     assert resp.blender_stderr is None
     assert resp.blender_error is None
+    assert resp.blender_render_path is None
+
+
+def test_blender_render_path_populated():
+    """blender_render_path peut être peuplé quand le PNG existe."""
+    resp = ExecuteResponse(**_base_response(
+        blender_status="success",
+        blender_render_path="outputs/blender/abc/preview.png",
+    ))
+    assert resp.blender_render_path == "outputs/blender/abc/preview.png"
 
 
 def test_blender_fields_populated():
