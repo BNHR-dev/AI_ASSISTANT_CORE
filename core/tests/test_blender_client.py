@@ -192,30 +192,46 @@ def test_extract_python_fallback_no_block():
 
 
 def test_inject_output_path_adds_header():
+    """Le header OUTPUT_BLEND_PATH et un save_as_mainfile sont toujours présents."""
     script = "import bpy\nbpy.ops.mesh.primitive_cube_add()"
     result = _inject_output_path(script, "/tmp/scene.blend")
     assert 'OUTPUT_BLEND_PATH = r"/tmp/scene.blend"' in result
     assert "save_as_mainfile" in result
 
 
+def test_inject_output_path_produces_try_finally():
+    """_inject_output_path doit produire un bloc try/finally."""
+    script = "import bpy\nbpy.ops.mesh.primitive_cube_add()"
+    result = _inject_output_path(script, "/tmp/scene.blend")
+    assert "try:" in result
+    assert "finally:" in result
+
+
+def test_inject_output_path_finally_contains_canonical_literal():
+    """Le bloc finally doit contenir le chemin canonique en string littérale."""
+    canonical = "/tmp/outputs/blender/uuid-123/scene.blend"
+    script = "import bpy\nbpy.ops.mesh.primitive_cube_add()"
+    result = _inject_output_path(script, canonical)
+    finally_idx = result.index("finally:")
+    finally_block = result[finally_idx:]
+    assert f'r"{canonical}"' in finally_block
+    assert "save_as_mainfile" in finally_block
+
+
 def test_inject_output_path_replaces_hardcoded():
+    """Les save_as_mainfile avec chemin hardcodé dans le LLM sont neutralisés."""
     script = 'import bpy\nbpy.ops.wm.save_as_mainfile(filepath="/hardcoded/path.blend")'
     result = _inject_output_path(script, "/controlled/scene.blend")
     assert "/hardcoded/path.blend" not in result
-    assert "OUTPUT_BLEND_PATH" in result
-    # Le bloc canonique final est toujours ajouté → au moins 2 occurrences de save_as_mainfile
-    assert result.count("save_as_mainfile") >= 2
-    # La dernière sauvegarde utilise le chemin canonique en littéral
+    # Le finally contient le chemin canonique en littéral
     assert r'filepath=r"/controlled/scene.blend"' in result
 
 
 def test_inject_output_path_no_double_save():
-    """Le bloc canonique final est toujours ajouté, même si save_as_mainfile était déjà présent."""
+    """Même si save_as_mainfile était déjà présent, le finally force le chemin canonique."""
     script = "import bpy\nbpy.ops.wm.save_as_mainfile(filepath=OUTPUT_BLEND_PATH)"
     result = _inject_output_path(script, "/tmp/scene.blend")
-    # Le bloc final est ajouté → 2 occurrences minimum
-    assert result.count("save_as_mainfile") >= 2
-    # La dernière sauvegarde est le chemin canonique en littéral
+    assert "finally:" in result
     assert r'filepath=r"/tmp/scene.blend"' in result
 
 
@@ -223,10 +239,9 @@ def test_inject_output_path_llm_overwrites_variable():
     """
     Reproduit le bug terrain : le LLM réécrit OUTPUT_BLEND_PATH = "output_scene.blend"
     et appelle save_as_mainfile(filepath=OUTPUT_BLEND_PATH).
-    Le pipeline doit quand même forcer la sauvegarde vers le chemin canonique.
+    Même si le script LLM plante avant la fin, le finally garantit la sauvegarde canonique.
     """
     canonical = "outputs/blender/test-uuid-1234/scene.blend"
-    # Script LLM qui réécrit la variable et l'utilise dans save_as_mainfile
     llm_script = (
         'import bpy\n'
         'OUTPUT_BLEND_PATH = "output_scene.blend"\n'
@@ -235,17 +250,40 @@ def test_inject_output_path_llm_overwrites_variable():
     )
     result = _inject_output_path(llm_script, canonical)
 
-    # Le chemin canonique doit apparaître en string littérale dans le résultat final
-    assert f'r"{canonical}"' in result
+    # try/finally présent
+    assert "try:" in result
+    assert "finally:" in result
 
-    # La dernière occurrence de save_as_mainfile doit pointer vers le chemin canonique littéral
-    last_save_idx = result.rfind("save_as_mainfile")
-    assert last_save_idx != -1
-    tail = result[last_save_idx:]
-    assert f'r"{canonical}"' in tail, (
-        f"La dernière sauvegarde ne pointe pas vers le chemin canonique.\nTail: {tail!r}"
+    # Le bloc finally contient le chemin canonique en string littérale
+    finally_idx = result.index("finally:")
+    finally_block = result[finally_idx:]
+    assert f'r"{canonical}"' in finally_block, (
+        f"Le finally ne contient pas le chemin canonique.\nFinally: {finally_block!r}"
     )
 
-    # "output_scene.blend" ne doit pas être le chemin final utilisé dans save_as_mainfile
-    assert 'filepath="output_scene.blend"' not in tail
-    assert "filepath=OUTPUT_BLEND_PATH" not in tail
+    # La dernière sauvegarde (dans finally) n'utilise pas la variable corrompue
+    assert 'filepath="output_scene.blend"' not in finally_block
+    assert "filepath=OUTPUT_BLEND_PATH" not in finally_block
+
+
+def test_inject_output_path_llm_crash_before_save():
+    """
+    Vérifie la structure : même si le script LLM ne contient aucun save_as_mainfile,
+    le finally force quand même la sauvegarde canonique.
+    Simule un script LLM qui plante (AttributeError) avant toute sauvegarde.
+    """
+    canonical = "outputs/blender/crash-uuid/scene.blend"
+    llm_script = (
+        'import bpy\n'
+        '# Script invalide : accès à un attribut inexistant\n'
+        'mesh = bpy.data.meshes.new("TestMesh")\n'
+        'print(mesh.dimensions)  # AttributeError sur certaines versions\n'
+    )
+    result = _inject_output_path(llm_script, canonical)
+
+    assert "try:" in result
+    assert "finally:" in result
+    finally_idx = result.index("finally:")
+    finally_block = result[finally_idx:]
+    assert f'r"{canonical}"' in finally_block
+    assert "save_as_mainfile" in finally_block

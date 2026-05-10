@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import textwrap
 from pathlib import Path
 
 from app.clients.ollama_client import generate_with_ollama
@@ -67,33 +68,44 @@ def _extract_python_from_markdown(text: str) -> str:
 
 def _inject_output_path(script: str, output_path: str) -> str:
     """
-    Injecte OUTPUT_BLEND_PATH en tête du script (raw string pour les chemins Windows/Linux).
-    Neutralise aussi tout save_as_mainfile avec un chemin hardcodé en le remplaçant
-    par la version contrôlée.
-    Ajoute TOUJOURS un bloc de sauvegarde forcée à la fin du script, avec le chemin
-    canonique en string littérale — indépendant de OUTPUT_BLEND_PATH.
-    Ainsi, même si le LLM réécrit OUTPUT_BLEND_PATH ou utilise une variable,
-    la dernière sauvegarde pointe toujours vers le chemin attendu par le backend.
+    Enveloppe le script LLM dans un try/finally pour garantir la sauvegarde canonique
+    même si le script LLM lève une exception avant d'atteindre sa propre sauvegarde.
+
+    Structure produite :
+
+        OUTPUT_BLEND_PATH = r"<chemin canonique>"
+
+        try:
+            <script LLM indenté>
+        finally:
+            import bpy as _bpy
+            _bpy.ops.wm.save_as_mainfile(filepath=r"<chemin canonique>")
+
+    Le finally utilise le chemin canonique en string littérale — jamais OUTPUT_BLEND_PATH.
+    Blender retourne 0 même si le script plante ; le finally garantit que scene.blend
+    est produit avant que le backend vérifie son existence.
     """
     # Définir la variable en tête (pour les scripts qui l'utilisent correctement)
-    header = f'OUTPUT_BLEND_PATH = r"{output_path}"\n'
+    header = f'OUTPUT_BLEND_PATH = r"{output_path}"\n\n'
 
-    # Remplacer les éventuels save_as_mainfile(filepath="literal") hardcodés
+    # Remplacer les éventuels save_as_mainfile(filepath="literal") hardcodés dans le script LLM
     script = re.sub(
         r'bpy\.ops\.wm\.save_as_mainfile\s*\(\s*filepath\s*=\s*["\'][^"\']*["\']\s*\)',
         "bpy.ops.wm.save_as_mainfile(filepath=OUTPUT_BLEND_PATH)",
         script,
     )
 
-    # Bloc de sauvegarde forcée vers le chemin canonique (string littérale, pas une variable).
-    # Ajouté APRÈS tout le code LLM : le LLM ne peut pas l'écraser.
-    canonical_save = (
-        f'\n# -- aicore: forced canonical save --\n'
-        f'import bpy as _bpy\n'
-        f'_bpy.ops.wm.save_as_mainfile(filepath=r"{output_path}")\n'
+    # Indenter le script LLM pour l'intégrer dans le try
+    indented_script = textwrap.indent(script, "    ")
+
+    # Bloc finally avec chemin canonique en string littérale
+    finally_block = (
+        f'finally:\n'
+        f'    import bpy as _bpy\n'
+        f'    _bpy.ops.wm.save_as_mainfile(filepath=r"{output_path}")\n'
     )
 
-    return header + script + canonical_save
+    return header + "try:\n" + indented_script + "\n" + finally_block
 
 
 def build_blender_script(
