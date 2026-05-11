@@ -42,10 +42,20 @@ Quand une information diverge, l’ordre de confiance est :
 
 Ne traite pas les fichiers legacy racine comme source métier si `app/*` dit autre chose.
 
+## Pipeline Blender
+
+Le pipeline Blender est expérimental mais fonctionnel. Il ne modifie pas les invariants du noyau routeur + planner + executor.
+
+- client canonique : `core/app/clients/blender_client.py`
+- sorties validées : `scene.py`, `scene.blend`, `preview.png` sous `outputs/blender/<uuid>/`
+- `scene.blend` est l'artefact canonique
+- `preview.png` est best-effort et non bloquant
+- le rendu preview est produit dans un subprocess séparé, distinct du script principal
+
 ## Règles de travail
 
 - Distinguer clairement code, doc, runtime déclaré host/VM, sécurité déclarée et legacy
-- Ne pas prétendre vérifier l’état live de la VM, du firewall ou de systemd si ce n’est pas visible dans le repo
+- Ne pas prétendre vérifier l'état live de la VM, du firewall ou de systemd si ce n'est pas visible dans le repo
 - Signaler explicitement les ambiguïtés
 - Préférer les patchs courts et réversibles
 - Pour les tâches multi-fichiers ou ambiguës, commencer par un plan
