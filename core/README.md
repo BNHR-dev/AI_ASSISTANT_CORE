@@ -28,6 +28,7 @@ Capacités présentes dans le snapshot :
 - recherche web via SearXNG + synthèse LLM
 - vision via `qwen2.5vl:3b`
 - génération visuelle via ComfyUI
+- pipeline Blender expérimental (génération de scènes 3D côté VM)
 - compatibilité OpenAI pour OpenWebUI
 - santé runtime et frontières canoniques via API
 
@@ -63,11 +64,12 @@ Flux canonique :
 8. `result_assembler`
 9. `executor`
 
-Stratégies d’exécution réellement présentes :
+Stratégies d'exécution réellement présentes :
 - `single_step`
 - `two_step_llm`
 - `web_pipeline`
 - `visual_pipeline`
+- `blender_pipeline`
 
 Le projet doit donc être documenté comme :
 **routeur + planner + executor**, pas comme un backend de réponse unique.
@@ -131,6 +133,16 @@ Pour `image_generation`, les artefacts image sont intégrés dans `content` sous
 - `MAX_EMBED_IMAGES = 4` — `MAX_EMBED_BYTES_PER_IMAGE = 4 MiB`
 - `COMFYUI_VIEW_TIMEOUT` configurable via env var (défaut 15s)
 - `Content-Type` non-image depuis `/view` → rejeté, fallback texte
+
+## Pipeline Blender expérimental
+
+AI_ASSISTANT_CORE dispose désormais d'un pipeline Blender expérimental mais fonctionnel. Pour les demandes de création Blender, le backend peut générer un script `scene.py`, exécuter Blender côté VM, produire un artefact canonique `scene.blend` et générer un `preview.png` best-effort. Le preview est produit dans un subprocess séparé afin de ne pas polluer le script principal et de garder le fichier `.blend` comme artefact de référence.
+
+Points clés :
+- `scene.blend` est l'artefact canonique
+- `preview.png` est best-effort et ne doit pas rendre le pipeline global bloquant
+- `/health/runtime` peut rester `partial` si ComfyUI est indisponible, sans bloquer Blender
+- les fichiers sont produits sous `outputs/blender/<uuid>/`
 
 ## Gaps encore réels
 

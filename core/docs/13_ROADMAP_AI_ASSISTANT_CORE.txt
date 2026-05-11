@@ -31,6 +31,13 @@ Lecture correcte du snapshot :
 - surface `/execute` cohérente
 - contrats ComfyUI préservés
 
+### Pipeline Blender
+- pipeline Blender fonctionnel côté VM
+- génération de `scene.py`, `scene.blend` et `preview.png`
+- `scene.blend` comme artefact canonique
+- `preview.png` best-effort, produit dans un subprocess séparé
+- preview PNG lisible ; qualité visuelle encore améliorable
+
 ### Runtime post-VM
 - backend canonisé dans la VM via `systemd`
 - SearXNG canonisé dans la VM via `systemd` + Docker

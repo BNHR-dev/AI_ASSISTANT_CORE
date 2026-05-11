@@ -50,3 +50,4 @@ Ce que cela couvre en plus :
 - absence totale de dette documentaire ou debug surface drift
 - qualité métier parfaite des réponses LLM
 - UX finale OpenWebUI sur tous les cas visuels
+- qualité visuelle du preview Blender PNG (best-effort, non couvert par les gates actuelles)

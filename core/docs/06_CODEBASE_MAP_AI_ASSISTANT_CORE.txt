@@ -51,6 +51,7 @@
 - `app/clients/web_client.py`
 - `app/clients/comfyui_runtime.py`
 - `app/clients/comfyui_client.py`
+- `app/clients/blender_client.py`
 
 ### Visuel
 - `app/engine/visual_types.py`

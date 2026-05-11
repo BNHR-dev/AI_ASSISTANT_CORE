@@ -31,6 +31,13 @@ Lecture correcte du snapshot :
 - surface `/execute` cohérente
 - contrats ComfyUI préservés
 
+### Pipeline Blender
+- pipeline Blender fonctionnel côté VM
+- génération de `scene.py`, `scene.blend` et `preview.png`
+- `scene.blend` comme artefact canonique
+- `preview.png` best-effort, produit dans un subprocess séparé
+- preview PNG lisible ; qualité visuelle encore améliorable
+
 ### Runtime post-VM
 - backend canonisé dans la VM via `systemd`
 - SearXNG canonisé dans la VM via `systemd` + Docker
@@ -85,6 +92,14 @@ Une fois la consolidation documentaire terminée, la phase suivante la plus rent
 - clarification des profils runtime (`host-only`, `VM canonique`, `UI opérateur host`)
 - amélioration légère de la surface debug/runtime si nécessaire
 - meilleure lisibilité des exemples `.env` sans refondre le code
+
+## Améliorations Blender possibles
+
+Une fois le pipeline Blender stabilisé en usage, les améliorations les plus naturelles sont :
+- qualité visuelle du preview PNG
+- meilleurs templates bpy (matériaux, éclairage, composition)
+- inspection et validation des scènes générées
+- ouverture vers des workflows 3D plus avancés (multi-objets, animations, exports)
 
 ## Proto V2 contrôlé
 

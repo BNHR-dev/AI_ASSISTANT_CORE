@@ -21,13 +21,14 @@ Le snapshot 2026-04-13 se lit comme :
 - routing centralisé (`router_service`)
 - enrichissement contrôlé pour cas hybrides (`routing_conditions`)
 - mapping statique source de vérité (`TASK_ROUTING`)
-- planner d’exécution explicite
+- planner d'exécution explicite
 - exécution step-by-step
 - synthèse web via SearXNG + LLM
 - vision via `qwen2.5vl:3b`
 - génération visuelle via ComfyUI
+- pipeline Blender expérimental (génération de scènes 3D côté VM)
 - façade OpenAI-compatible pour OpenWebUI
-- prompts d’étape injectés par registre agent
+- prompts d'étape injectés par registre agent
 - santé runtime / frontières canoniques exposées par API
 
 ## Apports visuels session 4
@@ -39,11 +40,12 @@ Le snapshot 2026-04-13 se lit comme :
 - remontée explicite des variantes et du succès partiel
 - contrat ComfyUI préservé
 
-## Stratégies d’exécution réelles
+## Stratégies d'exécution réelles
 - `single_step`
 - `two_step_llm`
 - `web_pipeline`
 - `visual_pipeline`
+- `blender_pipeline`
 
 ## Topologie runtime canonique post-VM
 ### Dans la VM Hyper-V `AICORE-VM`

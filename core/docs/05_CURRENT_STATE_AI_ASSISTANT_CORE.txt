@@ -19,12 +19,13 @@ Le projet est dans un état intermédiaire solide :
 4. `result_assembler` masque le bruit et garde la sortie utile
 5. `/execute` expose `execution_strategy`, `execution_summary`, `plan`, `step_results`, timestamps et artefacts visuels
 6. le pipeline visuel expose désormais `workflow_id`, variantes, succès partiel et listes de fichiers
-7. `prepare_visual` remonte aussi l’analyse d’intention visuelle
+7. `prepare_visual` remonte aussi l'analyse d'intention visuelle
 8. les shims racine restent testés comme simples redirections vers le canonique
 9. le backend est désormais lancé dans la VM via `aicore-backend.service`
 10. SearXNG est désormais lancé dans la VM via Docker `searxng` (`restart: unless-stopped`)
-11. `/health/runtime` reflète la disponibilité d’Ollama, SearXNG et ComfyUI dans cette topologie host + VM
+11. `/health/runtime` reflète la disponibilité d'Ollama, SearXNG et ComfyUI dans cette topologie host + VM
 12. le chemin runtime Ollama validé côté VM est maintenant `http://192.168.77.1:12001`
+13. le pipeline Blender est fonctionnel côté VM : génère `scene.py`, `scene.blend` (artefact canonique) et `preview.png` (best-effort, subprocess séparé)
 
 ## Ce qui n’est pas encore complètement propre
 - le `portproxy` Ollama côté host reste une dépendance runtime canonique à court terme, mais encore transitoire dans la forme

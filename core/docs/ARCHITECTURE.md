@@ -86,13 +86,14 @@ Rôle : garder la sortie finale utile et masquer le bruit technique intermédiai
 
 Rôle : exposer la santé runtime et les frontières canoniques, sans rajouter une logique métier cachée.
 
-## Stratégies d’exécution
+## Stratégies d'exécution
 
-Le planner produit actuellement quatre stratégies réelles :
+Le planner produit actuellement cinq stratégies réelles :
 - `single_step`
 - `two_step_llm`
 - `web_pipeline`
 - `visual_pipeline`
+- `blender_pipeline`
 
 ## Architecture de déploiement post-VM
 
@@ -130,6 +131,20 @@ La VM n’ajoute pas une nouvelle logique métier. Elle ajoute une **forme de d�
 Ports, binds et URL canoniques : voir la section **Invariants runtime (référence canonique)** dans `docs/RUNBOOK_POST_VM.md`. Cette architecture ne les redéfinit pas pour éviter toute dérive.
 
 Dans le setup actuel, le raccord VM → Ollama repose sur un `portproxy` Windows. Ce `portproxy` est une **dépendance runtime canonique à court terme** mais **transitoire dans sa forme** — pas un invariant final de topologie. Le chemin direct VM → `192.168.77.1:12000` ne doit pas être documenté comme runtime validé.
+
+## Sous-système Blender (pipeline expérimental)
+
+Le pipeline Blender est rattaché à la couche clients/tools sans modifier le noyau routeur + planner + executor.
+
+- `app/clients/blender_client.py` — exécution Blender côté VM
+- le planner/executor existant route vers `blender_pipeline` pour les demandes 3D
+- les fichiers sont produits sous `outputs/blender/<uuid>/` :
+  - `scene.py` — script bpy généré
+  - `scene.blend` — artefact canonique
+  - `preview.png` — rendu best-effort, généré dans un subprocess séparé
+- le rendu preview est isolé dans un second subprocess pour ne pas polluer le script principal et garantir que `scene.blend` reste l'artefact de référence
+- `preview.png` ne doit pas rendre le pipeline global bloquant
+- `/health/runtime` peut rester `partial` si ComfyUI est indisponible sans bloquer Blender
 
 ## Sous-système visuel après session 4
 

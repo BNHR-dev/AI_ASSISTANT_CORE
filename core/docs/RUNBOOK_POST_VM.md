@@ -158,6 +158,57 @@ Invoke-RestMethod -Uri "http://192.168.77.10:8000/execute" -Method POST -Content
 OpenWebUI, **si utilisée**, est une UI opérateur optionnelle côté host.
 Elle **n'est pas** une composante du runtime principal canonique : le backend AI_ASSISTANT_CORE et sa façade `/v1/*` OpenAI-compatible sont complets sans elle. OpenWebUI consomme cette façade en HTTP comme n'importe quel client.
 
+## Section Blender
+
+### Vérifier l'installation Blender dans la VM
+```bash
+blender --version
+```
+
+### Vérifier le backend
+```bash
+curl -s http://192.168.77.10:8000/health
+curl -s http://192.168.77.10:8000/health/runtime
+# /health/runtime peut rester partial si ComfyUI est indisponible — non bloquant pour Blender
+```
+
+### Tester le pipeline Blender (PowerShell host)
+```powershell
+$payload = @{
+  message = "crée une scène Blender avec un cube métallique"
+  has_image = $false
+} | ConvertTo-Json -Compress
+
+$r = Invoke-RestMethod `
+  -Uri "http://192.168.77.10:8000/execute" `
+  -Method Post `
+  -ContentType "application/json; charset=utf-8" `
+  -Body $payload `
+  -TimeoutSec 300
+
+$r | Select-Object task_type, execution_strategy, selected_tool, blender_status, artifact_type, artifact_path, blender_render_path, blender_error
+```
+
+Résultat attendu :
+- `execution_strategy` = `blender_pipeline`
+- `blender_status` = `success`
+- `artifact_type` = `blend`
+- `artifact_path` = `outputs/blender/<uuid>/scene.blend`
+- `blender_render_path` = `outputs/blender/<uuid>/preview.png`
+
+### Vérifier les fichiers produits (dans la VM)
+```bash
+ls outputs/blender/<uuid>/
+# scene.py       ← script bpy généré
+# scene.blend    ← artefact canonique
+# preview.png    ← rendu best-effort, subprocess séparé
+```
+
+### Récupérer le preview.png sur le Bureau Windows
+```powershell
+scp "bnhr@192.168.77.10:/home/bnhr/aicore/projects/core/<CHEMIN_PREVIEW>" "$env:USERPROFILE\Desktop\preview.png"
+```
+
 ## À ne plus documenter comme vrai état
 - le chemin direct VM → `192.168.77.1:12000`
 - un runtime principal entièrement host-side

@@ -77,6 +77,11 @@ Retour :
 - `partial_visual_success`
 - `output`
 
+Champs supplémentaires pour `blender_pipeline` :
+- `blender_status` — `success` ou `error`
+- `blender_render_path` — chemin vers `preview.png` (best-effort)
+- `blender_error` — message d'erreur si échec
+
 ## Détail utile sur la session 4
 Le step `prepare_visual` enrichit `step_results[].meta` avec :
 - `workflow_id`
