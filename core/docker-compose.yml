@@ -1,7 +1,7 @@
 services:
 
   ollama:
-    image: ollama/ollama
+    image: ollama/ollama:0.5.7
     container_name: ollama
     gpus: all
     ports:
@@ -14,7 +14,7 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES}
       - OLLAMA_NUM_PARALLEL=7
   open-webui:
-    image: ghcr.io/open-webui/open-webui:main
+    image: ghcr.io/open-webui/open-webui:v0.9.5
     container_name: open-webui
     ports:
       - "${OPENWEBUI_PORT}:8080"
@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
 
   searxng:
-    image: searxng/searxng
+    image: searxng/searxng:2026.5.10-df1f24fb7
     container_name: searxng
     ports:
       - "127.0.0.1:${SEARXNG_PORT}:8080"
