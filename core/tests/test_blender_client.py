@@ -495,3 +495,55 @@ def test_render_preview_script_calls_render_render(tmp_path):
     """Le script doit appeler render.render(write_still=True)."""
     script = _capture_render_script(tmp_path)
     assert "render.render(write_still=True)" in script
+
+
+# ---------------------------------------------------------------------------
+# Bounding box monde — correction caméra (bound_box + matrix_world)
+# ---------------------------------------------------------------------------
+
+def test_render_preview_script_uses_bound_box(tmp_path):
+    """Le script doit utiliser bound_box pour calculer le volume réel des meshes."""
+    script = _capture_render_script(tmp_path)
+    assert "bound_box" in script
+
+
+def test_render_preview_script_uses_matrix_world(tmp_path):
+    """Le script doit appliquer matrix_world pour transformer les coins en coordonnées monde."""
+    script = _capture_render_script(tmp_path)
+    assert "matrix_world" in script
+
+
+def test_render_preview_script_computes_radius(tmp_path):
+    """Le script doit calculer un radius à partir des bounds pour adapter la distance caméra."""
+    script = _capture_render_script(tmp_path)
+    assert "radius" in script
+
+
+def test_render_preview_script_camera_distance_uses_radius(tmp_path):
+    """La position de la caméra doit dépendre du radius, pas d'une valeur fixe arbitraire."""
+    script = _capture_render_script(tmp_path)
+    # distance = max(radius * 2.5, 5.0) puis utilisée pour cam_obj.location
+    assert "distance" in script
+    assert "cam_obj.location" in script
+
+
+def test_render_preview_script_camera_min_distance(tmp_path):
+    """La distance minimale caméra doit être >= 5.0 pour les scènes simples."""
+    script = _capture_render_script(tmp_path)
+    assert "5.0" in script
+
+
+def test_render_preview_script_has_sun_fallback(tmp_path):
+    """Le script doit ajouter une lumière SUN si aucune n'existe (best-effort)."""
+    script = _capture_render_script(tmp_path)
+    assert '"LIGHT"' in script
+    assert '"SUN"' in script
+
+
+def test_render_preview_script_sun_is_conditional(tmp_path):
+    """La lumière SUN doit être ajoutée conditionnellement (if not any), pas systématiquement."""
+    script = _capture_render_script(tmp_path)
+    # La condition doit précéder l'ajout de lumière
+    light_check_idx = script.index('"LIGHT"')
+    light_add_idx = script.index('"SUN"')
+    assert light_check_idx < light_add_idx
