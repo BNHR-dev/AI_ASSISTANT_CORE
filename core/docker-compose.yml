@@ -3,6 +3,7 @@ services:
   ollama:
     image: ollama/ollama:0.5.7
     container_name: ollama
+    runtime: nvidia
     gpus: all
     ports:
       - "127.0.0.1:${OLLAMA_PORT}:11434"
