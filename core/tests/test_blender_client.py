@@ -547,3 +547,81 @@ def test_render_preview_script_sun_is_conditional(tmp_path):
     light_check_idx = script.index('"LIGHT"')
     light_add_idx = script.index('"SUN"')
     assert light_check_idx < light_add_idx
+
+
+# ---------------------------------------------------------------------------
+# Nouvelles garanties preview : moteur, résolution, fond world, clipping
+# ---------------------------------------------------------------------------
+
+def test_render_preview_script_sets_eevee_engine(tmp_path):
+    """Le script doit tenter de configurer le moteur EEVEE (robuste Blender 4.x et 5.x+)."""
+    script = _capture_render_script(tmp_path)
+    # Le script utilise une détection runtime pour choisir entre BLENDER_EEVEE et BLENDER_EEVEE_NEXT
+    assert "BLENDER_EEVEE" in script
+    assert "_eevee_engines" in script
+    assert "_available_engines" in script
+
+
+def test_render_preview_script_sets_resolution_512(tmp_path):
+    """La résolution doit être fixée à 512x512 pour une preview stable."""
+    script = _capture_render_script(tmp_path)
+    assert "resolution_x = 512" in script
+    assert "resolution_y = 512" in script
+    assert "resolution_percentage = 100" in script
+
+
+def test_render_preview_script_has_world_background(tmp_path):
+    """Le script doit configurer un fond world neutre (non noir) pour la preview."""
+    script = _capture_render_script(tmp_path)
+    assert "bpy.context.scene.world" in script
+    assert "use_nodes = True" in script
+    assert 'nodes.get("Background")' in script
+
+
+def test_render_preview_script_world_background_not_black(tmp_path):
+    """La couleur de fond ne doit pas être (0,0,0) — utiliser un gris sombre exploitable."""
+    script = _capture_render_script(tmp_path)
+    # Le fond est (0.05, 0.05, 0.05, 1.0) — pas (0, 0, 0)
+    assert "(0.0, 0.0, 0.0, 1.0)" not in script
+    assert "0.05" in script
+
+
+def test_render_preview_script_has_clip_start(tmp_path):
+    """Le script doit ajuster clip_start pour éviter les artefacts sur les petits objets."""
+    script = _capture_render_script(tmp_path)
+    assert "clip_start" in script
+
+
+def test_render_preview_script_has_clip_end(tmp_path):
+    """Le script doit ajuster clip_end pour éviter les coupures sur les grandes scènes."""
+    script = _capture_render_script(tmp_path)
+    assert "clip_end" in script
+
+
+def test_render_preview_script_clip_uses_distance(tmp_path):
+    """clip_start et clip_end doivent être calculés à partir de la distance caméra (pas hardcodés)."""
+    script = _capture_render_script(tmp_path)
+    # Les deux doivent référencer 'distance' pour être adaptatifs
+    clip_start_idx = script.index("clip_start")
+    clip_end_idx = script.index("clip_end")
+    # 'distance' doit apparaître après le calcul et avant le clip
+    distance_idx = script.index("distance = max(")
+    assert distance_idx < clip_start_idx
+    assert distance_idx < clip_end_idx
+
+
+def test_render_preview_script_resolution_before_render(tmp_path):
+    """La résolution doit être configurée avant l'appel render.render()."""
+    script = _capture_render_script(tmp_path)
+    res_idx = script.index("resolution_x = 512")
+    render_idx = script.index("render.render(write_still=True)")
+    assert res_idx < render_idx
+
+
+def test_render_preview_script_engine_before_render(tmp_path):
+    """La sélection du moteur de rendu doit précéder l'appel render.render()."""
+    script = _capture_render_script(tmp_path)
+    # La liste _eevee_engines marque le début de la sélection du moteur
+    engine_idx = script.index("_eevee_engines")
+    render_idx = script.index("render.render(write_still=True)")
+    assert engine_idx < render_idx
