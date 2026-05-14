@@ -9,6 +9,7 @@ from pathlib import Path
 
 from app.clients.ollama_client import generate_with_ollama
 from app.engine.blender_types import BlenderRequest, BlenderResult
+from app.engine.blender_templates import select_template, get_template_name
 
 
 BLENDER_EXE = os.getenv("BLENDER_EXE", "").strip()
@@ -164,7 +165,28 @@ def build_blender_script(
     output_path = str(output_dir / "scene.blend")
     render_path = str(output_dir / "preview.png")
 
-    prompt = f"{_BLENDER_SYSTEM_PROMPT}\n\nDemande utilisateur : {message}"
+    # Sélection de template — scaffold de blocking injecté si disponible.
+    # Le prompt système existant (_BLENDER_SYSTEM_PROMPT) est conservé intégralement.
+    # Le template s'ajoute comme section de scaffold contraignante après les règles.
+    template_scaffold = select_template(message)
+    selected_template_name = get_template_name(message)
+
+    if template_scaffold is not None:
+        prompt = (
+            f"{_BLENDER_SYSTEM_PROMPT}\n\n"
+            f"--- SCAFFOLD DE SCÈNE OBLIGATOIRE ---\n"
+            f"La demande correspond à un type de scène reconnu : {selected_template_name}.\n"
+            f"Tu DOIS utiliser le scaffold suivant comme base de ton script.\n"
+            f"Tu peux adapter les dimensions, matériaux, objets secondaires et noms selon la demande.\n"
+            f"Tu NE DOIS PAS supprimer : la caméra active, la lumière Key_Light, le sol, le sujet principal, "
+            f"la sauvegarde via OUTPUT_BLEND_PATH.\n\n"
+            f"{template_scaffold}\n"
+            f"--- FIN SCAFFOLD ---\n\n"
+            f"Demande utilisateur : {message}"
+        )
+    else:
+        prompt = f"{_BLENDER_SYSTEM_PROMPT}\n\nDemande utilisateur : {message}"
+
     raw_response = generate_with_ollama("qwen2.5-coder:7b", prompt)
 
     raw_code = _extract_python_from_markdown(raw_response)

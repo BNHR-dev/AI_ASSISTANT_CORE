@@ -60,6 +60,8 @@ ACTIVE_RUNTIME_MODULES = [
     "app/engine/output_contracts.py",
     "app/engine/blender_script_quality.py",
     "app/engine/blender_types.py",
+    "app/engine/blender_blocking_contract.py",
+    "app/engine/blender_templates.py",
     "app/engine/result_assembler.py",
     "app/engine/runtime_debug.py",
     "app/engine/visual_workflow_selector.py",
