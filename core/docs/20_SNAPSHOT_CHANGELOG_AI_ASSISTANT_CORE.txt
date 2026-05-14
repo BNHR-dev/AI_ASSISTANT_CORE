@@ -22,9 +22,30 @@
 - la place réelle de la session 4 visuelle dans le projet
 
 ## Ce qui a été corrigé dans le récit
-- la lecture “backend minimal” du projet
+- la lecture "backend minimal" du projet
 - la lecture trop purement Docker host-side du runtime
-- l’absence de la VM dans l’architecture produit finale
+- l'absence de la VM dans l'architecture produit finale
 - le flou entre runtime fonctionnel manuel et runtime canonique
 - le manque de séparation explicite entre host Windows, VM Hyper-V et services gardés sur le host
-- l’ancien faux invariant VM → Ollama `192.168.77.1:12000`
+- l'ancien faux invariant VM → Ollama `192.168.77.1:12000`
+
+## Phase "Blender preview consolidation + GPU Ollama" — clôturée
+
+HEAD local : `486751d` (fix docker: force nvidia runtime for ollama GPU offload)
+
+Commits de cette phase :
+- `486751d` — fix(docker): force nvidia runtime for ollama GPU offload
+- `3861861` — fix(blender): make preview EEVEE engine selection robust
+- `a88ec3e` — fix(blender): improve preview PNG framing via bounding box
+- `4c56e83` — security: restrict local Docker service bindings
+- `f232b59` — chore(repo): ignore temporary task handoff
+
+État runtime validé :
+- Ollama utilise la RTX 3060 (29/29 layers GPU)
+- `runtime: nvidia` présent dans `docker-compose.yml` HEAD
+- `/execute` Blender VM : success — `scene.blend` + `preview.png` produits
+- `/health/runtime` : partial (ComfyUI optional down, non bloquant)
+
+Prochaine action recommandée :
+- push GitHub si souhaité
+- puis choisir la prochaine micro-phase produit/dev
