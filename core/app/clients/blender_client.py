@@ -49,10 +49,17 @@ Recette obligatoire :
 8. Terminer par : bpy.ops.wm.save_as_mainfile(filepath=OUTPUT_BLEND_PATH)
 
 Interdits stricts :
+- Ne jamais définir ni réassigner OUTPUT_BLEND_PATH. Cette variable est injectée par le pipeline avant ton script.
+- Ne jamais écrire OUTPUT_BLEND_PATH = "..." ni OUTPUT_BLEND_PATH = '...' ni aucun placeholder de chemin.
 - Ne jamais utiliser de chemins hardcodés pour les fichiers de sortie.
 - Ne pas appeler bpy.ops.render.render() librement — le pipeline gère le rendu via OUTPUT_RENDER_PATH.
 - Ne pas utiliser import sys, os pour modifier les chemins de sortie.
 - Ne pas utiliser bpy.path.abspath() pour construire le chemin de sortie.
+
+Si la demande concerne un interior_space ou une scène intérieure :
+- Conserver impérativement les objets nommés : Floor_Plane, Wall_Back, Wall_Left, Wall_Right, Main_Subject, Camera, Key_Light.
+- Ne pas supprimer, renommer ni remplacer ces objets par d'autres noms.
+- Construire la scène en complétant ce scaffold, pas en le remplaçant par un script libre.
 
 Le script doit être autonome et exécutable via blender --background --python.
 Répondre uniquement avec le code Python, dans un bloc ```python ... ```.
@@ -87,6 +94,21 @@ def _extract_python_from_markdown(text: str) -> str:
     return text.strip()
 
 
+def _sanitize_output_blend_path(script: str) -> str:
+    """
+    Supprime toutes les réassignations LLM de OUTPUT_BLEND_PATH avec un chemin littéral.
+    Ex : OUTPUT_BLEND_PATH = "path_to_output_file.blend"  → supprimé
+         OUTPUT_BLEND_PATH = 'anything'                   → supprimé
+    Le header contrôlé injecté ensuite dans _inject_output_paths sera la seule définition.
+    """
+    return re.sub(
+        r"^\s*OUTPUT_BLEND_PATH\s*=\s*['\"].*['\"]\s*$",
+        "",
+        script,
+        flags=re.MULTILINE,
+    )
+
+
 def _inject_output_paths(script: str, output_path: str, render_path: str) -> str:
     """
     Enveloppe le script LLM dans un try/finally pour garantir :
@@ -112,6 +134,9 @@ def _inject_output_paths(script: str, output_path: str, render_path: str) -> str
 
     Les chemins sont injectés en string littérales — jamais via des variables LLM.
     """
+    # 0. Sanitize : supprimer les réassignations LLM de OUTPUT_BLEND_PATH (chemins littéraux)
+    script = _sanitize_output_blend_path(script)
+
     # Variables en tête (pour les scripts qui les utilisent correctement)
     header = (
         f'OUTPUT_BLEND_PATH = r"{output_path}"\n'

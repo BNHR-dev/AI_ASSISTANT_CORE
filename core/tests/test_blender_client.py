@@ -11,9 +11,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.clients.blender_client import (
+    _BLENDER_SYSTEM_PROMPT,
     _extract_python_from_markdown,
     _inject_output_paths,
     _render_preview,
+    _sanitize_output_blend_path,
     resolve_blender_exe,
     run_blender_script,
 )
@@ -625,3 +627,69 @@ def test_render_preview_script_engine_before_render(tmp_path):
     engine_idx = script.index("_eevee_engines")
     render_idx = script.index("render.render(write_still=True)")
     assert engine_idx < render_idx
+
+
+# ---------------------------------------------------------------------------
+# Sanitization OUTPUT_BLEND_PATH — protection déterministe contre les LLM
+# ---------------------------------------------------------------------------
+
+def test_sanitize_removes_double_quote_reassignment():
+    """OUTPUT_BLEND_PATH = "..." doit être supprimé par la sanitization."""
+    script = (
+        'import bpy\n'
+        'OUTPUT_BLEND_PATH = "path_to_output_file.blend"\n'
+        'bpy.ops.mesh.primitive_cube_add()\n'
+    )
+    result = _sanitize_output_blend_path(script)
+    assert 'OUTPUT_BLEND_PATH = "path_to_output_file.blend"' not in result
+    assert "import bpy" in result
+    assert "primitive_cube_add" in result
+
+
+def test_sanitize_removes_single_quote_reassignment():
+    """OUTPUT_BLEND_PATH = '...' (single quotes) doit être supprimé."""
+    script = (
+        "import bpy\n"
+        "OUTPUT_BLEND_PATH = 'output_scene.blend'\n"
+        "bpy.ops.mesh.primitive_cube_add()\n"
+    )
+    result = _sanitize_output_blend_path(script)
+    assert "OUTPUT_BLEND_PATH = 'output_scene.blend'" not in result
+    assert "primitive_cube_add" in result
+
+
+def test_inject_output_paths_only_one_output_blend_path_definition():
+    """
+    Après _inject_output_paths, le script final doit contenir exactement
+    une ligne OUTPUT_BLEND_PATH = ... (le header contrôlé).
+    """
+    import re as _re
+    script = (
+        "import bpy\n"
+        'OUTPUT_BLEND_PATH = "outputs/foo.blend"\n'
+        "bpy.ops.mesh.primitive_cube_add()\n"
+        "bpy.ops.wm.save_as_mainfile(filepath=OUTPUT_BLEND_PATH)\n"
+    )
+    result = _inject_output_paths(script, "/final/scene.blend", "/final/preview.png")
+    lines_with_def = [
+        line for line in result.splitlines()
+        if _re.match(r"\s*OUTPUT_BLEND_PATH\s*=", line)
+    ]
+    assert len(lines_with_def) == 1
+    assert r'OUTPUT_BLEND_PATH = r"/final/scene.blend"' in lines_with_def[0]
+
+
+def test_prompt_interior_space_contains_scaffold_names():
+    """Le prompt système doit mentionner les noms invariants du scaffold interior_space."""
+    scaffold_names = [
+        "Floor_Plane",
+        "Wall_Back",
+        "Wall_Left",
+        "Wall_Right",
+        "Main_Subject",
+        "Key_Light",
+    ]
+    for name in scaffold_names:
+        assert name in _BLENDER_SYSTEM_PROMPT, (
+            f"Le prompt système ne contient pas le nom de scaffold obligatoire : {name}"
+        )
