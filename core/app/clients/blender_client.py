@@ -10,6 +10,7 @@ from pathlib import Path
 from app.clients.ollama_client import generate_with_ollama
 from app.engine.blender_types import BlenderRequest, BlenderResult
 from app.engine.blender_templates import select_template, get_template_name
+from app.engine.blender_validator import inspect_blend_scene
 
 
 BLENDER_EXE = os.getenv("BLENDER_EXE", "").strip()
@@ -423,6 +424,13 @@ def run_blender_script(request: BlenderRequest) -> BlenderResult:
     # Un crash ou une erreur du rendu ne fait pas échouer le pipeline.
     render_path = _render_preview(exe, request)
 
+    # Validation structurelle best-effort : inspecte le .blend et produit scene_report.json.
+    # Timeout borné à min(request.timeout, 30) pour rester léger.
+    scene_report = inspect_blend_scene(
+        exe, request.output_path, request.output_dir, request.timeout
+    )
+    scene_report_path = scene_report.get("scene_report_path") if scene_report else None
+
     return BlenderResult(
         status="success",
         request_id=request.request_id,
@@ -434,4 +442,6 @@ def run_blender_script(request: BlenderRequest) -> BlenderResult:
         stdout=stdout,
         stderr=stderr,
         error=None,
+        scene_report=scene_report,
+        scene_report_path=scene_report_path,
     )

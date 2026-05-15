@@ -726,6 +726,8 @@ def execute_step(state: ExecutionState, step: PlanStep) -> StepResult:
                     "stdout": result.stdout,
                     "stderr": result.stderr,
                     "error": result.error,
+                    "scene_report": result.scene_report,
+                    "scene_report_path": result.scene_report_path,
                 },
             )
 

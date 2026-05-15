@@ -89,6 +89,8 @@ def _extract_blender_artifact(state) -> dict:
             "blender_stderr": meta.get("stderr"),
             "blender_error": meta.get("error"),
             "blender_render_path": meta.get("render_path"),
+            "blender_scene_report": meta.get("scene_report"),
+            "blender_scene_report_path": meta.get("scene_report_path"),
         }
 
     return {}

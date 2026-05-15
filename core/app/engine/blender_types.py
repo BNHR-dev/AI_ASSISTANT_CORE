@@ -26,3 +26,5 @@ class BlenderResult:
     stdout: str | None
     stderr: str | None
     error: str | None
+    scene_report: dict | None = None          # rapport structurel best-effort (blender_validator)
+    scene_report_path: str | None = None      # chemin vers scene_report.json si écrit

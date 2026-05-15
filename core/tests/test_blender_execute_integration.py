@@ -140,3 +140,63 @@ def test_execute_blender_strategy_is_blender_pipeline():
         _FAKE_BLENDER_RESULT_SUCCESS,
     )
     assert result.get("execution_strategy") == "blender_pipeline"
+
+
+def test_execute_exposes_blender_scene_report_key():
+    """blender_scene_report est présent dans le résultat /execute (peut être None si pas de mock)."""
+    result = _run_with_mocks(
+        "crée une scène Blender avec un cube",
+        _FAKE_BLENDER_RESULT_SUCCESS,
+    )
+    assert "blender_scene_report" in result
+
+
+def test_execute_blender_scene_report_passed_when_mocked():
+    """Quand BlenderResult porte un scene_report valide,
+    blender_scene_report est exposé avec status=passed dans /execute."""
+    _FAKE_REPORT = {
+        "status": "passed",
+        "violations": [],
+        "object_count": 3,
+        "mesh_count": 1,
+        "camera_count": 1,
+        "light_count": 1,
+        "has_active_camera": True,
+        "object_names": ["Cube", "Camera", "Key_Light"],
+        "scene_blend_exists": True,
+        "scene_py_exists": True,
+        "scene_report_path": f"{_FAKE_OUTPUT_DIR}/scene_report.json",
+    }
+
+    _FAKE_RESULT_WITH_REPORT = BlenderResult(
+        status="success",
+        request_id=_FAKE_REQUEST_ID,
+        script_path=_FAKE_SCRIPT_PATH,
+        output_path=_FAKE_OUTPUT_PATH,
+        render_path=_FAKE_RENDER_PATH,
+        output_dir=_FAKE_OUTPUT_DIR,
+        returncode=0,
+        stdout="Blender saved\n",
+        stderr="",
+        error=None,
+        scene_report=_FAKE_REPORT,
+        scene_report_path=_FAKE_REPORT["scene_report_path"],
+    )
+
+    result = _run_with_mocks(
+        "crée une scène Blender avec un cube",
+        _FAKE_RESULT_WITH_REPORT,
+    )
+    report = result.get("blender_scene_report")
+    assert report is not None, "blender_scene_report doit être exposé"
+    assert report["status"] == "passed"
+    assert report["violations"] == []
+
+
+def test_execute_exposes_blender_scene_report_path_key():
+    """blender_scene_report_path est présent dans le résultat /execute."""
+    result = _run_with_mocks(
+        "crée une scène Blender avec un cube",
+        _FAKE_BLENDER_RESULT_SUCCESS,
+    )
+    assert "blender_scene_report_path" in result
