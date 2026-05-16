@@ -6,12 +6,13 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class BlenderRequest:
     request_id: str
-    script_content: str   # code bpy généré, extrait du markdown
-    script_path: str      # outputs/blender/<request_id>/scene.py  (imposé système)
-    output_path: str      # outputs/blender/<request_id>/scene.blend (imposé système)
-    render_path: str      # outputs/blender/<request_id>/preview.png (imposé système)
-    output_dir: str       # outputs/blender/<request_id>/
-    timeout: int          # BLENDER_TIMEOUT, défaut 60
+    script_content: str        # code bpy généré, extrait du markdown
+    script_path: str           # outputs/blender/<request_id>/scene.py  (imposé système)
+    output_path: str           # outputs/blender/<request_id>/scene.blend (imposé système)
+    render_path: str           # outputs/blender/<request_id>/preview.png (imposé système)
+    output_dir: str            # outputs/blender/<request_id>/
+    timeout: int               # BLENDER_TIMEOUT, défaut 60
+    source_prompt: str | None = None  # prompt utilisateur brut — observabilité H.1
 
 
 @dataclass
@@ -28,3 +29,5 @@ class BlenderResult:
     error: str | None
     scene_report: dict | None = None          # rapport structurel best-effort (blender_validator)
     scene_report_path: str | None = None      # chemin vers scene_report.json si écrit
+    manifest_path: str | None = None          # chemin vers manifest.json — observabilité H.1
+    meta: dict | None = None                  # données enrichies (scene_report, etc.)

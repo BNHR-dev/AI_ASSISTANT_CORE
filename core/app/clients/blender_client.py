@@ -8,6 +8,7 @@ import textwrap
 from pathlib import Path
 
 from app.clients.ollama_client import generate_with_ollama
+from app.engine.artifact_manifest import write_blender_manifest
 from app.engine.blender_types import BlenderRequest, BlenderResult
 from app.engine.blender_templates import select_template, get_template_name
 from app.engine.blender_validator import inspect_blend_scene
@@ -228,6 +229,7 @@ def build_blender_script(
         render_path=render_path,
         output_dir=str(output_dir),
         timeout=BLENDER_TIMEOUT,
+        source_prompt=message,
     )
 
 
@@ -351,7 +353,16 @@ def run_blender_script(request: BlenderRequest) -> BlenderResult:
     Retourne un BlenderResult avec status, returncode, stdout, stderr.
     Pas de shell=True. Timeout configurable via BLENDER_TIMEOUT.
     Si Blender est absent : status blender_not_found, pas de crash.
+    Écrit manifest.json dans output_dir après chaque exécution (best-effort).
     """
+    result = _run_blender_script_inner(request)
+    manifest_path = write_blender_manifest(request, result)
+    result.manifest_path = manifest_path
+    return result
+
+
+def _run_blender_script_inner(request: BlenderRequest) -> BlenderResult:
+    """Logique d'exécution Blender pure, sans écriture du manifest."""
     exe = resolve_blender_exe()
     if exe is None:
         return BlenderResult(

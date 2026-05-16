@@ -136,4 +136,6 @@ class ExecuteResponse(BaseModel):
     blender_render_path: Optional[str] = None
     blender_scene_report: Optional[dict[str, Any]] = None
     blender_scene_report_path: Optional[str] = None
+    blender_manifest_path: Optional[str] = None
+    blender_manifest: Optional[Any] = None
     output: str

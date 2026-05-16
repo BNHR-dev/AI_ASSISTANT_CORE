@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
 
@@ -58,6 +60,16 @@ def _build_execution_summary(plan, state) -> dict:
     }
 
 
+def _load_manifest(manifest_path: str | None) -> dict | None:
+    """Charge manifest.json depuis le disque. Retourne None si absent ou illisible."""
+    if not manifest_path:
+        return None
+    try:
+        return json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _extract_blender_artifact(state) -> dict:
     for result in reversed(state.step_results):
         if result.step_type != "tool_blender":
@@ -91,6 +103,8 @@ def _extract_blender_artifact(state) -> dict:
             "blender_render_path": meta.get("render_path"),
             "blender_scene_report": meta.get("scene_report"),
             "blender_scene_report_path": meta.get("scene_report_path"),
+            "blender_manifest_path": meta.get("manifest_path"),
+            "blender_manifest": _load_manifest(meta.get("manifest_path")),
         }
 
     return {}

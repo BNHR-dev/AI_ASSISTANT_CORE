@@ -26,6 +26,20 @@ _FAKE_BLENDER_REQUEST = BlenderRequest(
     timeout=60,
 )
 
+_FAKE_MANIFEST_PATH = f"outputs/blender/{_FAKE_REQUEST_ID}/manifest.json"
+
+_FAKE_MANIFEST_DATA = {
+    "manifest_version": 1,
+    "pipeline": "blender",
+    "request_id": _FAKE_REQUEST_ID,
+    "status": "success",
+    "input": {"prompt": "crée une scène Blender avec un cube", "task_type": "blender_script"},
+    "artifacts": {},
+    "scene_report": {"status": "unavailable", "violations": []},
+    "execution": {"blender_status": "success", "blender_error": None},
+    "future": {"creative_intent": None, "template_used": None, "iteration_parent": None},
+}
+
 _FAKE_BLENDER_RESULT_SUCCESS = BlenderResult(
     status="success",
     request_id=_FAKE_REQUEST_ID,
@@ -37,10 +51,12 @@ _FAKE_BLENDER_RESULT_SUCCESS = BlenderResult(
     stdout="Blender saved\n",
     stderr="",
     error=None,
+    manifest_path=_FAKE_MANIFEST_PATH,
 )
 
 
 def _run_with_mocks(message: str, blender_result: BlenderResult):
+    import json
     from app.engine.executor import execute_request
 
     with (
@@ -56,6 +72,10 @@ def _run_with_mocks(message: str, blender_result: BlenderResult):
               return_value=_FAKE_BLENDER_REQUEST),
         patch("app.engine.step_executor.run_blender_script",
               return_value=blender_result),
+        patch(
+            "app.engine.executor.Path",
+            **{"return_value.read_text.return_value": json.dumps(_FAKE_MANIFEST_DATA)},
+        ),
     ):
         return execute_request(message)
 
@@ -200,3 +220,23 @@ def test_execute_exposes_blender_scene_report_path_key():
         _FAKE_BLENDER_RESULT_SUCCESS,
     )
     assert "blender_scene_report_path" in result
+
+
+def test_execute_exposes_blender_manifest_path():
+    result = _run_with_mocks(
+        "crée une scène Blender avec un cube",
+        _FAKE_BLENDER_RESULT_SUCCESS,
+    )
+    assert result.get("blender_manifest_path") == _FAKE_MANIFEST_PATH
+
+
+def test_execute_exposes_blender_manifest_with_expected_keys():
+    result = _run_with_mocks(
+        "crée une scène Blender avec un cube",
+        _FAKE_BLENDER_RESULT_SUCCESS,
+    )
+    manifest = result.get("blender_manifest")
+    assert isinstance(manifest, dict), f"Expected dict, got: {type(manifest)}"
+    assert manifest.get("manifest_version") == 1
+    assert manifest.get("pipeline") == "blender"
+    assert manifest.get("status") == "success"
