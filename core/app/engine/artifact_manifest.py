@@ -132,6 +132,9 @@ def write_blender_manifest(
 
     try:
         manifest_data = build_blender_manifest(request, result)
+        # Le manifest se déclare lui-même existant par construction :
+        # si write_text réussit, le fichier sera présent sur disque.
+        manifest_data["artifacts"]["manifest"]["exists"] = True
         manifest_path.write_text(
             json.dumps(manifest_data, ensure_ascii=False, indent=2),
             encoding="utf-8",
