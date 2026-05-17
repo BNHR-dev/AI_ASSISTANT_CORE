@@ -100,6 +100,7 @@ def build_blender_manifest(
             "scene_blend": _artifact_entry(result.output_path or _path("scene.blend")),
             "preview_png": _artifact_entry(_path("preview.png")),
             "scene_report": _artifact_entry(_path("scene_report.json")),
+            "intent_json": _artifact_entry(_path("intent.json")),
             "manifest": _artifact_entry(_path("manifest.json")),
         },
         "scene_report": _scene_report_section(result),
@@ -108,7 +109,7 @@ def build_blender_manifest(
             "blender_error": result.error,
         },
         "future": {
-            "creative_intent": None,
+            "creative_intent": getattr(request, "creative_intent", None),
             "template_used": None,
             "iteration_parent": None,
         },

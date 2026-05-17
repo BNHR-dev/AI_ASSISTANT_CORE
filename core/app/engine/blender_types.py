@@ -12,7 +12,8 @@ class BlenderRequest:
     render_path: str           # outputs/blender/<request_id>/preview.png (imposé système)
     output_dir: str            # outputs/blender/<request_id>/
     timeout: int               # BLENDER_TIMEOUT, défaut 60
-    source_prompt: str | None = None  # prompt utilisateur brut — observabilité H.1
+    source_prompt: str | None = None      # prompt utilisateur brut — observabilité H.1
+    creative_intent: dict | None = None   # intent artistique extrait — observabilité H.3
 
 
 @dataclass

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from app.clients.ollama_client import generate_with_ollama
 from app.engine.artifact_manifest import write_blender_manifest
+from app.engine.artistic_intent import parse_artistic_intent, write_intent_json
 from app.engine.blender_types import BlenderRequest, BlenderResult
 from app.engine.blender_templates import select_template, get_template_name
 from app.engine.blender_validator import inspect_blend_scene
@@ -192,6 +193,11 @@ def build_blender_script(
     output_path = str(output_dir / "scene.blend")
     render_path = str(output_dir / "preview.png")
 
+    # Extraction heuristique de l'intent artistique — H.3.
+    # Best-effort, non bloquant, aucun LLM supplémentaire.
+    intent = parse_artistic_intent(message)
+    write_intent_json(intent, str(output_dir))
+
     # Sélection de template — scaffold de blocking injecté si disponible.
     # Le prompt système existant (_BLENDER_SYSTEM_PROMPT) est conservé intégralement.
     # Le template s'ajoute comme section de scaffold contraignante après les règles.
@@ -230,6 +236,7 @@ def build_blender_script(
         output_dir=str(output_dir),
         timeout=BLENDER_TIMEOUT,
         source_prompt=message,
+        creative_intent=intent.model_dump(),
     )
 
 
