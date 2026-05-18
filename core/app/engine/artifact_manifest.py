@@ -110,7 +110,7 @@ def build_blender_manifest(
         },
         "future": {
             "creative_intent": getattr(request, "creative_intent", None),
-            "template_used": None,
+            "template_used": getattr(request, "template_used", None),
             "iteration_parent": None,
         },
     }

@@ -151,7 +151,7 @@ bpy.ops.wm.save_as_mainfile(filepath=OUTPUT_BLEND_PATH)
 
 
 # ---------------------------------------------------------------------------
-# Sélection de template
+# Sélection de template (par message brut — comportement historique)
 # ---------------------------------------------------------------------------
 
 def select_template(message: str) -> str | None:
@@ -176,5 +176,63 @@ def get_template_name(message: str) -> str | None:
     """
     msg_lower = message.lower()
     if any(kw in msg_lower for kw in _INTERIOR_KEYWORDS):
+        return "interior_space"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Sélection de template par creative_intent — H.4.1
+# ---------------------------------------------------------------------------
+# Sujets ArtisticIntent qui mappent vers interior_space.
+# Reste conservateur : seuls les sujets clairement "scène intérieure".
+_INTERIOR_INTENT_SUBJECTS = (
+    "laboratoire", "salle", "bureau", "office",
+    "room", "salon", "cuisine", "chambre",
+    "couloir", "corridor", "hall", "hangar",
+)
+
+
+def _intent_field(intent: object, name: str) -> object:
+    """Accès tolérant : ArtisticIntent (attr) ou dict (key). None si absent."""
+    if intent is None:
+        return None
+    if isinstance(intent, dict):
+        return intent.get(name)
+    return getattr(intent, name, None)
+
+
+def select_template_from_intent(intent: object) -> str | None:
+    """
+    Retourne le scaffold bpy à partir d'un ArtisticIntent ou son dict équivalent.
+    Retourne None si aucun template ne correspond → l'appelant peut alors
+    retomber sur select_template(message) pour préserver la rétrocompat.
+
+    Règle V1 (conservatrice) :
+      medium == "3d_scene" ET subject_main contient un mot-clé d'intérieur
+        → interior_space
+      sinon → None
+    """
+    if intent is None:
+        return None
+
+    medium = _intent_field(intent, "medium")
+    if medium != "3d_scene":
+        return None
+
+    subject_main = _intent_field(intent, "subject_main") or ""
+    if not isinstance(subject_main, str):
+        return None
+
+    subject_lower = subject_main.lower()
+    if any(kw in subject_lower for kw in _INTERIOR_INTENT_SUBJECTS):
+        return TEMPLATE_INTERIOR_SPACE
+
+    return None
+
+
+def get_template_name_from_intent(intent: object) -> str | None:
+    """Nom du template sélectionné via l'intent, ou None."""
+    scaffold = select_template_from_intent(intent)
+    if scaffold is TEMPLATE_INTERIOR_SPACE:
         return "interior_space"
     return None

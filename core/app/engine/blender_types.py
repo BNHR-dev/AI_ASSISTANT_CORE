@@ -14,6 +14,7 @@ class BlenderRequest:
     timeout: int               # BLENDER_TIMEOUT, défaut 60
     source_prompt: str | None = None      # prompt utilisateur brut — observabilité H.1
     creative_intent: dict | None = None   # intent artistique extrait — observabilité H.3
+    template_used: str | None = None      # nom du template appliqué — observabilité H.4.1
 
 
 @dataclass
