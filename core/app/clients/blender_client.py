@@ -33,6 +33,103 @@ _FALLBACK_PATHS = [
 # Le LLM doit écrire OUTPUT_BLEND_PATH dans ses appels wm.save_as_mainfile.
 _OUTPUT_BLEND_PLACEHOLDER = "OUTPUT_BLEND_PATH"
 
+# ---------------------------------------------------------------------------
+# H.4.3 — Creative guidance (Option C, hybride minimal)
+#
+# Habillage textuel court dérivé de l'intent artistique (style, mood,
+# composition_lighting uniquement). Ne touche jamais à la sélection de
+# template, ni aux scaffolds bpy, ni au manifest. Tolère ArtisticIntent
+# (Pydantic) ET dict. Retourne "" si rien à dire — dans ce cas
+# build_blender_script() n'injecte aucun bloc et le prompt reste
+# strictement identique à l'état H.4.2 (rétrocompat exacte).
+# ---------------------------------------------------------------------------
+
+_GUIDANCE_ALLOWED_FIELDS = ("style", "mood", "composition_lighting")
+
+
+def _intent_get(intent, field: str):
+    """Accès tolérant : ArtisticIntent (attr) ou dict (clé). None / inconnu → None."""
+    if intent is None:
+        return None
+    if isinstance(intent, dict):
+        return intent.get(field)
+    return getattr(intent, field, None)
+
+
+def _normalize_list_field(value) -> list[str]:
+    """Normalise un champ list[str] : filtre vide / 'unknown'. Tolère str unique."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        items = [value]
+    else:
+        try:
+            items = list(value)
+        except TypeError:
+            return []
+    cleaned: list[str] = []
+    for item in items:
+        if not isinstance(item, str):
+            continue
+        token = item.strip()
+        if not token or token.lower() == "unknown":
+            continue
+        cleaned.append(token)
+    return cleaned
+
+
+def _normalize_str_field(value) -> str:
+    """Normalise un champ scalaire str. '', None, 'unknown' → ''."""
+    if not isinstance(value, str):
+        return ""
+    token = value.strip()
+    if not token or token.lower() == "unknown":
+        return ""
+    return token
+
+
+def _build_creative_guidance(intent) -> str:
+    """
+    Construit un bloc texte court, déterministe, destiné au prompt LLM.
+
+    Règles strictes (H.4.3) :
+    - Accepte ArtisticIntent (Pydantic) OU dict OU None.
+    - N'utilise QUE : style, mood, composition_lighting.
+    - Tous les autres champs sont ignorés.
+    - Si tous les champs autorisés sont vides / 'unknown' / []
+      → retourne "" (rétrocompat H.4.2, aucun bruit dans le prompt).
+    - Rappelle que la guidance est un habillage artistique, jamais un
+      remplacement du scaffold contrôlé : ne modifie ni Camera, ni Key_Light,
+      ni OUTPUT_BLEND_PATH, ni la sauvegarde scene.blend / preview.png,
+      ni le manifest, ni le scene_report.
+    """
+    if intent is None:
+        return ""
+
+    style = _normalize_list_field(_intent_get(intent, "style"))
+    mood = _normalize_list_field(_intent_get(intent, "mood"))
+    lighting = _normalize_str_field(_intent_get(intent, "composition_lighting"))
+
+    if not style and not mood and not lighting:
+        return ""
+
+    lines: list[str] = [
+        "--- INTENTION ARTISTIQUE ---",
+        "Habillage créatif uniquement. Respecte STRICTEMENT le scaffold contrôlé.",
+        "Adapte UNIQUEMENT matériaux, couleurs et ambiance selon les indications ci-dessous.",
+        "Tu NE DOIS PAS supprimer ni renommer : Camera, Key_Light, OUTPUT_BLEND_PATH,"
+        " la sauvegarde scene.blend, la preview.png, le manifest, le scene_report.",
+    ]
+    if style:
+        lines.append(f"- Style : {', '.join(style)}")
+    if mood:
+        lines.append(f"- Mood : {', '.join(mood)}")
+    if lighting:
+        lines.append(f"- Lighting : {lighting}")
+    lines.append("--- FIN INTENTION ---")
+    return "\n".join(lines)
+
+
 _BLENDER_SYSTEM_PROMPT = """\
 Tu es un expert Blender Python (bpy). Génère un script Python bpy valide qui crée la scène demandée.
 
@@ -214,6 +311,11 @@ def build_blender_script(
         selected_template_name = get_template_name(message)
 
     if template_scaffold is not None:
+        # H.4.3 — Creative guidance (Option C) : injectée UNIQUEMENT lorsqu'un
+        # scaffold contrôlé est actif. Sur prompt libre (template_scaffold is
+        # None) le prompt reste strictement identique à l'état H.4.2.
+        guidance = _build_creative_guidance(intent)
+        guidance_block = f"{guidance}\n\n" if guidance else ""
         prompt = (
             f"{_BLENDER_SYSTEM_PROMPT}\n\n"
             f"--- SCAFFOLD DE SCÈNE OBLIGATOIRE ---\n"
@@ -224,6 +326,7 @@ def build_blender_script(
             f"la sauvegarde via OUTPUT_BLEND_PATH.\n\n"
             f"{template_scaffold}\n"
             f"--- FIN SCAFFOLD ---\n\n"
+            f"{guidance_block}"
             f"Demande utilisateur : {message}"
         )
     else:
