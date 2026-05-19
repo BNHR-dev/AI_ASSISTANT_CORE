@@ -93,8 +93,9 @@ class TestSelectTemplateFromIntent:
         assert select_template_from_intent(intent) is None
         assert get_template_name_from_intent(intent) is None
 
-    def test_product_render_medium_returns_none(self):
-        intent = ArtisticIntent(medium="product_render", subject_main="bouteille")
+    def test_product_render_medium_with_incompatible_subject_returns_none(self):
+        """H.4.2 : product_render n'est activé que pour un sujet produit compatible."""
+        intent = ArtisticIntent(medium="product_render", subject_main="laboratoire")
         assert select_template_from_intent(intent) is None
 
     def test_unknown_medium_returns_none(self):

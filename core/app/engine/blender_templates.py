@@ -36,6 +36,23 @@ _INTERIOR_KEYWORDS = (
     "salle", "hall",
 )
 
+# Mots-clés produit pour le fallback message brut (H.4.2).
+# IMPORTANT : ne PAS inclure "studio" seul — trop ambigu (éclairage studio en intérieur).
+# On exige des expressions sans ambiguïté vers le packshot / rendu produit.
+_PRODUCT_KEYWORDS = (
+    "packshot",
+    "rendu produit",
+    "product render",
+    "product_render",
+    "mockup produit",
+    "mockup product",
+    "packaging",
+    "bouteille de parfum",
+    "bottle of perfume",
+    "perfume bottle",
+    "flacon de parfum",
+)
+
 
 # ---------------------------------------------------------------------------
 # Template interior_space
@@ -63,6 +80,107 @@ _INTERIOR_KEYWORDS = (
 #   - la sauvegarde (gérée par OUTPUT_BLEND_PATH via le pipeline)
 #   - la compatibilité Blender 4.x
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Template product_render — H.4.2
+# ---------------------------------------------------------------------------
+# Scaffold d'une scène de blocking produit / packshot.
+# Structure garantie :
+#   - collection SCENE, collection PROPS
+#   - backdrop courbe simulé (Backdrop_Plane) — fond neutre
+#   - socle / piédestal cylindrique (Pedestal)
+#   - objet central proxy (Product_Subject) sur le socle
+#   - caméra produit 3/4 (Camera) orientée vers le produit
+#   - lumière clé softbox AREA (Key_Light)
+#   - unités métriques, échelle produit (sujet ~15 cm)
+#
+# Le LLM peut adapter :
+#   - la forme et les dimensions du produit (bouteille, flacon, cube, sphère…)
+#   - les matériaux (verre, métal, plastique)
+#   - la couleur / roughness du backdrop et du socle
+#   - l'ajout de lumières secondaires (fill, rim) dans PROPS
+#
+# Le LLM NE doit PAS :
+#   - supprimer Camera, Key_Light, Backdrop_Plane, Pedestal, Product_Subject
+#   - ajouter de murs Wall_* (réservé à interior_space — éviter la confusion)
+#   - changer la logique de sauvegarde via OUTPUT_BLEND_PATH
+# ---------------------------------------------------------------------------
+
+TEMPLATE_PRODUCT_RENDER = """\
+import bpy
+
+# -- Nettoyage scène par défaut --
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.object.delete()
+
+# -- Unités métriques --
+bpy.context.scene.unit_settings.system = 'METRIC'
+bpy.context.scene.unit_settings.scale_length = 1.0
+
+# -- Collections --
+scene_col = bpy.data.collections.new("SCENE")
+bpy.context.scene.collection.children.link(scene_col)
+props_col = bpy.data.collections.new("PROPS")
+bpy.context.scene.collection.children.link(props_col)
+
+def link_to(obj, col):
+    bpy.context.scene.collection.objects.unlink(obj) if obj.name in bpy.context.scene.collection.objects else None
+    col.objects.link(obj)
+
+# -- Backdrop neutre (plan large incliné, fond infini simulé) --
+bpy.ops.mesh.primitive_plane_add(size=4, location=(0, 1.2, 0))
+backdrop = bpy.context.object
+backdrop.name = "Backdrop_Plane"
+backdrop.rotation_euler = (1.2, 0, 0)
+backdrop.scale = (1.5, 1.5, 1)
+link_to(backdrop, scene_col)
+
+# -- Socle / piédestal --
+bpy.ops.mesh.primitive_cylinder_add(radius=0.25, depth=0.05, location=(0, 0, 0.025))
+pedestal = bpy.context.object
+pedestal.name = "Pedestal"
+link_to(pedestal, scene_col)
+
+# -- Sujet produit proxy (cylindre simulant bouteille / flacon) --
+# Le LLM peut adapter la primitive (sphère, cube, capsule) selon le produit demandé.
+bpy.ops.mesh.primitive_cylinder_add(radius=0.05, depth=0.18, location=(0, 0, 0.14))
+product = bpy.context.object
+product.name = "Product_Subject"
+link_to(product, scene_col)
+
+# -- Caméra produit 3/4 — orientée vers le sujet --
+# NE PAS modifier la logique de caméra active.
+bpy.ops.object.camera_add(location=(0.5, -0.7, 0.35))
+cam = bpy.context.object
+cam.name = "Camera"
+cam.rotation_euler = (1.25, 0.0, 0.6)
+bpy.context.scene.camera = cam
+cam.data.lens = 80
+link_to(cam, scene_col)
+
+# -- Lumière clé softbox (AREA) --
+# NE PAS supprimer ni renommer Key_Light.
+bpy.ops.object.light_add(type='AREA', location=(0.8, -0.6, 1.2))
+key_light = bpy.context.object
+key_light.name = "Key_Light"
+key_light.data.energy = 200.0
+key_light.data.size = 1.2
+key_light.rotation_euler = (0.7, 0.3, 0.6)
+link_to(key_light, scene_col)
+
+# -- Fill light secondaire (optionnel, adaptable par le LLM) --
+bpy.ops.object.light_add(type='AREA', location=(-0.8, -0.4, 0.8))
+fill_light = bpy.context.object
+fill_light.name = "Fill_Light"
+fill_light.data.energy = 60.0
+fill_light.data.size = 1.0
+fill_light.rotation_euler = (0.9, -0.3, -0.4)
+link_to(fill_light, props_col)
+
+# -- Sauvegarde gérée par le pipeline (OUTPUT_BLEND_PATH injecté automatiquement) --
+bpy.ops.wm.save_as_mainfile(filepath=OUTPUT_BLEND_PATH)
+"""
+
 
 TEMPLATE_INTERIOR_SPACE = """\
 import bpy
@@ -160,8 +278,13 @@ def select_template(message: str) -> str | None:
     Retourne None si aucun template ne correspond → fallback vers le comportement actuel.
 
     Détection déterministe par mots-clés uniquement.
+    Priorité product_render > interior_space : "packshot produit" reste produit
+    même si le mot "produit" n'apparaît pas dans les mots-clés intérieurs.
     """
     msg_lower = message.lower()
+
+    if any(kw in msg_lower for kw in _PRODUCT_KEYWORDS):
+        return TEMPLATE_PRODUCT_RENDER
 
     if any(kw in msg_lower for kw in _INTERIOR_KEYWORDS):
         return TEMPLATE_INTERIOR_SPACE
@@ -175,6 +298,8 @@ def get_template_name(message: str) -> str | None:
     Utile pour les tests et les traces.
     """
     msg_lower = message.lower()
+    if any(kw in msg_lower for kw in _PRODUCT_KEYWORDS):
+        return "product_render"
     if any(kw in msg_lower for kw in _INTERIOR_KEYWORDS):
         return "interior_space"
     return None
@@ -189,6 +314,16 @@ _INTERIOR_INTENT_SUBJECTS = (
     "laboratoire", "salle", "bureau", "office",
     "room", "salon", "cuisine", "chambre",
     "couloir", "corridor", "hall", "hangar",
+)
+
+# Sujets ArtisticIntent compatibles avec product_render — H.4.2.
+# Conservateur : seuls les sujets clairement "objet produit".
+# Aligné sur les labels retournés par artistic_intent._SUBJECT_RULES.
+_PRODUCT_INTENT_SUBJECTS = (
+    "bouteille", "flacon", "parfum",
+    "produit", "product",
+    "mockup", "maquette", "packaging", "packshot",
+    "cube", "sphère", "sphere",
 )
 
 
@@ -207,16 +342,18 @@ def select_template_from_intent(intent: object) -> str | None:
     Retourne None si aucun template ne correspond → l'appelant peut alors
     retomber sur select_template(message) pour préserver la rétrocompat.
 
-    Règle V1 (conservatrice) :
-      medium == "3d_scene" ET subject_main contient un mot-clé d'intérieur
-        → interior_space
-      sinon → None
+    Règles (conservatrices) :
+      - medium == "3d_scene" ET subject_main ∈ _INTERIOR_INTENT_SUBJECTS
+          → interior_space
+      - medium == "product_render" ET subject_main ∈ _PRODUCT_INTENT_SUBJECTS
+          → product_render   (H.4.2)
+      - sinon → None
     """
     if intent is None:
         return None
 
     medium = _intent_field(intent, "medium")
-    if medium != "3d_scene":
+    if medium not in ("3d_scene", "product_render"):
         return None
 
     subject_main = _intent_field(intent, "subject_main") or ""
@@ -224,9 +361,15 @@ def select_template_from_intent(intent: object) -> str | None:
         return None
 
     subject_lower = subject_main.lower()
-    if any(kw in subject_lower for kw in _INTERIOR_INTENT_SUBJECTS):
-        return TEMPLATE_INTERIOR_SPACE
 
+    if medium == "3d_scene":
+        if any(kw in subject_lower for kw in _INTERIOR_INTENT_SUBJECTS):
+            return TEMPLATE_INTERIOR_SPACE
+        return None
+
+    # medium == "product_render"
+    if any(kw in subject_lower for kw in _PRODUCT_INTENT_SUBJECTS):
+        return TEMPLATE_PRODUCT_RENDER
     return None
 
 
@@ -235,4 +378,6 @@ def get_template_name_from_intent(intent: object) -> str | None:
     scaffold = select_template_from_intent(intent)
     if scaffold is TEMPLATE_INTERIOR_SPACE:
         return "interior_space"
+    if scaffold is TEMPLATE_PRODUCT_RENDER:
+        return "product_render"
     return None
