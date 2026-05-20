@@ -11,10 +11,13 @@ Ne bloque jamais le pipeline. Retourne toujours un dict avec au minimum
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tempfile
 import textwrap
 from pathlib import Path
+
+from app.engine.blender_templates import get_template_spec
 
 
 # ---------------------------------------------------------------------------
@@ -31,6 +34,58 @@ V_NO_LIGHT           = "no_light"
 V_SUBPROCESS_ERROR   = "subprocess_error"
 V_INVALID_REPORT_JSON = "invalid_report_json"
 V_TIMEOUT            = "timeout"
+
+# Préfixes des violations sémantiques scaffold — H.4.3-C
+V_MISSING_REQUIRED_PREFIX = "missing_required:"
+V_FORBIDDEN_PREFIX_PREFIX = "forbidden_prefix:"
+
+
+# ---------------------------------------------------------------------------
+# Validation statique scene.py vs template spec — H.4.3-C
+# ---------------------------------------------------------------------------
+
+def validate_scene_py_against_template(
+    scene_py_text: str,
+    template_name: str | None,
+) -> list[str]:
+    """
+    Vérifie que le contenu d'un scene.py respecte la spec déclarative
+    associée à `template_name`.
+
+    Retourne une liste de violations sémantiques :
+      - "missing_required:<ObjectName>" si un nom requis n'apparaît pas
+        dans le texte du script.
+      - "forbidden_prefix:<Prefix>" si un identifiant commençant par un
+        préfixe interdit apparaît (ex. Wall_Back pour product_render).
+
+    Si `template_name` est None / inconnu / scene_py_text vide, retourne [].
+
+    Fonction PURE : pas d'I/O, pas de dépendance Blender. Testable hors VM.
+    """
+    if not template_name or not isinstance(scene_py_text, str) or not scene_py_text:
+        return []
+
+    spec = get_template_spec(template_name)
+    if spec is None:
+        return []
+
+    violations: list[str] = []
+
+    for obj_name in spec.get("required_objects", []):
+        if obj_name and obj_name not in scene_py_text:
+            violations.append(f"{V_MISSING_REQUIRED_PREFIX}{obj_name}")
+
+    for prefix in spec.get("forbidden_prefixes", []):
+        if not prefix:
+            continue
+        # Le préfixe est interdit s'il est suivi d'un caractère d'identifiant
+        # (ex. "Wall_Back", "Wall_Left"). Une mention isolée du préfixe seul
+        # n'est pas un objet et n'est pas comptée comme violation.
+        pattern = re.escape(prefix) + r"\w"
+        if re.search(pattern, scene_py_text):
+            violations.append(f"{V_FORBIDDEN_PREFIX_PREFIX}{prefix}")
+
+    return violations
 
 
 # ---------------------------------------------------------------------------
@@ -94,11 +149,33 @@ def _determine_status(violations: list[str]) -> str:
     return "degraded"
 
 
+def _semantic_violations_from_scene_py(
+    output_dir_path: Path,
+    template_name: str | None,
+) -> list[str]:
+    """
+    Lit scene.py dans output_dir si présent et calcule les violations
+    sémantiques vis-à-vis de template_name. Retourne [] en cas d'absence
+    de fichier, de template inconnu, ou de toute erreur de lecture.
+    """
+    if not template_name:
+        return []
+    scene_py_path = output_dir_path / "scene.py"
+    if not scene_py_path.exists():
+        return []
+    try:
+        text = scene_py_path.read_text(encoding="utf-8")
+    except Exception:
+        return []
+    return validate_scene_py_against_template(text, template_name)
+
+
 def inspect_blend_scene(
     exe: str,
     output_path: str,
     output_dir: str,
     timeout: int,
+    template_name: str | None = None,
 ) -> dict:
     """
     Inspecte un .blend produit par le pipeline Blender.
@@ -108,10 +185,13 @@ def inspect_blend_scene(
 
     Paramètres
     ----------
-    exe         : chemin vers l'exécutable Blender
-    output_path : chemin vers le .blend à inspecter
-    output_dir  : dossier de sortie (outputs/blender/<request_id>/)
-    timeout     : timeout global du pipeline — borné à 30s pour rester léger
+    exe           : chemin vers l'exécutable Blender
+    output_path   : chemin vers le .blend à inspecter
+    output_dir    : dossier de sortie (outputs/blender/<request_id>/)
+    timeout       : timeout global du pipeline — borné à 30s pour rester léger
+    template_name : nom du template sélectionné (H.4.3-C). Si fourni,
+                    déclenche la validation statique scene.py vs spec et
+                    ajoute les violations sémantiques au rapport.
 
     Retourne toujours un dict, ne lève jamais d'exception.
     """
@@ -124,11 +204,17 @@ def inspect_blend_scene(
     blend_exists    = blend_path.exists()
     scene_py_exists = (output_dir_path / "scene.py").exists()
 
+    # Violations sémantiques scaffold (lecture statique scene.py — H.4.3-C)
+    semantic_violations = _semantic_violations_from_scene_py(
+        output_dir_path, template_name
+    )
+
     # Rapport de base (sera enrichi si l'inspection réussit)
     base_report: dict = {
         "scene_blend_exists": blend_exists,
         "scene_py_exists": scene_py_exists,
         "scene_report_path": str(report_json_path),
+        "template_name": template_name,
         "object_count": 0,
         "mesh_count": 0,
         "camera_count": 0,
@@ -140,7 +226,9 @@ def inspect_blend_scene(
     }
 
     if not blend_exists:
-        base_report["violations"] = _determine_violations({}, blend_exists, scene_py_exists)
+        violations = _determine_violations({}, blend_exists, scene_py_exists)
+        violations.extend(semantic_violations)
+        base_report["violations"] = violations
         base_report["status"] = "failed"
         _write_report(report_json_path, base_report)
         return base_report
@@ -172,6 +260,7 @@ def inspect_blend_scene(
         if proc.returncode != 0:
             violations = _determine_violations({}, blend_exists, scene_py_exists)
             violations.append(V_SUBPROCESS_ERROR)
+            violations.extend(semantic_violations)
             base_report["violations"] = violations
             base_report["status"] = "failed"
             _write_report(report_json_path, base_report)
@@ -184,6 +273,7 @@ def inspect_blend_scene(
         except Exception:
             violations = _determine_violations({}, blend_exists, scene_py_exists)
             violations.append(V_INVALID_REPORT_JSON)
+            violations.extend(semantic_violations)
             base_report["violations"] = violations
             base_report["status"] = "failed"
             _write_report(report_json_path, base_report)
@@ -201,6 +291,7 @@ def inspect_blend_scene(
         }
 
         violations = _determine_violations(report, blend_exists, scene_py_exists)
+        violations.extend(semantic_violations)
         report["violations"] = violations
         report["status"] = _determine_status(violations)
 
@@ -210,6 +301,7 @@ def inspect_blend_scene(
     except subprocess.TimeoutExpired:
         violations = _determine_violations({}, blend_exists, scene_py_exists)
         violations.append(V_TIMEOUT)
+        violations.extend(semantic_violations)
         base_report["violations"] = violations
         base_report["status"] = "failed"
         _write_report(report_json_path, base_report)
@@ -218,6 +310,7 @@ def inspect_blend_scene(
     except Exception:
         violations = _determine_violations({}, blend_exists, scene_py_exists)
         violations.append(V_SUBPROCESS_ERROR)
+        violations.extend(semantic_violations)
         base_report["violations"] = violations
         base_report["status"] = "failed"
         _write_report(report_json_path, base_report)

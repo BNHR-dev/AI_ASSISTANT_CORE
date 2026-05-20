@@ -12,10 +12,12 @@ import pytest
 
 from app.clients.blender_client import (
     _BLENDER_SYSTEM_PROMPT,
+    _TEMPLATE_FIDELITY_PROMPTS,
     _extract_python_from_markdown,
     _inject_output_paths,
     _render_preview,
     _sanitize_output_blend_path,
+    _template_fidelity_block,
     resolve_blender_exe,
     run_blender_script,
 )
@@ -679,17 +681,97 @@ def test_inject_output_paths_only_one_output_blend_path_definition():
     assert r'OUTPUT_BLEND_PATH = r"/final/scene.blend"' in lines_with_def[0]
 
 
-def test_prompt_interior_space_contains_scaffold_names():
-    """Le prompt système doit mentionner les noms invariants du scaffold interior_space."""
-    scaffold_names = [
-        "Floor_Plane",
-        "Wall_Back",
-        "Wall_Left",
-        "Wall_Right",
-        "Main_Subject",
-        "Key_Light",
-    ]
-    for name in scaffold_names:
-        assert name in _BLENDER_SYSTEM_PROMPT, (
-            f"Le prompt système ne contient pas le nom de scaffold obligatoire : {name}"
+# ---------------------------------------------------------------------------
+# H.4.3-C — Le prompt système global n'impose plus Wall_*. La consigne murs
+# est désormais portée par les blocs de fidélité conditionnels au template.
+# ---------------------------------------------------------------------------
+
+def test_system_prompt_does_not_unconditionally_require_walls():
+    """Wall_Back / Wall_Left / Wall_Right ne doivent PLUS être imposés par le
+    prompt système global : c'est désormais une contrainte spécifique au
+    template interior_space."""
+    for name in ("Wall_Back", "Wall_Left", "Wall_Right"):
+        assert name not in _BLENDER_SYSTEM_PROMPT, (
+            f"Le prompt système global ne doit plus mentionner {name} "
+            f"comme contrainte inconditionnelle."
         )
+
+
+def test_fidelity_block_product_render_forbids_walls():
+    """Le bloc de fidélité product_render doit interdire Wall_*."""
+    block = _template_fidelity_block("product_render")
+    assert block, "fidelity block product_render ne doit pas être vide"
+    assert "Wall_" in block
+    # Le mot 'INTERDIT' ou un terme équivalent doit signaler l'interdiction.
+    assert ("INTERDIT" in block) or ("interdit" in block)
+
+
+def test_fidelity_block_interior_space_requires_walls():
+    """Le bloc de fidélité interior_space doit exiger Wall_Back/Left/Right."""
+    block = _template_fidelity_block("interior_space")
+    assert block, "fidelity block interior_space ne doit pas être vide"
+    for name in ("Wall_Back", "Wall_Left", "Wall_Right"):
+        assert name in block, (
+            f"Le bloc de fidélité interior_space doit exiger {name}"
+        )
+
+
+def test_fidelity_block_none_for_unknown_or_none_template():
+    """Template None / inconnu → bloc vide (aucune contrainte spécifique)."""
+    assert _template_fidelity_block(None) == ""
+    assert _template_fidelity_block("") == ""
+    assert _template_fidelity_block("unknown_template_xyz") == ""
+
+
+def test_fidelity_prompts_cover_known_templates():
+    """Sanity : les deux templates supportés ont un bloc défini."""
+    assert "product_render" in _TEMPLATE_FIDELITY_PROMPTS
+    assert "interior_space" in _TEMPLATE_FIDELITY_PROMPTS
+
+
+# ---------------------------------------------------------------------------
+# H.4.3-C — run_blender_script propage template_used à inspect_blend_scene
+# ---------------------------------------------------------------------------
+
+def test_run_blender_script_propagates_template_used_to_inspector(tmp_path):
+    """Le pipeline doit transmettre request.template_used à inspect_blend_scene
+    pour permettre la QA statique scene.py vs template."""
+    output_path = str(tmp_path / "scene.blend")
+    render_path = str(tmp_path / "preview.png")
+    request = BlenderRequest(
+        request_id="test-h43c",
+        script_content="import bpy",
+        script_path=str(tmp_path / "scene.py"),
+        output_path=output_path,
+        render_path=render_path,
+        output_dir=str(tmp_path),
+        timeout=10,
+        template_used="product_render",
+    )
+    Path(output_path).write_bytes(b"BLEND")
+
+    mock_proc_ok = MagicMock(returncode=0, stdout="Saved\n", stderr="")
+    captured_kwargs: dict = {}
+
+    def fake_inspect(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        # Retour minimaliste compatible avec _write_report
+        return {
+            "status": "passed",
+            "violations": [],
+            "scene_report_path": str(tmp_path / "scene_report.json"),
+        }
+
+    with (
+        patch("app.clients.blender_client.resolve_blender_exe", return_value="/usr/bin/blender"),
+        patch("subprocess.run", return_value=mock_proc_ok),
+        patch("app.clients.blender_client._render_preview", return_value=None),
+        patch("app.clients.blender_client.inspect_blend_scene", side_effect=fake_inspect),
+    ):
+        result = run_blender_script(request)
+
+    assert result.status == "success"
+    assert captured_kwargs.get("template_name") == "product_render", (
+        "run_blender_script doit transmettre template_used=product_render "
+        "à inspect_blend_scene sous le kwarg template_name."
+    )

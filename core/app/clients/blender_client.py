@@ -161,14 +161,48 @@ Interdits stricts :
 - Ne pas utiliser import sys, os pour modifier les chemins de sortie.
 - Ne pas utiliser bpy.path.abspath() pour construire le chemin de sortie.
 
-Si la demande concerne un interior_space ou une scène intérieure :
-- Conserver impérativement les objets nommés : Floor_Plane, Wall_Back, Wall_Left, Wall_Right, Main_Subject, Camera, Key_Light.
-- Ne pas supprimer, renommer ni remplacer ces objets par d'autres noms.
-- Construire la scène en complétant ce scaffold, pas en le remplaçant par un script libre.
-
 Le script doit être autonome et exécutable via blender --background --python.
 Répondre uniquement avec le code Python, dans un bloc ```python ... ```.
 """
+
+
+# ---------------------------------------------------------------------------
+# Consignes de fidélité scaffold — H.4.3-C
+# ---------------------------------------------------------------------------
+# Bloc texte conditionnel injecté dans le prompt LLM quand un template est
+# sélectionné. Aligné sur les specs déclaratives de blender_templates.py
+# (TEMPLATE_SPECS). Aucune mention inconditionnelle de Wall_* dans le prompt
+# système global : c'est désormais une consigne propre au template.
+# ---------------------------------------------------------------------------
+
+_TEMPLATE_FIDELITY_PROMPTS: dict[str, str] = {
+    "product_render": (
+        "Contraintes obligatoires pour ce template (product_render) :\n"
+        "- Conserver les objets nommés exactement : Backdrop_Plane, Pedestal, "
+        "Product_Subject, Camera, Key_Light.\n"
+        "- INTERDIT : créer le moindre objet dont le nom commence par Wall_ "
+        "(Wall_Back, Wall_Left, Wall_Right, etc.). Les murs sont réservés "
+        "au template interior_space.\n"
+        "- Ne pas remplacer Backdrop_Plane par des murs. Le fond est un plan "
+        "incliné neutre, pas une pièce fermée."
+    ),
+    "interior_space": (
+        "Contraintes obligatoires pour ce template (interior_space) :\n"
+        "- Conserver les objets nommés exactement : Floor_Plane, Wall_Back, "
+        "Wall_Left, Wall_Right, Main_Subject, Camera, Key_Light.\n"
+        "- Les trois murs Wall_Back / Wall_Left / Wall_Right sont exigés "
+        "pour fermer la pièce. Ne pas les supprimer ni les renommer.\n"
+        "- Compléter ce scaffold avec du mobilier dans la collection PROPS, "
+        "ne pas le remplacer par un script libre."
+    ),
+}
+
+
+def _template_fidelity_block(template_name: str | None) -> str:
+    """Retourne le bloc de consignes de fidélité scaffold, ou '' si N/A."""
+    if not template_name:
+        return ""
+    return _TEMPLATE_FIDELITY_PROMPTS.get(template_name, "")
 
 
 def resolve_blender_exe() -> str | None:
@@ -316,6 +350,9 @@ def build_blender_script(
         # None) le prompt reste strictement identique à l'état H.4.2.
         guidance = _build_creative_guidance(intent)
         guidance_block = f"{guidance}\n\n" if guidance else ""
+        # H.4.3-C — Consignes de fidélité scaffold spécifiques au template.
+        fidelity = _template_fidelity_block(selected_template_name)
+        fidelity_block = f"{fidelity}\n\n" if fidelity else ""
         prompt = (
             f"{_BLENDER_SYSTEM_PROMPT}\n\n"
             f"--- SCAFFOLD DE SCÈNE OBLIGATOIRE ---\n"
@@ -326,6 +363,7 @@ def build_blender_script(
             f"la sauvegarde via OUTPUT_BLEND_PATH.\n\n"
             f"{template_scaffold}\n"
             f"--- FIN SCAFFOLD ---\n\n"
+            f"{fidelity_block}"
             f"{guidance_block}"
             f"Demande utilisateur : {message}"
         )
@@ -558,7 +596,11 @@ def _run_blender_script_inner(request: BlenderRequest) -> BlenderResult:
     # Validation structurelle best-effort : inspecte le .blend et produit scene_report.json.
     # Timeout borné à min(request.timeout, 30) pour rester léger.
     scene_report = inspect_blend_scene(
-        exe, request.output_path, request.output_dir, request.timeout
+        exe,
+        request.output_path,
+        request.output_dir,
+        request.timeout,
+        template_name=request.template_used,
     )
     scene_report_path = scene_report.get("scene_report_path") if scene_report else None
 

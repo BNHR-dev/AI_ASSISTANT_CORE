@@ -381,3 +381,63 @@ def get_template_name_from_intent(intent: object) -> str | None:
     if scaffold is TEMPLATE_PRODUCT_RENDER:
         return "product_render"
     return None
+
+
+# ---------------------------------------------------------------------------
+# Template specs déclaratives — H.4.3-C : Scaffold fidelity / Static QA
+# ---------------------------------------------------------------------------
+# Spec minimale par template pour permettre une validation statique du
+# scene.py final produit par le LLM (avant ou indépendamment de Blender).
+#
+# - required_objects : noms d'objets que le scene.py DOIT mentionner.
+#   La détection est faite par recherche de la chaîne exacte du nom dans
+#   le texte du script (.name = "X" ou commentaire descriptif).
+# - forbidden_prefixes : préfixes de noms d'objets interdits dans ce
+#   template, repérés par recherche de la chaîne du préfixe immédiatement
+#   suivie d'un identifiant (ex. "Wall_Back", "Wall_Left").
+#
+# Ces specs n'ont AUCUN impact runtime sur la sélection ou la génération.
+# Elles servent uniquement à validate_scene_py_against_template().
+# ---------------------------------------------------------------------------
+
+TEMPLATE_SPECS: dict[str, dict[str, list[str]]] = {
+    "product_render": {
+        "required_objects": [
+            "Backdrop_Plane",
+            "Pedestal",
+            "Product_Subject",
+            "Camera",
+            "Key_Light",
+        ],
+        "forbidden_prefixes": ["Wall_"],
+    },
+    "interior_space": {
+        "required_objects": [
+            "Floor_Plane",
+            "Wall_Back",
+            "Wall_Left",
+            "Wall_Right",
+            "Main_Subject",
+            "Camera",
+            "Key_Light",
+        ],
+        "forbidden_prefixes": [],
+    },
+}
+
+
+def get_template_spec(template_name: str | None) -> dict[str, list[str]] | None:
+    """
+    Retourne la spec déclarative associée à un template, ou None si le
+    template est inconnu ou si template_name vaut None.
+
+    Le dict retourné expose au minimum :
+      - "required_objects" : list[str]
+      - "forbidden_prefixes" : list[str]
+
+    Ne lève jamais d'exception : appelable depuis n'importe quel point
+    du pipeline sans contrôle préalable.
+    """
+    if not template_name:
+        return None
+    return TEMPLATE_SPECS.get(template_name)
