@@ -18,6 +18,7 @@ import textwrap
 from pathlib import Path
 
 from app.engine.blender_templates import get_template_spec
+from app.engine.blender_qa_visual import run_visual_qa
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +177,7 @@ def inspect_blend_scene(
     output_dir: str,
     timeout: int,
     template_name: str | None = None,
+    render_path: str | None = None,
 ) -> dict:
     """
     Inspecte un .blend produit par le pipeline Blender.
@@ -192,6 +194,9 @@ def inspect_blend_scene(
     template_name : nom du template sélectionné (H.4.3-C). Si fourni,
                     déclenche la validation statique scene.py vs spec et
                     ajoute les violations sémantiques au rapport.
+    render_path   : chemin vers preview.png (H.4.5). Si fourni et existant,
+                    déclenche la QA visuelle V0 (luminance, cadrage sujet).
+                    visual_qa est toujours présent dans le rapport retourné.
 
     Retourne toujours un dict, ne lève jamais d'exception.
     """
@@ -209,6 +214,9 @@ def inspect_blend_scene(
         output_dir_path, template_name
     )
 
+    # H.4.5 — QA visuelle V0 : exécutée une seule fois, toujours présente dans le rapport
+    visual_qa = run_visual_qa(render_path)
+
     # Rapport de base (sera enrichi si l'inspection réussit)
     base_report: dict = {
         "scene_blend_exists": blend_exists,
@@ -223,6 +231,7 @@ def inspect_blend_scene(
         "object_names": [],
         "violations": [],
         "status": "failed",
+        "visual_qa": visual_qa,  # H.4.5 — toujours présent (skipped si pas de preview)
     }
 
     if not blend_exists:
@@ -292,6 +301,8 @@ def inspect_blend_scene(
 
         violations = _determine_violations(report, blend_exists, scene_py_exists)
         violations.extend(semantic_violations)
+        # H.4.5 — ajouter les violations visuelles critiques (dégradent le status structural)
+        violations.extend(visual_qa.get("violations", []))
         report["violations"] = violations
         report["status"] = _determine_status(violations)
 

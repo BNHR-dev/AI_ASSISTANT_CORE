@@ -601,6 +601,7 @@ def _run_blender_script_inner(request: BlenderRequest) -> BlenderResult:
         request.output_dir,
         request.timeout,
         template_name=request.template_used,
+        render_path=render_path,   # H.4.5 — QA visuelle V0
     )
     scene_report_path = scene_report.get("scene_report_path") if scene_report else None
 

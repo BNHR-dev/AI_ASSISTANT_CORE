@@ -76,6 +76,7 @@ ACTIVE_AUXILIARY_MODULES = [
     "app/clients/blender_client.py",
     "app/engine/artistic_intent.py",
     "app/engine/blender_validator.py",
+    "app/engine/blender_qa_visual.py",
     "app/engine/artifact_manifest.py",
     "app/infra/runtime_urls.py",
     "app/infra/tool_manager.py",
