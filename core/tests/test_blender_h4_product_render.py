@@ -242,28 +242,45 @@ class TestProductRenderScaffoldIntegrity:
 
 class TestProductRenderCadrageInvariants:
     """
-    Verrouille les invariants H.4.6 du scaffold packshot :
+    Verrouille les invariants H.4.6/H.4.6b du scaffold packshot :
     - produit visible (taille minimale), pas écrasé par le socle
     - backdrop vertical, fond et non objet dominant
-    - caméra et lumières visent le sujet via to_track_quat (cadrage déterministe)
+    - caméra et lumières orientées via rotation_euler littérale (H.4.6b)
     """
 
-    def test_scaffold_imports_mathutils(self):
-        """L'orientation déterministe nécessite mathutils."""
-        assert "import mathutils" in TEMPLATE_PRODUCT_RENDER
+    def test_scaffold_does_not_import_mathutils(self):
+        """H.4.6b : pas d'import mathutils — toutes les rotations sont littérales."""
+        assert "import mathutils" not in TEMPLATE_PRODUCT_RENDER
 
-    def test_camera_uses_to_track_quat(self):
-        """La caméra doit être orientée par calcul vers le sujet, pas par Euler manuel."""
-        assert "to_track_quat" in TEMPLATE_PRODUCT_RENDER
+    def test_camera_uses_literal_euler(self):
+        """H.4.6b : caméra orientée via rotation_euler = (a, b, c) littéraux, pas par calcul."""
         assert "cam.rotation_euler" in TEMPLATE_PRODUCT_RENDER
+        assert "to_track_quat" not in TEMPLATE_PRODUCT_RENDER
+        # Vérifier la présence d'une affectation littérale 3-floats sur la caméra
+        import re
+        m = re.search(
+            r"cam\.rotation_euler\s*=\s*\(\s*[-\d.]+\s*,\s*[-\d.]+\s*,\s*[-\d.]+\s*\)",
+            TEMPLATE_PRODUCT_RENDER,
+        )
+        assert m is not None, "cam.rotation_euler = (a, b, c) littéraux introuvable"
 
-    def test_key_light_uses_to_track_quat(self):
-        """Key_Light doit aussi viser le produit déterministiquement."""
-        idx_kl = TEMPLATE_PRODUCT_RENDER.find("Key_Light")
-        # Cherche une rotation_euler avec to_track_quat dans la section Key_Light
-        kl_section = TEMPLATE_PRODUCT_RENDER[idx_kl:idx_kl + 600]
-        assert "to_track_quat" in kl_section
-        assert "key_light.rotation_euler" in kl_section
+    def test_key_light_uses_literal_euler(self):
+        """H.4.6b : Key_Light orienté via Euler littéraux."""
+        import re
+        m = re.search(
+            r"key_light\.rotation_euler\s*=\s*\(\s*[-\d.]+\s*,\s*[-\d.]+\s*,\s*[-\d.]+\s*\)",
+            TEMPLATE_PRODUCT_RENDER,
+        )
+        assert m is not None, "key_light.rotation_euler littéral introuvable"
+
+    def test_fill_light_uses_literal_euler(self):
+        """H.4.6b : Fill_Light orienté via Euler littéraux."""
+        import re
+        m = re.search(
+            r"fill_light\.rotation_euler\s*=\s*\(\s*[-\d.]+\s*,\s*[-\d.]+\s*,\s*[-\d.]+\s*\)",
+            TEMPLATE_PRODUCT_RENDER,
+        )
+        assert m is not None, "fill_light.rotation_euler littéral introuvable"
 
     def test_product_subject_has_visible_dimensions(self):
         """
@@ -353,7 +370,87 @@ class TestProductRenderCadrageInvariants:
         assert 50 <= lens <= 105, f"Lens {lens}mm hors plage packshot (50-105)"
 
     def test_template_used_remains_product_render(self):
-        """H.4.6 ne change pas le nom du template ni l'API publique."""
+        """H.4.6/H.4.6b ne change pas le nom du template ni l'API publique."""
         intent = ArtisticIntent(medium="product_render", subject_main="bouteille")
         assert get_template_name_from_intent(intent) == "product_render"
         assert select_template_from_intent(intent) is TEMPLATE_PRODUCT_RENDER
+
+
+# ---------------------------------------------------------------------------
+# H.4.6b — Garde-fous anti-hallucination dans le scaffold
+# ---------------------------------------------------------------------------
+
+class TestProductRenderScaffoldGuards:
+    """
+    Verrouille les garde-fous H.4.6b qui réduisent les hallucinations LLM
+    observées en runtime (imports OBJ, calcul vectoriel, renommage objets).
+    """
+
+    def test_scaffold_rules_block_present(self):
+        """Un bloc AICORE_SCAFFOLD_RULES doit être présent en tête du scaffold."""
+        assert "AICORE_SCAFFOLD_RULES" in TEMPLATE_PRODUCT_RENDER
+
+    def test_rules_forbid_external_file_loading(self):
+        """Le bloc de règles doit interdire le chargement de fichiers externes."""
+        rules = TEMPLATE_PRODUCT_RENDER.split("AICORE_SCAFFOLD_RULES", 1)[1].split("Nettoyage")[0]
+        rules_lower = rules.lower()
+        assert "fichier externe" in rules_lower or "chemin externe" in rules_lower
+
+    def test_rules_forbid_scene_import(self):
+        """Le bloc de règles doit interdire l'import de scène externe."""
+        rules = TEMPLATE_PRODUCT_RENDER.split("AICORE_SCAFFOLD_RULES", 1)[1].split("Nettoyage")[0]
+        rules_lower = rules.lower()
+        assert "scène" in rules_lower or "scene" in rules_lower
+        assert "importer" in rules_lower or "import" in rules_lower
+
+    def test_rules_lock_contract_names(self):
+        """Les noms contractuels doivent être listés comme inchangeables."""
+        rules = TEMPLATE_PRODUCT_RENDER.split("AICORE_SCAFFOLD_RULES", 1)[1].split("Nettoyage")[0]
+        for name in ("Product_Subject", "Pedestal", "Backdrop_Plane",
+                     "Camera", "Key_Light", "Fill_Light"):
+            assert name in rules, f"Nom contractuel manquant dans les règles : {name}"
+
+    def test_rules_state_camera_orientation_is_precomputed(self):
+        """Le bloc doit dire que les rotations sont déjà fournies."""
+        rules = TEMPLATE_PRODUCT_RENDER.split("AICORE_SCAFFOLD_RULES", 1)[1].split("Nettoyage")[0]
+        rules_lower = rules.lower()
+        assert "euler" in rules_lower
+        assert ("recalculer" in rules_lower or "fournies" in rules_lower
+                or "précalcul" in rules_lower or "precalcul" in rules_lower)
+
+    def test_scaffold_does_not_use_to_track_quat(self):
+        """H.4.6b : aucun appel à to_track_quat dans le scaffold."""
+        assert "to_track_quat" not in TEMPLATE_PRODUCT_RENDER
+
+    def test_scaffold_does_not_use_mathutils_vector(self):
+        """H.4.6b : aucune utilisation de mathutils.Vector."""
+        assert "mathutils.Vector" not in TEMPLATE_PRODUCT_RENDER
+        assert "mathutils" not in TEMPLATE_PRODUCT_RENDER
+
+    def test_scaffold_does_not_define_product_center_variable(self):
+        """H.4.6b : variable globale _PRODUCT_CENTER supprimée."""
+        assert "_PRODUCT_CENTER" not in TEMPLATE_PRODUCT_RENDER
+
+    def test_scaffold_does_not_load_external_files(self):
+        """H.4.6b : aucun pattern de chargement de fichier externe dans le scaffold."""
+        import re
+        # Patterns API d'import de fichier externe — interdits dans le code du scaffold
+        assert "import_scene" not in TEMPLATE_PRODUCT_RENDER
+        assert "meshes.load" not in TEMPLATE_PRODUCT_RENDER
+        assert "bpy.ops.import_" not in TEMPLATE_PRODUCT_RENDER
+        # Extensions de fichier 3D — doivent apparaître nulle part comme littéral
+        # (tolérer .objects de Blender mais bloquer .obj/.fbx/.gltf comme extensions).
+        for ext in (".obj", ".fbx", ".gltf", ".glb", ".dae", ".stl", ".ply"):
+            # Cherche l'extension entourée d'apostrophes/guillemets/espaces/finlignes
+            # — typique d'un chemin de fichier — pas en tant que ".objects" etc.
+            pattern = re.escape(ext) + r"(?![a-zA-Z_])"
+            assert not re.search(pattern, TEMPLATE_PRODUCT_RENDER), (
+                f"Extension de fichier 3D détectée dans le scaffold : {ext}"
+            )
+
+    def test_scaffold_does_not_offer_primitive_choice_for_subject(self):
+        """H.4.6b : le scaffold ne propose plus au LLM de remplacer Product_Subject."""
+        # H.4.6 disait "Le LLM peut adapter la primitive (cube, sphère, capsule)" — RETIRÉ.
+        assert "Le LLM peut adapter la primitive" not in TEMPLATE_PRODUCT_RENDER
+        # Le sujet doit rester un proxy stable.
+        assert 'product.name = "Product_Subject"' in TEMPLATE_PRODUCT_RENDER

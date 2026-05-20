@@ -108,7 +108,20 @@ _PRODUCT_KEYWORDS = (
 
 TEMPLATE_PRODUCT_RENDER = """\
 import bpy
-import mathutils  # H.4.6 — utilisé pour orienter caméra et lumières via to_track_quat
+
+# AICORE_SCAFFOLD_RULES (H.4.6b — NE PAS MODIFIER, NE PAS COMMENTER, NE PAS CONTOURNER) :
+#   * Créer toute la géométrie via les primitives Blender intégrées
+#     (cylindre, cube, sphère, plan, cone). Ne pas charger de fichier externe.
+#   * Ne pas tenter d'importer une scène ou un asset depuis un fichier.
+#     Aucun chemin externe n'est disponible — tous les "modèles" doivent être
+#     des proxies primitifs créés dans ce script.
+#   * Conserver exactement ces noms d'objets, sans renommer, sans préfixer,
+#     sans suffixer : Product_Subject, Pedestal, Backdrop_Plane, Camera,
+#     Key_Light, Fill_Light.
+#   * Ne pas recalculer l'orientation de la caméra ni des lumières.
+#     Toutes les rotations sont déjà fournies en Euler littéraux ci-dessous.
+#   * Ne pas importer de bibliothèque de vecteurs ni utiliser d'arithmétique
+#     vectorielle. Le scaffold n'en a pas besoin.
 
 # -- Nettoyage scène par défaut --
 bpy.ops.object.select_all(action='SELECT')
@@ -128,26 +141,22 @@ def link_to(obj, col):
     bpy.context.scene.collection.objects.unlink(obj) if obj.name in bpy.context.scene.collection.objects else None
     col.objects.link(obj)
 
-# -- Sujet produit proxy — H.4.6 : redimensionné pour une présence packshot crédible --
-# Le LLM peut adapter la primitive (cube, sphère, capsule) selon le produit demandé,
-# mais doit conserver un sujet centré (XY≈0,0) et visible (radius >= 0.07, depth >= 0.20).
-# Hauteur produit ~28 cm : sera la cible visée par la caméra et les lumières.
+# -- Sujet produit proxy — H.4.6b : cylindre stable, nom contractuel --
+# Sujet = proxy primitif. Le nom Product_Subject est CONTRACTUEL : conserver tel quel.
+# Le LLM peut ajuster les matériaux mais NE DOIT PAS remplacer cette primitive
+# par un asset externe ni renommer l'objet.
 bpy.ops.mesh.primitive_cylinder_add(radius=0.08, depth=0.28, location=(0, 0, 0.18))
 product = bpy.context.object
 product.name = "Product_Subject"
 link_to(product, scene_col)
 
-# Position centre du sujet — utilisée pour orienter caméra et lumières
-_PRODUCT_CENTER = mathutils.Vector((0.0, 0.0, 0.18))
-
-# -- Socle / piédestal proportionné au sujet — H.4.6 : socle réduit pour ne pas écraser le produit --
+# -- Socle / piédestal — H.4.6b : cylindre proportionné, nom contractuel --
 bpy.ops.mesh.primitive_cylinder_add(radius=0.15, depth=0.04, location=(0, 0, 0.02))
 pedestal = bpy.context.object
 pedestal.name = "Pedestal"
 link_to(pedestal, scene_col)
 
-# -- Backdrop neutre — H.4.6 : vrai mur de fond vertical, dimensionné au FOV caméra --
-# Plus petit qu'avant et complètement redressé (90°) pour servir de fond, pas d'objet dominant.
+# -- Backdrop vertical — H.4.6b : mur de fond, dimensionné au FOV caméra --
 bpy.ops.mesh.primitive_plane_add(size=2.0, location=(0, 0.7, 0.5))
 backdrop = bpy.context.object
 backdrop.name = "Backdrop_Plane"
@@ -155,37 +164,32 @@ backdrop.rotation_euler = (1.5708, 0, 0)   # π/2 = vertical exact
 backdrop.scale = (1.0, 1.0, 1.0)
 link_to(backdrop, scene_col)
 
-# -- Caméra produit 3/4 — H.4.6 : cadrage serré, orientation calculée vers le sujet --
-# NE PAS modifier la logique de caméra active (bpy.context.scene.camera = cam).
+# -- Caméra produit 3/4 — H.4.6b : rotation Euler PRÉCALCULÉE (look-at vers (0, 0, 0.18)) --
+# Ces valeurs sont issues d'un calcul hors-scaffold. NE PAS recalculer.
 bpy.ops.object.camera_add(location=(0.38, -0.55, 0.28))
 cam = bpy.context.object
 cam.name = "Camera"
 cam.data.lens = 80
-# Orientation déterministe : viser le centre du produit
-_cam_dir = _PRODUCT_CENTER - cam.location
-cam.rotation_euler = _cam_dir.to_track_quat('-Z', 'Y').to_euler()
+cam.rotation_euler = (1.3909, 0.5970, 0.1019)   # look-at (0, 0, 0.18) — précalculé H.4.6b
 bpy.context.scene.camera = cam
 link_to(cam, scene_col)
 
-# -- Lumière clé softbox (AREA) — H.4.6 : visée déterministe vers le produit --
-# NE PAS supprimer ni renommer Key_Light.
+# -- Lumière clé softbox (AREA) — H.4.6b : rotation Euler PRÉCALCULÉE --
 bpy.ops.object.light_add(type='AREA', location=(0.6, -0.5, 0.9))
 key_light = bpy.context.object
 key_light.name = "Key_Light"
 key_light.data.energy = 180.0
 key_light.data.size = 0.8
-_kl_dir = _PRODUCT_CENTER - key_light.location
-key_light.rotation_euler = _kl_dir.to_track_quat('-Z', 'Y').to_euler()
+key_light.rotation_euler = (0.6070, 0.6002, 0.6828)   # look-at (0, 0, 0.18) — précalculé H.4.6b
 link_to(key_light, scene_col)
 
-# -- Fill light secondaire (optionnel, adaptable par le LLM) — H.4.6 : visée vers le produit --
+# -- Fill light secondaire (AREA) — H.4.6b : rotation Euler PRÉCALCULÉE --
 bpy.ops.object.light_add(type='AREA', location=(-0.6, -0.3, 0.7))
 fill_light = bpy.context.object
 fill_light.name = "Fill_Light"
 fill_light.data.energy = 50.0
 fill_light.data.size = 0.8
-_fl_dir = _PRODUCT_CENTER - fill_light.location
-fill_light.rotation_euler = _fl_dir.to_track_quat('-Z', 'Y').to_euler()
+fill_light.rotation_euler = (0.5233, -0.7851, -0.8863)   # look-at (0, 0, 0.18) — précalculé H.4.6b
 link_to(fill_light, props_col)
 
 # -- Sauvegarde gérée par le pipeline (OUTPUT_BLEND_PATH injecté automatiquement) --
