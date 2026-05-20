@@ -43,7 +43,10 @@ class ArtisticIntent(BaseModel):
 
 _MEDIUM_RULES: list[tuple[list[str], str]] = [
     (["animation", "anim", "keyframe", "frame", "cycle", "loop", "tourne", "pivote", "bouge"], "animation"),
-    (["product", "produit", "packshot", "studio", "commercial", "rendu produit"], "product_render"),
+    # H.4.4 — "studio" retiré : c'est un terme d'éclairage (voir _LIGHTING_RULES), pas un medium.
+    # "commercial" retiré : trop ambigu ("espace commercial" → intérieur, pas packshot produit).
+    # Note : "product" est un substring de "production" (edge case connu, non corrigé ici — rare).
+    (["product", "produit", "packshot", "rendu produit"], "product_render"),
     (["scène", "scene", "monde", "world", "décor", "environ", "intérieur", "extérieur",
       "laboratoire", "labo", "rue", "hangar", "île", "forêt", "ville", "salle", "chambre"], "3d_scene"),
 ]

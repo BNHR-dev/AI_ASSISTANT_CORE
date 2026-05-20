@@ -310,6 +310,13 @@ def get_template_name(message: str) -> str | None:
 # ---------------------------------------------------------------------------
 # Sujets ArtisticIntent qui mappent vers interior_space.
 # Reste conservateur : seuls les sujets clairement "scène intérieure".
+#
+# H.4.4 — Valeurs réellement retournées comme subject_main par parse_artistic_intent :
+#   "laboratoire", "salle", "hangar"  ← reachable via _SUBJECT_RULES
+# Les autres ("bureau", "office", "room", "salon", "cuisine", "chambre",
+# "couloir", "corridor") ne sont pas dans _SUBJECT_RULES — elles ne matchent
+# jamais pour un ArtisticIntent produit par parse_artistic_intent, mais restent
+# utiles pour un intent dict brut fourni directement.
 _INTERIOR_INTENT_SUBJECTS = (
     "laboratoire", "salle", "bureau", "office",
     "room", "salon", "cuisine", "chambre",
@@ -318,7 +325,15 @@ _INTERIOR_INTENT_SUBJECTS = (
 
 # Sujets ArtisticIntent compatibles avec product_render — H.4.2.
 # Conservateur : seuls les sujets clairement "objet produit".
-# Aligné sur les labels retournés par artistic_intent._SUBJECT_RULES.
+#
+# H.4.4 — Valeurs réellement retournées comme subject_main par parse_artistic_intent :
+#   "bouteille", "maquette", "cube", "sphère"  ← reachable via _SUBJECT_RULES
+#   (note : "flacon"/"parfum" → subject_main="bouteille" ; "modèle" → "maquette")
+# Les autres ("flacon", "parfum", "produit", "product", "mockup", "packaging",
+# "packshot") ne sont jamais retournées par _SUBJECT_RULES — elles ne matchent
+# pour un ArtisticIntent produit par parse_artistic_intent que via substring
+# ("bouteille" contient-il "flacon" ? non) → inactives pour le chemin intent.
+# Elles restent utiles pour un intent dict brut fourni directement.
 _PRODUCT_INTENT_SUBJECTS = (
     "bouteille", "flacon", "parfum",
     "produit", "product",
