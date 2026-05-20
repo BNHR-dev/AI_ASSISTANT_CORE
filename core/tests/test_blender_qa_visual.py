@@ -29,14 +29,18 @@ except ImportError:
     _PIL_AVAILABLE = False
 
 from app.engine.blender_qa_visual import (
+    THRESHOLD_DECOR_DOMINANCE,
     THRESHOLD_FOREGROUND,
+    THRESHOLD_FOREGROUND_DOMINANT,
     THRESHOLD_STD_LUMINANCE,
     THRESHOLD_SUBJECT_AREA,
     THRESHOLD_SUBJECT_OFFSET,
+    V_DECOR_DOMINATES,
     V_LOW_CONTRAST,
     V_SUBJECT_OUT_OF_FRAME,
     V_SUBJECT_TOO_SMALL,
     V_SUBJECT_OFFCENTER,
+    check_decor_dominance,
     check_luminance_contrast,
     check_subject_bbox_detected,
     check_subject_area_ratio,
@@ -101,6 +105,54 @@ def _make_no_subject_image(size: tuple = (64, 64)) -> "Image.Image":
     Simule sujet totalement absent ou hors cadre.
     """
     return Image.new("L", size, THRESHOLD_FOREGROUND)  # exactement au seuil → non détecté (> strict)
+
+
+def _make_dominant_backdrop_image(size: tuple = (128, 128)) -> "Image.Image":
+    """
+    H.4.5.1 — Mime le faux négatif observé : large backdrop mid-gray avec
+    variation d'éclairage (zones lit/shadow) + minuscule sujet brillant au centre.
+    La variation entre zones produit un std > THRESHOLD_STD_LUMINANCE, simulant
+    le rendu EEVEE réel (la preview problématique a std=20.47).
+
+    Triple gate decor_dominance attendu :
+      - dominant_ratio ~0.70 (zone "lit" majoritaire dans bin [64-95])
+      - std ~10 (variation lit/shadow)
+      - foreground_area_ratio ≈ 1.0 (tous pixels > THRESHOLD_FOREGROUND=30)
+    → degraded via V_DECOR_DOMINATES.
+    """
+    img = Image.new("L", size, 90)    # zone 1 backdrop "lit", bin [64-95]
+    w, h = size
+    # Zone 2 "shadow" (bas du frame) — apporte de la variation pour pousser std > 8
+    top_zone_height = int(h * 0.7)
+    for x in range(w):
+        for y in range(top_zone_height, h):
+            img.putpixel((x, y), 110)  # zone 2, bin [96-127]
+    # Sujet minuscule 4×4 brillant au centre
+    cx, cy = w // 2, h // 2
+    for x in range(cx - 2, cx + 2):
+        for y in range(cy - 2, cy + 2):
+            img.putpixel((x, y), 220)
+    return img
+
+
+def _make_minimalist_packshot_image(size: tuple = (128, 128)) -> "Image.Image":
+    """
+    H.4.5.1 — Packshot minimaliste valide : fond sombre uniforme EEVEE +
+    sujet large centré.
+    Triple gate decor_dominance :
+      - dominant_ratio élevé (fond sombre uniforme)   → gate 1 ✓
+      - std élevé (sujet vs fond)                     → gate 2 ✓
+      - foreground_area_ratio ~22 % (seul le sujet)   → gate 3 ✗ ferme
+    → reste passed, pas de faux positif.
+    """
+    img = Image.new("L", size, 10)   # fond sombre uniforme, en-dessous threshold 30
+    w, h = size
+    cx, cy = w // 2, h // 2
+    r = 30                            # sujet 60×60 ≈ 22 % du frame
+    for x in range(cx - r, cx + r):
+        for y in range(cy - r, cy + r):
+            img.putpixel((x, y), 180)
+    return img
 
 
 def _save_png(img: "Image.Image", path: Path) -> None:
@@ -256,6 +308,74 @@ class TestCheckSubjectCentering:
 
 
 # ---------------------------------------------------------------------------
+# Tests check_decor_dominance (H.4.5.1)
+# ---------------------------------------------------------------------------
+
+class TestCheckDecorDominance:
+
+    def test_dominant_backdrop_is_degraded(self):
+        """Backdrop mid-gray dominant + sujet minuscule → triple gate triggered."""
+        img = _make_dominant_backdrop_image()
+        result = check_decor_dominance(img)
+        assert result["status"] == "degraded"
+        assert V_DECOR_DOMINATES in result["violations"]
+        assert result["dominant_ratio"] > THRESHOLD_DECOR_DOMINANCE
+        assert result["foreground_area_ratio"] > THRESHOLD_FOREGROUND_DOMINANT
+
+    def test_minimalist_packshot_stays_passed(self):
+        """
+        Packshot minimaliste (fond sombre uniforme + sujet large centré) :
+        gate 3 (foreground_area_ratio) bloque la dégradation malgré bin dominant.
+        """
+        img = _make_minimalist_packshot_image()
+        result = check_decor_dominance(img)
+        assert result["status"] == "passed", (
+            f"Packshot minimaliste ne doit PAS être degraded "
+            f"(dom={result['dominant_ratio']}, fg={result['foreground_area_ratio']})"
+        )
+        assert result["violations"] == []
+        assert result["foreground_area_ratio"] < THRESHOLD_FOREGROUND_DOMINANT
+
+    def test_good_image_passes(self):
+        """Image avec sujet centré et fond varié → distribution étalée → passed."""
+        img = _make_good_image()
+        result = check_decor_dominance(img)
+        assert result["status"] == "passed"
+        assert result["violations"] == []
+
+    def test_monochrome_is_not_decor_degraded(self):
+        """Image monochrome : gate 2 (std) ferme. luminance_contrast la flag, pas decor_dominance."""
+        img = _make_uniform_image(20)
+        result = check_decor_dominance(img)
+        assert result["status"] == "passed"
+        assert V_DECOR_DOMINATES not in result["violations"]
+
+    def test_dominant_ratio_exposed(self):
+        img = _make_dominant_backdrop_image()
+        result = check_decor_dominance(img)
+        assert "dominant_ratio" in result
+        assert isinstance(result["dominant_ratio"], float)
+
+    def test_foreground_area_ratio_exposed(self):
+        img = _make_dominant_backdrop_image()
+        result = check_decor_dominance(img)
+        assert "foreground_area_ratio" in result
+        assert isinstance(result["foreground_area_ratio"], float)
+
+    def test_thresholds_exposed(self):
+        img = _make_dominant_backdrop_image()
+        result = check_decor_dominance(img)
+        assert result["threshold_dominance"] == THRESHOLD_DECOR_DOMINANCE
+        assert result["threshold_foreground_dominant"] == THRESHOLD_FOREGROUND_DOMINANT
+
+    def test_degraded_result_has_details(self):
+        img = _make_dominant_backdrop_image()
+        result = check_decor_dominance(img)
+        assert result.get("details") is not None
+        assert "décor" in result["details"].lower() or "decor" in result["details"].lower()
+
+
+# ---------------------------------------------------------------------------
 # Tests run_visual_qa
 # ---------------------------------------------------------------------------
 
@@ -278,7 +398,8 @@ class TestRunVisualQA:
             _save_png(_make_good_image(), p)
             result = run_visual_qa(str(p))
         for key in ("luminance_contrast", "subject_bbox_detected",
-                    "subject_area_ratio", "subject_centering"):
+                    "subject_area_ratio", "subject_centering",
+                    "decor_dominance"):
             assert key in result["checks"], f"Check manquant : {key}"
 
     def test_top_level_keys_present(self):
@@ -344,6 +465,39 @@ class TestRunVisualQA:
         for check in result["checks"].values():
             all_from_checks.extend(check.get("violations", []))
         assert set(result["violations"]) == set(all_from_checks)
+
+
+# ---------------------------------------------------------------------------
+# Tests run_visual_qa — H.4.5.1 faux négatif decor_dominance
+# ---------------------------------------------------------------------------
+
+class TestRunVisualQAFalseNegativeFixture:
+    """
+    Vérifie le scénario H.4.5.1 sur fixtures sauvegardées en PNG :
+    le faux négatif synthétique doit être catché, et le packshot minimaliste
+    valide doit rester passed.
+    """
+
+    def test_dominant_backdrop_fixture_degrades_visual_qa(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = Path(tmpdir) / "preview.png"
+            _save_png(_make_dominant_backdrop_image(), p)
+            result = run_visual_qa(str(p))
+        assert result["status"] == "degraded"
+        assert V_DECOR_DOMINATES in result["violations"]
+        decor = result["checks"]["decor_dominance"]
+        assert decor["status"] == "degraded"
+
+    def test_minimalist_packshot_fixture_stays_passed_via_qa(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = Path(tmpdir) / "preview.png"
+            _save_png(_make_minimalist_packshot_image(), p)
+            result = run_visual_qa(str(p))
+        assert result["status"] == "passed", (
+            f"Packshot minimaliste ne doit PAS sortir degraded "
+            f"(violations={result['violations']})"
+        )
+        assert V_DECOR_DOMINATES not in result["violations"]
 
 
 # ---------------------------------------------------------------------------
@@ -515,5 +669,56 @@ class TestInspectBlendSceneVisualQA:
         assert "visual_qa" in data
         assert "checks" in data["visual_qa"]
         for check_key in ("luminance_contrast", "subject_bbox_detected",
-                          "subject_area_ratio", "subject_centering"):
+                          "subject_area_ratio", "subject_centering",
+                          "decor_dominance"):
             assert check_key in data["visual_qa"]["checks"]
+
+    def test_dominant_backdrop_preview_degrades_global_status(self, tmp_path):
+        """H.4.5.1 — Preview avec backdrop dominant doit faire passer scene_report en degraded."""
+        blend = tmp_path / "scene.blend"
+        blend.write_bytes(b"")
+        scene_py = tmp_path / "scene.py"
+        scene_py.write_text("import bpy", encoding="utf-8")
+
+        preview = tmp_path / "preview.png"
+        _save_png(_make_dominant_backdrop_image(), preview)
+
+        bpy_report = _fake_bpy_report_ok()
+        with patch("subprocess.run", side_effect=_make_proc_success(tmp_path, bpy_report)):
+            report = inspect_blend_scene(
+                exe="/fake/blender",
+                output_path=str(blend),
+                output_dir=str(tmp_path),
+                timeout=30,
+                render_path=str(preview),
+            )
+
+        assert report["status"] == "degraded"
+        assert V_DECOR_DOMINATES in report["violations"]
+        assert report["visual_qa"]["checks"]["decor_dominance"]["status"] == "degraded"
+
+    def test_minimalist_packshot_preview_stays_passed(self, tmp_path):
+        """H.4.5.1 — Packshot minimaliste valide ne doit pas être degraded à tort."""
+        blend = tmp_path / "scene.blend"
+        blend.write_bytes(b"")
+        scene_py = tmp_path / "scene.py"
+        scene_py.write_text("import bpy", encoding="utf-8")
+
+        preview = tmp_path / "preview.png"
+        _save_png(_make_minimalist_packshot_image(), preview)
+
+        bpy_report = _fake_bpy_report_ok()
+        with patch("subprocess.run", side_effect=_make_proc_success(tmp_path, bpy_report)):
+            report = inspect_blend_scene(
+                exe="/fake/blender",
+                output_path=str(blend),
+                output_dir=str(tmp_path),
+                timeout=30,
+                render_path=str(preview),
+            )
+
+        assert report["status"] == "passed", (
+            f"Packshot minimaliste ne doit pas être degraded "
+            f"(violations={report['violations']})"
+        )
+        assert V_DECOR_DOMINATES not in report["violations"]

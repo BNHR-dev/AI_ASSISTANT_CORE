@@ -23,6 +23,7 @@ V_LOW_CONTRAST         = "low_contrast"
 V_SUBJECT_TOO_SMALL    = "subject_too_small"
 V_SUBJECT_OUT_OF_FRAME = "subject_out_of_frame"
 V_SUBJECT_OFFCENTER    = "subject_offcenter"
+V_DECOR_DOMINATES      = "decor_dominates"
 V_VISUAL_QA_ERROR      = "visual_qa_error"
 
 # ---------------------------------------------------------------------------
@@ -35,6 +36,11 @@ THRESHOLD_SUBJECT_OFFSET = 0.40  # distance_centre/demi-diag > 40 % → sujet da
 THRESHOLD_FOREGROUND     = 30    # pixels > 30/255 considérés "sujet" vs fond EEVEE (~13/255)
 # THRESHOLD_FOREGROUND : seuil absolu calibré pour world.color = (0.05, 0.05, 0.05)
 # ≈ 13/255. Limite : incorrect si fond clair ou sujet très sombre.
+
+# H.4.5.1 — détection décor dominant via histogramme + triple gate
+THRESHOLD_DECOR_DOMINANCE     = 0.45  # bin dominant > 45 % des pixels → bande luminance massive
+THRESHOLD_FOREGROUND_DOMINANT = 0.75  # > 75 % pixels > THRESHOLD_FOREGROUND → bbox quasi full-frame pathologique
+HISTOGRAM_BIN_WIDTH           = 32    # 8 bins de 32 valeurs de luminance (256/32)
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +71,7 @@ def _empty_checks() -> dict:
         "subject_bbox_detected": {"status": "skipped"},
         "subject_area_ratio":    {"status": "skipped"},
         "subject_centering":     {"status": "skipped"},
+        "decor_dominance":       {"status": "skipped"},
     }
 
 
@@ -183,6 +190,83 @@ def check_subject_centering(img) -> dict:
     }
 
 
+def check_decor_dominance(img) -> dict:
+    """
+    H.4.5.1 — Détecte le faux négatif spécifique : une bande de luminance domine
+    l'histogramme ET le foreground mask couvre quasi tout le frame (pathologie :
+    le décor est compté comme sujet par les checks bbox/area_ratio/centering).
+
+    Triple gate pour éviter les faux positifs sur packshots minimalistes valides :
+      1. dominant_ratio > THRESHOLD_DECOR_DOMINANCE   (bande luminance dominante)
+      2. std_luminance >= THRESHOLD_STD_LUMINANCE     (pas déjà monochrome)
+      3. foreground_area_ratio > THRESHOLD_FOREGROUND_DOMINANT
+         (segmentation actuelle leurrée : décor passe le seuil foreground)
+
+    Packshot minimaliste valide (fond EEVEE sombre + sujet large) :
+      bin dominant élevé, std élevé, mais foreground_ratio bas (~25 %) → passed.
+    Faux négatif observé (backdrop mid-gray + produit minuscule) :
+      bin dominant élevé, std modéré, foreground_ratio ~95 % → degraded.
+    Image monochrome : std = 0 → gate 2 ferme → passed (déjà flaggée par luminance_contrast).
+    """
+    raw = img.tobytes()
+    n = len(raw)
+    if n == 0:
+        return {
+            "status": "skipped",
+            "violations": [],
+            "dominant_ratio": 0.0,
+            "threshold_dominance": THRESHOLD_DECOR_DOMINANCE,
+            "foreground_area_ratio": 0.0,
+            "threshold_foreground_dominant": THRESHOLD_FOREGROUND_DOMINANT,
+            "bin_width": HISTOGRAM_BIN_WIDTH,
+            "details": None,
+        }
+
+    # Histogramme : counts par valeur 0-255, puis regroupement en bins de largeur fixe
+    counts = [0] * 256
+    for p in raw:
+        counts[p] += 1
+    n_bins = 256 // HISTOGRAM_BIN_WIDTH
+    bins = [
+        sum(counts[i * HISTOGRAM_BIN_WIDTH:(i + 1) * HISTOGRAM_BIN_WIDTH])
+        for i in range(n_bins)
+    ]
+    dominant_count = max(bins)
+    dominant_ratio = dominant_count / n
+
+    # std luminance (gate 2)
+    mean = sum(raw) / n
+    variance = sum((p - mean) ** 2 for p in raw) / n
+    std = math.sqrt(variance)
+
+    # foreground area ratio (gate 3) — même seuil que _foreground_mask
+    foreground_count = sum(1 for p in raw if p > THRESHOLD_FOREGROUND)
+    foreground_ratio = foreground_count / n
+
+    is_dominant            = dominant_ratio > THRESHOLD_DECOR_DOMINANCE
+    is_not_monochrome      = std >= THRESHOLD_STD_LUMINANCE
+    is_foreground_dominant = foreground_ratio > THRESHOLD_FOREGROUND_DOMINANT
+
+    triggered = is_dominant and is_not_monochrome and is_foreground_dominant
+    status = "degraded" if triggered else "passed"
+    violations = [V_DECOR_DOMINATES] if triggered else []
+
+    return {
+        "status": status,
+        "violations": violations,
+        "dominant_ratio": round(dominant_ratio, 4),
+        "threshold_dominance": THRESHOLD_DECOR_DOMINANCE,
+        "foreground_area_ratio": round(foreground_ratio, 4),
+        "threshold_foreground_dominant": THRESHOLD_FOREGROUND_DOMINANT,
+        "bin_width": HISTOGRAM_BIN_WIDTH,
+        "details": (
+            "Décor uniforme remplit le frame, sujet probablement noyé "
+            "(bande luminance dominante + foreground quasi full-frame)"
+            if triggered else None
+        ),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Orchestrateur public
 # ---------------------------------------------------------------------------
@@ -233,12 +317,14 @@ def run_visual_qa(render_path: str | None) -> dict:
         bbox_check   = check_subject_bbox_detected(img)
         area_check   = check_subject_area_ratio(img)
         center_check = check_subject_centering(img)
+        decor_check  = check_decor_dominance(img)  # H.4.5.1
 
         checks = {
             "luminance_contrast":    lum_check,
             "subject_bbox_detected": bbox_check,
             "subject_area_ratio":    area_check,
             "subject_centering":     center_check,
+            "decor_dominance":       decor_check,
         }
 
         violations: list[str] = []
