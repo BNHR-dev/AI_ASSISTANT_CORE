@@ -90,6 +90,21 @@ CORRECTION_REMOVE_SUN       = "remove_sun"
 CORRECTION_REFRAME_CAMERA   = "reframe_camera"
 CORRECTION_RERENDER_PREVIEW = "rerender_preview"
 
+# H.4.8.2 — Normalisation passive (contrat déjà OK, on remet quand même les
+# paramètres canoniques pour éviter une composition LLM mauvaise).
+CORRECTION_NORMALIZE_CAMERA   = "normalize_camera"
+CORRECTION_NORMALIZE_LIGHTING = "normalize_lighting"
+
+# Ensemble minimal d'objets structurels requis pour qu'une normalisation
+# passive ait du sens. Si l'un d'eux manque, on retombe dans le chemin
+# correctif H.4.8 (ou on skippe).
+NORMALIZATION_MINIMUM_OBJECTS: set[str] = {
+    "Backdrop_Plane",
+    "Pedestal",
+    "Product_Subject",
+    "Camera",
+}
+
 
 # ---------------------------------------------------------------------------
 # Planification — fonction PURE
@@ -112,13 +127,24 @@ def plan_corrections(
       }
 
     Règles V0 :
-      - template_name != "product_render"     → applicable=False
-      - object_names absent                    → applicable=False
-      - Product_Subject absent                 → applicable=False
-      - aucune violation initiale              → applicable=True mais
-        corrections=[CORRECTION_REFRAME_CAMERA, CORRECTION_RERENDER_PREVIEW]
-        si on souhaite ré-appliquer le cadrage canonique, ou liste vide
-        si rien à faire. En V0 : si pas de violation, on ne fait rien.
+      - template_name != "product_render"   → applicable=False
+      - object_names absent                  → applicable=False
+      - Product_Subject absent               → applicable=False
+
+      Si une violation contractuelle est détectée (Sun présent, Key_Light
+      ou Fill_Light manquant) → chemin CORRECTIF H.4.8 :
+        [remove_sun?, add_key_light?, add_fill_light?,
+         reframe_camera, rerender_preview]
+
+      Si aucune violation contractuelle MAIS les 4 objets structurels
+      minimum sont présents → chemin NORMALISATION H.4.8.2 :
+        [normalize_lighting, normalize_camera, rerender_preview]
+      Motivé par : le contrat structurel ne garantit pas une composition
+      lisible. La normalisation réapplique les paramètres canoniques
+      (caméra + lumières) sans modifier les objets, pour stabiliser le
+      cadrage packshot.
+
+      Si aucune violation MAIS minimum incomplet → skipped avec raison.
     """
     if template_name != "product_render":
         return {"applicable": False, "reason": "template_not_product_render", "corrections": []}
@@ -131,25 +157,44 @@ def plan_corrections(
     if REQUIRED_SUBJECT_NAME not in name_set:
         return {"applicable": False, "reason": "no_product_subject", "corrections": []}
 
-    corrections: list[str] = []
+    # --- Chemin CORRECTIF H.4.8 ---------------------------------------------
+    active_corrections: list[str] = []
     if "Sun" in name_set:
-        corrections.append(CORRECTION_REMOVE_SUN)
+        active_corrections.append(CORRECTION_REMOVE_SUN)
     if "Key_Light" not in name_set:
-        corrections.append(CORRECTION_ADD_KEY_LIGHT)
+        active_corrections.append(CORRECTION_ADD_KEY_LIGHT)
     if "Fill_Light" not in name_set:
-        corrections.append(CORRECTION_ADD_FILL_LIGHT)
+        active_corrections.append(CORRECTION_ADD_FILL_LIGHT)
 
-    # En V0 : on n'applique le cadrage caméra canonique et le re-rendu que
-    # si au moins une modification structurelle a été planifiée. Sinon, la
-    # scène est déjà conforme et on évite un subprocess Blender coûteux.
-    if corrections:
-        corrections.append(CORRECTION_REFRAME_CAMERA)
-        corrections.append(CORRECTION_RERENDER_PREVIEW)
+    if active_corrections:
+        active_corrections.append(CORRECTION_REFRAME_CAMERA)
+        active_corrections.append(CORRECTION_RERENDER_PREVIEW)
+        return {"applicable": True, "reason": None, "corrections": active_corrections}
 
-    if not corrections:
-        return {"applicable": True, "reason": "no_corrections_needed", "corrections": []}
+    # --- Chemin NORMALISATION H.4.8.2 ---------------------------------------
+    # Aucune violation contractuelle : si les 4 objets structurels minimum
+    # sont présents, on applique quand même la normalisation canonique pour
+    # garantir un cadrage packshot stable, indépendamment de ce que le LLM
+    # a produit pour la caméra et l'éclairage.
+    if NORMALIZATION_MINIMUM_OBJECTS.issubset(name_set):
+        return {
+            "applicable": True,
+            "reason": None,
+            "corrections": [
+                CORRECTION_NORMALIZE_LIGHTING,
+                CORRECTION_NORMALIZE_CAMERA,
+                CORRECTION_RERENDER_PREVIEW,
+            ],
+        }
 
-    return {"applicable": True, "reason": None, "corrections": corrections}
+    # Cas pathologique : pas de violation contractuelle mais l'un des objets
+    # structurels minimum manque (peut arriver si la spec runtime diverge
+    # du minimum de normalisation). On ne tente pas de deviner.
+    return {
+        "applicable": True,
+        "reason": "minimum_normalization_context_missing",
+        "corrections": [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -172,11 +217,17 @@ def build_correction_script(
 
     Pure : pas d'I/O. Testable.
     """
-    has_remove_sun  = CORRECTION_REMOVE_SUN in corrections
-    has_add_key     = CORRECTION_ADD_KEY_LIGHT in corrections
-    has_add_fill    = CORRECTION_ADD_FILL_LIGHT in corrections
-    has_reframe     = CORRECTION_REFRAME_CAMERA in corrections
-    has_rerender    = CORRECTION_RERENDER_PREVIEW in corrections and render_path
+    has_remove_sun       = CORRECTION_REMOVE_SUN in corrections
+    has_add_key          = CORRECTION_ADD_KEY_LIGHT in corrections
+    has_add_fill         = CORRECTION_ADD_FILL_LIGHT in corrections
+    has_reframe          = CORRECTION_REFRAME_CAMERA in corrections
+    has_normalize_cam    = CORRECTION_NORMALIZE_CAMERA in corrections
+    has_normalize_light  = CORRECTION_NORMALIZE_LIGHTING in corrections
+    has_rerender         = CORRECTION_RERENDER_PREVIEW in corrections and render_path
+
+    # H.4.8.2 — caméra canonique appliquée que ce soit en correctif ou en
+    # normalisation : les deux écrivent exactement le même code bpy.
+    apply_canonical_camera = has_reframe or has_normalize_cam
 
     lines: list[str] = []
     lines.append("import bpy")
@@ -217,9 +268,35 @@ def build_correction_script(
             f'    _fl.rotation_euler = {fl["rotation_euler"]}',
         ]
 
+    # 3.b H.4.8.2 — Normalisation lighting (Key_Light + Fill_Light déjà présents).
+    #     On réapplique les paramètres canoniques sans tenter de re-créer les
+    #     objets. La conversion en AREA est guarded : on ne touche `data.size`
+    #     que si le type est déjà AREA, pour éviter de planter sur SUN/POINT.
+    if has_normalize_light:
+        kl = CANONICAL_KEY_LIGHT
+        fl = CANONICAL_FILL_LIGHT
+        lines += [
+            '_nkl = bpy.data.objects.get("Key_Light")',
+            'if _nkl is not None and _nkl.type == "LIGHT":',
+            f'    _nkl.location = {kl["location"]}',
+            f'    _nkl.data.energy = {kl["energy"]}',
+            f'    _nkl.rotation_euler = {kl["rotation_euler"]}',
+            '    if _nkl.data.type == "AREA":',
+            f'        _nkl.data.size = {kl["size"]}',
+            '_nfl = bpy.data.objects.get("Fill_Light")',
+            'if _nfl is not None and _nfl.type == "LIGHT":',
+            f'    _nfl.location = {fl["location"]}',
+            f'    _nfl.data.energy = {fl["energy"]}',
+            f'    _nfl.rotation_euler = {fl["rotation_euler"]}',
+            '    if _nfl.data.type == "AREA":',
+            f'        _nfl.data.size = {fl["size"]}',
+        ]
+
     # 4. Cadrage caméra canonique (position / rotation / lens fixés du scaffold).
     #    On NE déduit PAS le cadrage du bbox du sujet : V0 reste déterministe.
-    if has_reframe:
+    #    Appliqué à l'identique pour `reframe_camera` (correctif H.4.8) et
+    #    `normalize_camera` (normalisation H.4.8.2).
+    if apply_canonical_camera:
         cam = CANONICAL_CAMERA
         lines += [
             '_cam = bpy.data.objects.get("Camera")',

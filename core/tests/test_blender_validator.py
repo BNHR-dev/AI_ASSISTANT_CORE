@@ -592,9 +592,12 @@ class TestInspectBlendSceneSemanticIntegration:
     def test_blend_ok_fully_compliant_template_yields_passed(self, tmp_path):
         """Structure OK + scene.py conforme au template + objets runtime conformes → passed.
 
-        H.4.8 : depuis l'introduction du runtime contract validator product_render,
-        ce test doit aussi fournir un object_names runtime conforme au contrat
-        (incluant Backdrop_Plane, Pedestal, Product_Subject, Camera, Key_Light, Fill_Light)."""
+        H.4.8 : runtime contract validator product_render exige aussi des
+        object_names runtime conformes (Backdrop_Plane, Pedestal,
+        Product_Subject, Camera, Key_Light, Fill_Light).
+        H.4.8.2 : avec ce object_names complet, la normalisation passive est
+        déclenchée → le corrector est aussi appelé. On mock les deux
+        subprocess.run (validator + corrector) avec le même side_effect."""
         blend_path = tmp_path / "scene.blend"
         blend_path.write_bytes(b"FAKE")
 
@@ -608,7 +611,6 @@ class TestInspectBlendSceneSemanticIntegration:
             'obj5 = "Key_Light"\n',
         )
 
-        # object_names runtime aligné sur le scaffold product_render canonique
         bpy_report = _fake_bpy_report(
             object_count=6,
             light_count=2,
@@ -618,9 +620,13 @@ class TestInspectBlendSceneSemanticIntegration:
             ],
         )
 
+        side_effect = _make_proc_success(tmp_path, bpy_report)
         with patch(
             "app.engine.blender_validator.subprocess.run",
-            side_effect=_make_proc_success(tmp_path, bpy_report),
+            side_effect=side_effect,
+        ), patch(
+            "app.engine.blender_runtime_corrector.subprocess.run",
+            side_effect=side_effect,
         ):
             report = inspect_blend_scene(
                 "blender",
@@ -650,7 +656,11 @@ class TestInspectBlendSceneSemanticIntegration:
         assert V_MISSING_BLEND_FILE in report["violations"]
 
     def test_template_name_propagated_in_report(self, tmp_path):
-        """Le rapport doit exposer template_name pour la traçabilité."""
+        """Le rapport doit exposer template_name pour la traçabilité.
+
+        H.4.8.2 : object_names par défaut de `_fake_bpy_report` ne contient
+        pas Product_Subject → pas de normalisation déclenchée → un seul
+        subprocess.run dans validator → la mock validator-only suffit."""
         blend_path = tmp_path / "scene.blend"
         blend_path.write_bytes(b"FAKE")
 
@@ -663,7 +673,7 @@ class TestInspectBlendSceneSemanticIntegration:
             'obj4 = "Camera"\n'
             'obj5 = "Key_Light"\n',
         )
-        bpy_report = _fake_bpy_report()
+        bpy_report = _fake_bpy_report()  # default: ["Cube", "Camera", "Key_Light"]
         with patch(
             "app.engine.blender_validator.subprocess.run",
             side_effect=_make_proc_success(tmp_path, bpy_report),
@@ -837,7 +847,8 @@ class TestRuntimeContractIntegration:
 
     def test_ast_guard_signal_only_invariant_preserved(self, tmp_path):
         """H.4.7 invariant : ast_guard.violations ne doivent JAMAIS remonter dans
-        scene_report.violations, même quand H.4.8 modifie les violations finales."""
+        scene_report.violations, même quand H.4.8/H.4.8.2 modifient les
+        violations finales (normalisation passive déclenchée ici)."""
         blend = self._make_blend(tmp_path)
         bpy_report = _fake_bpy_report(
             object_names=["Backdrop_Plane", "Pedestal", "Product_Subject",
@@ -849,9 +860,13 @@ class TestRuntimeContractIntegration:
             "checks": {},
             "metrics": {},
         }
+        side_effect = _make_proc_success(tmp_path, bpy_report)
         with patch(
             "app.engine.blender_validator.subprocess.run",
-            side_effect=_make_proc_success(tmp_path, bpy_report),
+            side_effect=side_effect,
+        ), patch(
+            "app.engine.blender_runtime_corrector.subprocess.run",
+            side_effect=side_effect,
         ):
             report = inspect_blend_scene(
                 "blender", blend, str(tmp_path), 30,
@@ -904,3 +919,183 @@ class TestRuntimeContractIntegration:
                     "correction_status", "correction_reason",
                     "before", "after"):
             assert key in rc, f"clé manquante : {key}"
+
+
+class TestRuntimeContractNormalizationH482:
+    """
+    H.4.8.2 — Normalisation passive runtime product_render.
+
+    Quand le contrat est satisfait (toutes les violations runtime à []) mais
+    que le cadrage peut être mauvais, la normalisation canonique doit
+    s'appliquer quand même. Le runtime_contract doit refléter honnêtement
+    l'action prise et ne PAS dire 'no_corrections_needed'.
+
+    Cas de régression réel : outputs/blender/7f6d28f5-313e-4b3d-a28f-b6b9419fe28b.
+    """
+
+    def _make_blend(self, tmp_path: Path) -> str:
+        """Crée scene.blend + scene.py product_render-conforme (mentions des
+        required_objects statiques pour ne pas déclencher missing_required:*
+        via validate_scene_py_against_template (H.4.3-C))."""
+        blend = tmp_path / "scene.blend"
+        blend.write_bytes(b"FAKE")
+        (tmp_path / "scene.py").write_text(
+            'import bpy\n'
+            'obj1 = "Backdrop_Plane"\n'
+            'obj2 = "Pedestal"\n'
+            'obj3 = "Product_Subject"\n'
+            'obj4 = "Camera"\n'
+            'obj5 = "Key_Light"\n',
+            encoding="utf-8",
+        )
+        return str(blend)
+
+    def test_normalization_applied_when_contract_passed(self, tmp_path):
+        """Cas 7f6d28f5 en miniature : tous objets contractuels présents,
+        initial_violations vide, mais normalisation doit quand même
+        s'appliquer et reporter honnêtement."""
+        blend = self._make_blend(tmp_path)
+        # Preview initial existe : permet à H.4.8.2 de capturer le mtime initial
+        preview = tmp_path / "preview.png"
+        preview.write_bytes(b"INITIAL_PREVIEW")
+
+        bpy_report = _fake_bpy_report(
+            object_count=6,
+            light_count=2,
+            object_names=["Backdrop_Plane", "Pedestal", "Product_Subject",
+                          "Camera", "Key_Light", "Fill_Light"],
+        )
+        side_effect = _make_proc_success(tmp_path, bpy_report)
+        # Mock run_visual_qa : les bytes preview du test ne sont pas un PNG
+        # valide, mais on ne teste pas visual_qa ici — on teste runtime_contract.
+        fake_visual_qa = {"status": "passed", "violations": [], "checks": {}}
+        with patch(
+            "app.engine.blender_validator.subprocess.run",
+            side_effect=side_effect,
+        ), patch(
+            "app.engine.blender_runtime_corrector.subprocess.run",
+            side_effect=side_effect,
+        ), patch(
+            "app.engine.blender_validator.run_visual_qa",
+            return_value=fake_visual_qa,
+        ):
+            report = inspect_blend_scene(
+                "blender", blend, str(tmp_path), 60,
+                template_name="product_render",
+                render_path=str(preview),
+            )
+
+        rc = report["runtime_contract"]
+        # Contrat satisfait : initial_violations vide
+        assert rc["initial_violations"] == []
+        assert rc["final_violations"] == []
+        # MAIS normalisation appliquée
+        assert rc["correction_status"] == "applied"
+        assert rc["correction_reason"] is None, (
+            "correction_reason ne doit pas être 'no_corrections_needed' "
+            f"quand une normalisation a été appliquée ; got: {rc['correction_reason']}"
+        )
+        # Tokens de normalisation présents
+        assert "normalize_camera" in rc["corrections_applied"]
+        assert "normalize_lighting" in rc["corrections_applied"]
+        assert "rerender_preview" in rc["corrections_applied"]
+        # Tokens correctifs absents (contrat OK)
+        assert "remove_sun" not in rc["corrections_applied"]
+        assert "add_key_light" not in rc["corrections_applied"]
+        assert "add_fill_light" not in rc["corrections_applied"]
+        # status reste passed (le contrat n'est pas violé)
+        assert rc["status"] == "passed"
+        assert report["status"] == "passed"
+        assert report["violations"] == []
+
+    def test_normalization_skipped_for_non_product_render_template(self, tmp_path):
+        """Normalisation est exclusive à product_render (V0). interior_space
+        ne doit jamais déclencher la normalisation H.4.8.2."""
+        blend = self._make_blend(tmp_path)
+        bpy_report = _fake_bpy_report(
+            object_names=["Floor_Plane", "Wall_Back", "Wall_Left", "Wall_Right",
+                          "Main_Subject", "Camera", "Key_Light"],
+        )
+        with patch(
+            "app.engine.blender_validator.subprocess.run",
+            side_effect=_make_proc_success(tmp_path, bpy_report),
+        ):
+            report = inspect_blend_scene(
+                "blender", blend, str(tmp_path), 30,
+                template_name="interior_space",
+            )
+
+        rc = report["runtime_contract"]
+        assert rc["status"] == "skipped"
+        assert rc["correction_status"] == "skipped"
+        assert rc["corrections_applied"] == []
+
+    def test_normalization_preview_metadata_distinguishes_before_after(self, tmp_path):
+        """before.preview_mtime_iso doit différer de after.preview_mtime_iso
+        après un re-rendu (rerender_preview a touché le fichier)."""
+        blend = self._make_blend(tmp_path)
+        preview = tmp_path / "preview.png"
+        preview.write_bytes(b"INITIAL_PREVIEW_BYTES")
+
+        bpy_report = _fake_bpy_report(
+            object_count=6,
+            light_count=2,
+            object_names=["Backdrop_Plane", "Pedestal", "Product_Subject",
+                          "Camera", "Key_Light", "Fill_Light"],
+        )
+
+        # Le side_effect doit aussi modifier le preview pour simuler un re-rendu :
+        # on écrit un contenu différent à chaque appel du corrector subprocess.
+        def _side_effect_with_rerender(cmd, **kwargs):
+            script_path = cmd[-1]
+            try:
+                content = Path(script_path).read_text(encoding="utf-8")
+            except Exception:
+                content = ""
+            # Inspection : écrit le bpy_report dans le fichier référencé
+            import re as _re
+            m = _re.search(r"open\((.+?),", content)
+            if m:
+                report_path = m.group(1).strip().strip("'\"")
+                Path(report_path).write_text(json.dumps(bpy_report), encoding="utf-8")
+            # Correction : simule le re-rendu (taille différente)
+            if "render.render" in content:
+                # Petite attente artificielle pour garantir mtime différent
+                import time as _time
+                _time.sleep(0.05)
+                preview.write_bytes(b"NEW_RENDERED_PREVIEW_BYTES_DIFFERENT_SIZE")
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = ""
+            result.stderr = ""
+            return result
+
+        with patch(
+            "app.engine.blender_validator.subprocess.run",
+            side_effect=_side_effect_with_rerender,
+        ), patch(
+            "app.engine.blender_runtime_corrector.subprocess.run",
+            side_effect=_side_effect_with_rerender,
+        ):
+            report = inspect_blend_scene(
+                "blender", blend, str(tmp_path), 60,
+                template_name="product_render",
+                render_path=str(preview),
+            )
+
+        rc = report["runtime_contract"]
+        before = rc["before"]
+        after = rc["after"]
+        # Les deux doivent avoir les méta preview
+        assert "preview_size_bytes" in before
+        assert "preview_size_bytes" in after
+        assert "preview_mtime_iso" in before
+        assert "preview_mtime_iso" in after
+        # Taille ou mtime doivent différer (re-rendu effectif)
+        size_differs = before["preview_size_bytes"] != after["preview_size_bytes"]
+        mtime_differs = before["preview_mtime_iso"] != after["preview_mtime_iso"]
+        assert size_differs or mtime_differs, (
+            f"before et after preview indistinguables : "
+            f"before_size={before['preview_size_bytes']} after_size={after['preview_size_bytes']} "
+            f"before_mtime={before['preview_mtime_iso']} after_mtime={after['preview_mtime_iso']}"
+        )

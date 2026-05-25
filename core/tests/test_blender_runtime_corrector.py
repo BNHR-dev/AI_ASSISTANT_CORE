@@ -16,9 +16,12 @@ from app.engine.blender_runtime_corrector import (
     CANONICAL_KEY_LIGHT,
     CORRECTION_ADD_FILL_LIGHT,
     CORRECTION_ADD_KEY_LIGHT,
+    CORRECTION_NORMALIZE_CAMERA,
+    CORRECTION_NORMALIZE_LIGHTING,
     CORRECTION_REFRAME_CAMERA,
     CORRECTION_REMOVE_SUN,
     CORRECTION_RERENDER_PREVIEW,
+    NORMALIZATION_MINIMUM_OBJECTS,
     REQUIRED_SUBJECT_NAME,
     apply_corrections,
     build_correction_script,
@@ -62,8 +65,11 @@ class TestPlanCorrections:
         plan = plan_corrections("product_render", None, [])
         assert plan["applicable"] is False
 
-    def test_no_corrections_needed_when_full_contract(self):
-        """Cas nominal : tout est déjà là, rien à corriger."""
+    def test_full_contract_triggers_normalization_h482(self):
+        """H.4.8.2 — Contrat satisfait mais cadrage potentiellement mauvais :
+        plan_corrections doit déclencher la normalisation passive
+        (normalize_lighting + normalize_camera + rerender_preview)
+        plutôt que de skipper avec 'no_corrections_needed'."""
         plan = plan_corrections(
             "product_render",
             ["Backdrop_Plane", "Pedestal", "Product_Subject",
@@ -71,8 +77,37 @@ class TestPlanCorrections:
             [],
         )
         assert plan["applicable"] is True
-        assert plan["reason"] == "no_corrections_needed"
+        assert plan["reason"] is None
+        assert CORRECTION_NORMALIZE_LIGHTING in plan["corrections"]
+        assert CORRECTION_NORMALIZE_CAMERA in plan["corrections"]
+        assert CORRECTION_RERENDER_PREVIEW in plan["corrections"]
+        # Pas de tokens correctifs : la scène est conforme structurellement
+        assert CORRECTION_REMOVE_SUN not in plan["corrections"]
+        assert CORRECTION_ADD_KEY_LIGHT not in plan["corrections"]
+        assert CORRECTION_ADD_FILL_LIGHT not in plan["corrections"]
+        assert CORRECTION_REFRAME_CAMERA not in plan["corrections"]
+
+    def test_normalization_skipped_when_minimum_objects_missing(self):
+        """H.4.8.2 — Contrat satisfait (par hypothèse) mais minimum
+        structurel incomplet → on n'invente pas de normalisation."""
+        # Cas pathologique : Product_Subject + Camera mais ni Pedestal ni
+        # Backdrop_Plane. En pratique le contrat serait alors violé via
+        # required_objects manquants, mais on teste la garde de manière isolée.
+        plan = plan_corrections(
+            "product_render",
+            ["Product_Subject", "Camera", "Key_Light", "Fill_Light"],
+            [],
+        )
+        # Comme Pedestal et Backdrop_Plane manquent au minimum H.4.8.2
+        assert plan["applicable"] is True
+        assert plan["reason"] == "minimum_normalization_context_missing"
         assert plan["corrections"] == []
+
+    def test_normalization_minimum_objects_definition(self):
+        """Garde-fou contre une régression silencieuse du set minimum."""
+        assert NORMALIZATION_MINIMUM_OBJECTS == {
+            "Backdrop_Plane", "Pedestal", "Product_Subject", "Camera",
+        }
 
     def test_plan_smoke_h47_state(self):
         """État réel du smoke H.4.7 : Key/Fill manquants + Sun présent."""
@@ -244,6 +279,82 @@ class TestBuildCorrectionScript:
         assert 'Fill_Light"' in script            # ajout Fill_Light
         assert "scene.camera = _cam" in script    # cadrage caméra
         assert "render.render" in script          # re-rendu
+
+    def test_normalize_camera_emits_canonical_camera_block(self):
+        """H.4.8.2 — normalize_camera doit produire le même bloc bpy que
+        reframe_camera (paramètres canoniques identiques)."""
+        script = build_correction_script(
+            "/tmp/scene.blend", "/tmp/preview.png",
+            [CORRECTION_NORMALIZE_CAMERA],
+        )
+        assert "scene.camera = _cam" in script
+        assert f'data.lens = {CANONICAL_CAMERA["lens"]}' in script
+        # Pas de bloc Sun / light_add (rien à corriger)
+        assert "objects.remove" not in script
+        assert "light_add" not in script
+
+    def test_normalize_lighting_reapplies_canonical_params_to_existing_lights(self):
+        """H.4.8.2 — normalize_lighting cible les Key_Light/Fill_Light déjà
+        présents (sans light_add) et impose leurs paramètres canoniques."""
+        script = build_correction_script(
+            "/tmp/scene.blend", "/tmp/preview.png",
+            [CORRECTION_NORMALIZE_LIGHTING],
+        )
+        assert "light_add" not in script
+        assert 'bpy.data.objects.get("Key_Light")' in script
+        assert 'bpy.data.objects.get("Fill_Light")' in script
+        assert str(CANONICAL_KEY_LIGHT["energy"]) in script
+        assert str(CANONICAL_FILL_LIGHT["energy"]) in script
+        # Garde-fou sur data.size : appliqué seulement si AREA
+        assert 'data.type == "AREA"' in script
+
+    def test_full_normalization_script_h482(self):
+        """H.4.8.2 — bloc complet de normalisation (cas 7f6d28f5)."""
+        script = build_correction_script(
+            "/tmp/scene.blend", "/tmp/preview.png",
+            [CORRECTION_NORMALIZE_LIGHTING,
+             CORRECTION_NORMALIZE_CAMERA,
+             CORRECTION_RERENDER_PREVIEW],
+        )
+        assert "objects.remove" not in script
+        assert "light_add" not in script
+        assert 'bpy.data.objects.get("Key_Light")' in script
+        assert 'bpy.data.objects.get("Fill_Light")' in script
+        assert "scene.camera = _cam" in script
+        assert "render.render(write_still=True)" in script
+
+    def test_apply_corrections_normalization_path_returns_applied(self, tmp_path):
+        """H.4.8.2 — quand seul le path normalisation est planifié,
+        apply_corrections doit retourner status='applied' avec les tokens
+        normalize_*, pas status='skipped' avec 'no_corrections_needed'."""
+        blend = tmp_path / "scene.blend"
+        blend.write_bytes(b"FAKE")
+        success_proc = MagicMock()
+        success_proc.returncode = 0
+        success_proc.stdout = ""
+        success_proc.stderr = ""
+
+        with patch(
+            "app.engine.blender_runtime_corrector.subprocess.run",
+            return_value=success_proc,
+        ):
+            result = apply_corrections(
+                exe="blender",
+                blend_path=str(blend),
+                output_dir=str(tmp_path),
+                render_path=str(tmp_path / "preview.png"),
+                template_name="product_render",
+                object_names=["Backdrop_Plane", "Pedestal", "Product_Subject",
+                              "Camera", "Key_Light", "Fill_Light"],
+                initial_violations=[],
+                timeout=60,
+            )
+
+        assert result["status"] == "applied"
+        assert result["reason"] is None
+        assert CORRECTION_NORMALIZE_LIGHTING in result["corrections_applied"]
+        assert CORRECTION_NORMALIZE_CAMERA in result["corrections_applied"]
+        assert CORRECTION_RERENDER_PREVIEW in result["corrections_applied"]
 
 
 # ---------------------------------------------------------------------------

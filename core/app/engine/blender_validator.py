@@ -15,6 +15,7 @@ import re
 import subprocess
 import tempfile
 import textwrap
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.engine.blender_templates import get_template_spec
@@ -188,14 +189,47 @@ def _empty_runtime_contract_block(template_name: str | None) -> dict:
     }
 
 
-def _snapshot_state(bpy_data: dict, visual_qa: dict) -> dict:
-    """Capture l'état de la scène pour before/after dans runtime_contract."""
-    return {
+def _preview_metadata(render_path: str | None) -> dict | None:
+    """
+    H.4.8.2 — Capture la taille et le mtime du preview au moment de l'appel.
+    Renvoie None si le chemin est absent ou que le fichier n'existe pas.
+    Best-effort : ne lève jamais d'exception.
+    """
+    if not render_path:
+        return None
+    try:
+        p = Path(render_path)
+        if not p.exists():
+            return None
+        st = p.stat()
+        return {
+            "preview_size_bytes": st.st_size,
+            "preview_mtime_iso": datetime.fromtimestamp(
+                st.st_mtime, tz=timezone.utc
+            ).isoformat(),
+        }
+    except Exception:
+        return None
+
+
+def _snapshot_state(bpy_data: dict, visual_qa: dict, preview_meta: dict | None = None) -> dict:
+    """
+    Capture l'état de la scène pour before/after dans runtime_contract.
+
+    H.4.8.2 — Accepte un `preview_meta` figé à l'avance afin que `before` et
+    `after` reflètent bien la métadata du preview À LEUR INSTANT respectif
+    (le fichier preview.png est ré-écrit lors du re-rendu corrector, donc
+    on doit avoir capturé l'état initial avant correction).
+    """
+    snap = {
         "object_names": list(bpy_data.get("object_names", []) or []),
         "object_count": bpy_data.get("object_count", 0),
         "visual_qa_status": visual_qa.get("status") if isinstance(visual_qa, dict) else None,
         "visual_qa_violations": list(visual_qa.get("violations", []) or []) if isinstance(visual_qa, dict) else [],
     }
+    if isinstance(preview_meta, dict):
+        snap.update(preview_meta)
+    return snap
 
 
 def _run_inspection_subprocess(
@@ -320,6 +354,11 @@ def inspect_blend_scene(
     # H.4.5 — QA visuelle V0 initiale (sera potentiellement recalculée après correction H.4.8)
     initial_visual_qa = run_visual_qa(render_path)
 
+    # H.4.8.2 — capture la métadata du preview AVANT toute correction.
+    # Le re-rendu du corrector écrit par-dessus le fichier ; sans cette
+    # capture, before et after auraient les mêmes preview_size/mtime.
+    initial_preview_meta = _preview_metadata(render_path)
+
     # H.4.7 — AST guard V0 : toujours présent dans le rapport, fallback skipped si None.
     # Signal-only : ses violations ne sont JAMAIS propagées dans report["violations"].
     ast_guard_payload = ast_guard if isinstance(ast_guard, dict) else {
@@ -435,8 +474,8 @@ def inspect_blend_scene(
         "corrections_applied": corrections_applied,
         "correction_status": correction_status,
         "correction_reason": correction_reason,
-        "before": _snapshot_state(initial_bpy, initial_visual_qa),
-        "after": _snapshot_state(final_bpy, final_visual_qa),
+        "before": _snapshot_state(initial_bpy, initial_visual_qa, initial_preview_meta),
+        "after": _snapshot_state(final_bpy, final_visual_qa, _preview_metadata(render_path)),
     }
 
     # Rapport final (états bpy = final, visual_qa = final)
