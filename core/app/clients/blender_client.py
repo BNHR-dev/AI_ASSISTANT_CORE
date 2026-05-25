@@ -10,6 +10,7 @@ from pathlib import Path
 from app.clients.ollama_client import generate_with_ollama
 from app.engine.artifact_manifest import write_blender_manifest
 from app.engine.artistic_intent import parse_artistic_intent, write_intent_json
+from app.engine.blender_ast_guard import analyze_scene_py
 from app.engine.blender_types import BlenderRequest, BlenderResult
 from app.engine.blender_templates import (
     select_template,
@@ -373,6 +374,12 @@ def build_blender_script(
     raw_response = generate_with_ollama("qwen2.5-coder:7b", prompt)
 
     raw_code = _extract_python_from_markdown(raw_response)
+
+    # H.4.7 — AST guard V0 : audit pré-exécution du code LLM brut.
+    # Signal-only en V0 : ne bloque jamais l'exécution. Le rapport est
+    # transporté via BlenderRequest puis fusionné dans scene_report["ast_guard"].
+    ast_guard_report = analyze_scene_py(raw_code, selected_template_name)
+
     final_script = _inject_output_paths(raw_code, output_path, render_path)
 
     Path(script_path).write_text(final_script, encoding="utf-8")
@@ -388,6 +395,7 @@ def build_blender_script(
         source_prompt=message,
         creative_intent=intent.model_dump(),
         template_used=selected_template_name,
+        ast_guard=ast_guard_report,
     )
 
 
@@ -602,6 +610,7 @@ def _run_blender_script_inner(request: BlenderRequest) -> BlenderResult:
         request.timeout,
         template_name=request.template_used,
         render_path=render_path,   # H.4.5 — QA visuelle V0
+        ast_guard=request.ast_guard,  # H.4.7 — AST guard V0 (signal-only)
     )
     scene_report_path = scene_report.get("scene_report_path") if scene_report else None
 

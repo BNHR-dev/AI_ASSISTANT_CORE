@@ -15,6 +15,7 @@ class BlenderRequest:
     source_prompt: str | None = None      # prompt utilisateur brut — observabilité H.1
     creative_intent: dict | None = None   # intent artistique extrait — observabilité H.3
     template_used: str | None = None      # nom du template appliqué — observabilité H.4.1
+    ast_guard: dict | None = None         # rapport AST guard V0 — observabilité H.4.7
 
 
 @dataclass
@@ -33,3 +34,4 @@ class BlenderResult:
     scene_report_path: str | None = None      # chemin vers scene_report.json si écrit
     manifest_path: str | None = None          # chemin vers manifest.json — observabilité H.1
     meta: dict | None = None                  # données enrichies (scene_report, etc.)
+    ast_guard: dict | None = None             # rapport AST guard V0 — observabilité H.4.7

@@ -178,6 +178,7 @@ def inspect_blend_scene(
     timeout: int,
     template_name: str | None = None,
     render_path: str | None = None,
+    ast_guard: dict | None = None,
 ) -> dict:
     """
     Inspecte un .blend produit par le pipeline Blender.
@@ -197,6 +198,9 @@ def inspect_blend_scene(
     render_path   : chemin vers preview.png (H.4.5). Si fourni et existant,
                     déclenche la QA visuelle V0 (luminance, cadrage sujet).
                     visual_qa est toujours présent dans le rapport retourné.
+    ast_guard     : rapport AST guard V0 (H.4.7). Signal-only : pas propagé
+                    dans report["violations"]. Toujours présent dans le
+                    rapport retourné, fallback "skipped" si None.
 
     Retourne toujours un dict, ne lève jamais d'exception.
     """
@@ -217,6 +221,15 @@ def inspect_blend_scene(
     # H.4.5 — QA visuelle V0 : exécutée une seule fois, toujours présente dans le rapport
     visual_qa = run_visual_qa(render_path)
 
+    # H.4.7 — AST guard V0 : toujours présent dans le rapport, fallback skipped si None.
+    # Signal-only : ses violations ne sont JAMAIS propagées dans report["violations"].
+    ast_guard_payload = ast_guard if isinstance(ast_guard, dict) else {
+        "status": "skipped",
+        "violations": [],
+        "checks": {},
+        "metrics": {},
+    }
+
     # Rapport de base (sera enrichi si l'inspection réussit)
     base_report: dict = {
         "scene_blend_exists": blend_exists,
@@ -232,6 +245,7 @@ def inspect_blend_scene(
         "violations": [],
         "status": "failed",
         "visual_qa": visual_qa,  # H.4.5 — toujours présent (skipped si pas de preview)
+        "ast_guard": ast_guard_payload,  # H.4.7 — toujours présent (skipped si None)
     }
 
     if not blend_exists:
