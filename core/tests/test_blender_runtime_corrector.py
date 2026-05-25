@@ -159,6 +159,50 @@ class TestBuildCorrectionScript:
         )
         assert f'data.lens = {CANONICAL_CAMERA["lens"]}' in script
 
+    def test_canonical_camera_packshot_lens_range(self):
+        """H.4.8.1 — empêche une régression vers une focale téléobjectif.
+
+        En H.4.8 initial la focale était 80mm (téléobjectif), produisant un
+        cadrage trop serré qui coupait le sujet. Pour un packshot lisible,
+        une focale standard (≈ 35–60mm) est nécessaire.
+        """
+        lens = CANONICAL_CAMERA["lens"]
+        assert 35 <= lens <= 60, (
+            f"CANONICAL_CAMERA.lens = {lens}mm hors plage packshot raisonnable "
+            f"(attendu 35-60mm). Une focale plus longue produit un cadrage "
+            f"trop zoomé et coupe le sujet (régression H.4.8.1)."
+        )
+
+    def test_canonical_camera_minimum_distance_to_origin(self):
+        """H.4.8.1 — empêche un cadrage trop proche.
+
+        La caméra doit être à au moins ~1.4m de l'origine pour permettre au
+        sujet contractuel (Product_Subject ~0.3m de hauteur) d'apparaître
+        entier dans le frame avec la focale canonique.
+        """
+        x, y, z = CANONICAL_CAMERA["location"]
+        distance = (x * x + y * y + z * z) ** 0.5
+        assert distance >= 1.4, (
+            f"CANONICAL_CAMERA.location distance origine = {distance:.2f}m "
+            f"insuffisante pour un cadrage packshot lisible (attendu >= 1.4m)."
+        )
+
+    def test_canonical_camera_aims_above_origin(self):
+        """H.4.8.1 — la caméra doit viser au-dessus de l'origine pour centrer
+        le couple Pedestal + Product_Subject (centre vertical ~z=0.175)
+        plutôt que la base du socle (z=0).
+
+        On vérifie que le pitch X est légèrement au-dessus de π/2 (~1.571),
+        soit une légère plongée pour viser un point en hauteur depuis l'avant.
+        """
+        rx = CANONICAL_CAMERA["rotation_euler"][0]
+        # Plage acceptable : 1.20 (très peu de plongée) à 1.40 (plongée marquée).
+        # Plus bas = caméra plus horizontale ; plus haut = caméra plus plongeante.
+        assert 1.20 <= rx <= 1.40, (
+            f"CANONICAL_CAMERA.rotation_euler.x = {rx:.3f} hors plage attendue "
+            f"(1.20-1.40 rad). Ce paramètre contrôle la hauteur de visée."
+        )
+
     def test_rerender_includes_render_call(self):
         script = build_correction_script(
             "/tmp/scene.blend", "/tmp/preview.png",

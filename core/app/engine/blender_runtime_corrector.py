@@ -53,10 +53,26 @@ CANONICAL_FILL_LIGHT = {
     "rotation_euler": (0.9, -0.3, -0.4),
 }
 
+# H.4.8.1 — Cadrage packshot recalibré.
+#
+# Divergence VOLONTAIRE par rapport à TEMPLATE_PRODUCT_RENDER (blender_templates.py),
+# qui conserve location=(0.5, -0.7, 0.35), rotation=(1.25, 0, 0.6), lens=80 pour
+# rester compatible avec les patterns du scaffold prompt-only existant (et ne pas
+# réintroduire de régression type H.4.6/H.4.6b côté génération LLM).
+#
+# Cette divergence est limitée à la PASSE CORRECTIVE post-exécution :
+# - distance reculée ~1.8x sur le même rayon visuel (recul d'environ 0.6m du sujet)
+# - focale ramenée de 80mm (télé) à 50mm (focale packshot standard)
+# - pitch légèrement augmenté pour viser le milieu vertical du sujet (z≈0.175)
+#   au lieu de l'origine (z=0), ce qui recentre la bouteille + le socle dans le frame.
+#
+# Hauteur visible théorique à 1.53m avec lens=50 et sensor 24mm : ~0.73m.
+# Un sujet contractuel de hauteur ~0.35m occupe donc ~48 % du frame → produit
+# entier lisible, socle visible mais non dominant.
 CANONICAL_CAMERA = {
-    "location": (0.5, -0.7, 0.35),
-    "rotation_euler": (1.25, 0.0, 0.6),
-    "lens": 80,
+    "location": (0.85, -1.20, 0.60),
+    "rotation_euler": (1.30, 0.0, 0.6),
+    "lens": 50,
 }
 
 # Re-rendu canonique (aligné sur _render_preview de blender_client.py)
