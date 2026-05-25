@@ -590,7 +590,11 @@ class TestInspectBlendSceneSemanticIntegration:
         assert "forbidden_prefix:Wall_" in report["violations"]
 
     def test_blend_ok_fully_compliant_template_yields_passed(self, tmp_path):
-        """Structure OK + scene.py conforme au template → passed."""
+        """Structure OK + scene.py conforme au template + objets runtime conformes → passed.
+
+        H.4.8 : depuis l'introduction du runtime contract validator product_render,
+        ce test doit aussi fournir un object_names runtime conforme au contrat
+        (incluant Backdrop_Plane, Pedestal, Product_Subject, Camera, Key_Light, Fill_Light)."""
         blend_path = tmp_path / "scene.blend"
         blend_path.write_bytes(b"FAKE")
 
@@ -604,7 +608,15 @@ class TestInspectBlendSceneSemanticIntegration:
             'obj5 = "Key_Light"\n',
         )
 
-        bpy_report = _fake_bpy_report()
+        # object_names runtime aligné sur le scaffold product_render canonique
+        bpy_report = _fake_bpy_report(
+            object_count=6,
+            light_count=2,
+            object_names=[
+                "Backdrop_Plane", "Pedestal", "Product_Subject",
+                "Camera", "Key_Light", "Fill_Light",
+            ],
+        )
 
         with patch(
             "app.engine.blender_validator.subprocess.run",
@@ -661,3 +673,234 @@ class TestInspectBlendSceneSemanticIntegration:
                 template_name="product_render",
             )
         assert report.get("template_name") == "product_render"
+
+
+# ---------------------------------------------------------------------------
+# H.4.8 — Intégration runtime_contract + correction loop
+# ---------------------------------------------------------------------------
+
+class TestRuntimeContractIntegration:
+    """
+    Vérifie l'orchestration H.4.8 : validator runtime + correction + ré-inspection.
+
+    Toutes les exécutions Blender sont mockées. Les tests vérifient :
+    - que runtime_contract est toujours présent dans scene_report,
+    - que initial_violations / final_violations / corrections_applied sont
+      conformes selon la trajectoire,
+    - que la correction n'est PAS appliquée hors cas nominal,
+    - que ast_guard reste signal-only (invariant H.4.7).
+    """
+
+    def _make_blend(self, tmp_path: Path) -> str:
+        blend = tmp_path / "scene.blend"
+        blend.write_bytes(b"FAKE")
+        (tmp_path / "scene.py").write_text("import bpy\n", encoding="utf-8")
+        return str(blend)
+
+    def test_runtime_contract_present_even_without_template(self, tmp_path):
+        """Sans template_name, runtime_contract doit être présent en mode skipped."""
+        blend = self._make_blend(tmp_path)
+        bpy_report = _fake_bpy_report()
+        with patch(
+            "app.engine.blender_validator.subprocess.run",
+            side_effect=_make_proc_success(tmp_path, bpy_report),
+        ):
+            report = inspect_blend_scene("blender", blend, str(tmp_path), 30)
+
+        assert "runtime_contract" in report
+        assert report["runtime_contract"]["status"] == "skipped"
+        assert report["runtime_contract"]["corrections_applied"] == []
+
+    def test_no_correction_when_product_subject_absent(self, tmp_path):
+        """Smoke H.4.7 si Product_Subject était absent — pas de correction tentée."""
+        blend = self._make_blend(tmp_path)
+        bpy_report = _fake_bpy_report(
+            object_names=["Backdrop_Plane", "Pedestal", "Camera", "Sun"],
+        )
+        with patch(
+            "app.engine.blender_validator.subprocess.run",
+            side_effect=_make_proc_success(tmp_path, bpy_report),
+        ) as mock_run:
+            report = inspect_blend_scene(
+                "blender", blend, str(tmp_path), 30,
+                template_name="product_render",
+            )
+
+        # Une seule passe d'inspection (pas de correction → pas de seconde inspection)
+        assert mock_run.call_count == 1
+        rc = report["runtime_contract"]
+        assert rc["correction_status"] == "skipped"
+        assert rc["correction_reason"] == "no_product_subject"
+        assert rc["corrections_applied"] == []
+        # Les violations runtime initiales sont quand même reportées dans final_violations
+        # (puisqu'aucune correction n'a été appliquée)
+        assert rc["initial_violations"] == rc["final_violations"]
+
+    def test_runtime_violations_propagated_to_scene_report(self, tmp_path):
+        """Sans correction possible, runtime_contract.final_violations doit remonter
+        dans scene_report.violations."""
+        blend = self._make_blend(tmp_path)
+        # Product_Subject absent → pas de correction, mais violations reportées
+        bpy_report = _fake_bpy_report(
+            object_names=["Backdrop_Plane", "Pedestal", "Camera", "Sun"],
+        )
+        with patch(
+            "app.engine.blender_validator.subprocess.run",
+            side_effect=_make_proc_success(tmp_path, bpy_report),
+        ):
+            report = inspect_blend_scene(
+                "blender", blend, str(tmp_path), 30,
+                template_name="product_render",
+            )
+
+        violations_str = " ".join(report["violations"])
+        assert "template_required_missing:Product_Subject" in violations_str
+        assert "template_forbidden_object:Sun" in violations_str
+
+    def test_correction_applied_when_nominal_case(self, tmp_path):
+        """Cas nominal H.4.8 : Product_Subject présent, Key/Fill manquants, Sun présent.
+        La correction doit être déclenchée et la ré-inspection observer l'état corrigé."""
+        blend = self._make_blend(tmp_path)
+
+        # 1ère inspection : état smoke H.4.7
+        initial_report = _fake_bpy_report(
+            object_names=["Backdrop_Plane", "Pedestal", "Product_Subject",
+                          "Camera", "Sun"],
+            light_count=1,
+        )
+        # 2ème inspection (après correction) : Sun supprimé, Key_Light + Fill_Light ajoutés
+        corrected_report = _fake_bpy_report(
+            object_names=["Backdrop_Plane", "Pedestal", "Product_Subject",
+                          "Camera", "Key_Light", "Fill_Light"],
+            light_count=2,
+        )
+
+        # Trois subprocess.run successifs : inspection initiale, correction,
+        # inspection finale. On distingue par le contenu du script invoqué.
+        call_state = {"inspect_count": 0}
+
+        def _side_effect(cmd, **kwargs):
+            script_arg = cmd[-1]
+            try:
+                content = Path(script_arg).read_text(encoding="utf-8")
+            except Exception:
+                content = ""
+
+            # Le script d'inspection contient `open(<report_path>, "w"`
+            import re
+            m = re.search(r"open\((.+?),", content)
+            if m:
+                # subprocess d'inspection
+                report_path = m.group(1).strip().strip("'\"")
+                payload = initial_report if call_state["inspect_count"] == 0 else corrected_report
+                Path(report_path).write_text(json.dumps(payload), encoding="utf-8")
+                call_state["inspect_count"] += 1
+            # Sinon : subprocess de correction — on ne fait rien, juste returncode=0
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = ""
+            result.stderr = ""
+            return result
+
+        with patch(
+            "app.engine.blender_validator.subprocess.run",
+            side_effect=_side_effect,
+        ), patch(
+            "app.engine.blender_runtime_corrector.subprocess.run",
+            side_effect=_side_effect,
+        ):
+            report = inspect_blend_scene(
+                "blender", blend, str(tmp_path), 60,
+                template_name="product_render",
+            )
+
+        rc = report["runtime_contract"]
+        # initial_violations contient les manques + Sun
+        assert "template_required_missing:Key_Light" in rc["initial_violations"]
+        assert "template_required_missing:Fill_Light" in rc["initial_violations"]
+        assert "template_forbidden_object:Sun" in rc["initial_violations"]
+        # final_violations devrait être vide après correction réussie
+        assert rc["final_violations"] == []
+        assert rc["correction_status"] == "applied"
+        # corrections_applied non vide
+        assert len(rc["corrections_applied"]) > 0
+        # before / after distincts
+        assert rc["before"]["object_names"] != rc["after"]["object_names"]
+        assert "Sun" in rc["before"]["object_names"]
+        assert "Sun" not in rc["after"]["object_names"]
+        assert "Key_Light" in rc["after"]["object_names"]
+        assert "Fill_Light" in rc["after"]["object_names"]
+        # scene_report.violations reflète l'état final, pas l'initial
+        violations_str = " ".join(report["violations"])
+        assert "template_required_missing:Key_Light" not in violations_str
+        assert "template_forbidden_object:Sun" not in violations_str
+
+    def test_ast_guard_signal_only_invariant_preserved(self, tmp_path):
+        """H.4.7 invariant : ast_guard.violations ne doivent JAMAIS remonter dans
+        scene_report.violations, même quand H.4.8 modifie les violations finales."""
+        blend = self._make_blend(tmp_path)
+        bpy_report = _fake_bpy_report(
+            object_names=["Backdrop_Plane", "Pedestal", "Product_Subject",
+                          "Camera", "Key_Light", "Fill_Light"],
+        )
+        fake_ast_guard = {
+            "status": "degraded",
+            "violations": ["external_asset_loaded:obj", "no_primitive_add"],
+            "checks": {},
+            "metrics": {},
+        }
+        with patch(
+            "app.engine.blender_validator.subprocess.run",
+            side_effect=_make_proc_success(tmp_path, bpy_report),
+        ):
+            report = inspect_blend_scene(
+                "blender", blend, str(tmp_path), 30,
+                template_name="product_render",
+                ast_guard=fake_ast_guard,
+            )
+
+        # ast_guard est exposé tel quel
+        assert report["ast_guard"]["status"] == "degraded"
+        assert "external_asset_loaded:obj" in report["ast_guard"]["violations"]
+        # mais ses violations N'apparaissent PAS dans scene_report.violations
+        assert "external_asset_loaded:obj" not in report["violations"]
+        assert "no_primitive_add" not in report["violations"]
+
+    def test_runtime_contract_skipped_for_interior_space(self, tmp_path):
+        """interior_space n'est pas dans RUNTIME_CONTRACT_SPECS V0 → status skipped."""
+        blend = self._make_blend(tmp_path)
+        bpy_report = _fake_bpy_report(
+            object_names=["Floor_Plane", "Wall_Back", "Main_Subject",
+                          "Camera", "Key_Light"],
+        )
+        with patch(
+            "app.engine.blender_validator.subprocess.run",
+            side_effect=_make_proc_success(tmp_path, bpy_report),
+        ):
+            report = inspect_blend_scene(
+                "blender", blend, str(tmp_path), 30,
+                template_name="interior_space",
+            )
+
+        rc = report["runtime_contract"]
+        assert rc["status"] == "skipped"
+        assert rc["initial_violations"] == []
+        assert rc["final_violations"] == []
+        assert rc["corrections_applied"] == []
+
+    def test_before_after_keys_present_always(self, tmp_path):
+        """Schema stability : before/after toujours présents même si rien à corriger."""
+        blend = self._make_blend(tmp_path)
+        bpy_report = _fake_bpy_report()
+        with patch(
+            "app.engine.blender_validator.subprocess.run",
+            side_effect=_make_proc_success(tmp_path, bpy_report),
+        ):
+            report = inspect_blend_scene("blender", blend, str(tmp_path), 30)
+
+        rc = report["runtime_contract"]
+        for key in ("status", "template_name", "initial_violations",
+                    "final_violations", "corrections_applied",
+                    "correction_status", "correction_reason",
+                    "before", "after"):
+            assert key in rc, f"clé manquante : {key}"

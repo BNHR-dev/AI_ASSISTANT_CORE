@@ -19,6 +19,8 @@ from pathlib import Path
 
 from app.engine.blender_templates import get_template_spec
 from app.engine.blender_qa_visual import run_visual_qa
+from app.engine.blender_runtime_contract import evaluate_runtime_contract
+from app.engine.blender_runtime_corrector import apply_corrections, plan_corrections
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +173,95 @@ def _semantic_violations_from_scene_py(
     return validate_scene_py_against_template(text, template_name)
 
 
+def _empty_runtime_contract_block(template_name: str | None) -> dict:
+    """Bloc runtime_contract neutre — utilisé quand aucune passe applicable."""
+    return {
+        "status": "skipped",
+        "template_name": template_name,
+        "initial_violations": [],
+        "final_violations": [],
+        "corrections_applied": [],
+        "correction_status": "skipped",
+        "correction_reason": None,
+        "before": {},
+        "after": {},
+    }
+
+
+def _snapshot_state(bpy_data: dict, visual_qa: dict) -> dict:
+    """Capture l'état de la scène pour before/after dans runtime_contract."""
+    return {
+        "object_names": list(bpy_data.get("object_names", []) or []),
+        "object_count": bpy_data.get("object_count", 0),
+        "visual_qa_status": visual_qa.get("status") if isinstance(visual_qa, dict) else None,
+        "visual_qa_violations": list(visual_qa.get("violations", []) or []) if isinstance(visual_qa, dict) else [],
+    }
+
+
+def _run_inspection_subprocess(
+    exe: str,
+    blend_path: Path,
+    output_dir_path: Path,
+    timeout: int,
+) -> tuple[dict | None, str | None]:
+    """
+    Lance Blender en background pour récupérer les métriques structurelles
+    via _INSPECT_SCRIPT_TEMPLATE. Helper extrait pour pouvoir être appelé
+    deux fois (avant + après correction H.4.8).
+
+    Retourne (bpy_data, error_violation_or_None).
+    - (dict, None)         : succès, bpy_data contient les compteurs
+    - (None, V_SUBPROCESS_ERROR)   : returncode != 0
+    - (None, V_TIMEOUT)            : TimeoutExpired
+    - (None, V_INVALID_REPORT_JSON): JSON produit illisible
+    - (None, V_SUBPROCESS_ERROR)   : toute autre exception
+
+    Ne lève jamais d'exception.
+    """
+    tmp_report_path: str | None = None
+    inspect_script_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=".json", delete=False, mode="w", encoding="utf-8"
+        ) as tmp_f:
+            tmp_report_path = tmp_f.name
+            tmp_f.write("{}")
+
+        inspect_script = _INSPECT_SCRIPT_TEMPLATE.format(report_path=tmp_report_path)
+        inspect_script_path = str(output_dir_path / "_inspect_scene.py")
+        Path(inspect_script_path).write_text(inspect_script, encoding="utf-8")
+
+        proc = subprocess.run(
+            [exe, "--background", str(blend_path), "--python", inspect_script_path],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+        if proc.returncode != 0:
+            return None, V_SUBPROCESS_ERROR
+
+        try:
+            raw = Path(tmp_report_path).read_text(encoding="utf-8")
+            bpy_data = json.loads(raw)
+        except Exception:
+            return None, V_INVALID_REPORT_JSON
+
+        return bpy_data, None
+
+    except subprocess.TimeoutExpired:
+        return None, V_TIMEOUT
+    except Exception:
+        return None, V_SUBPROCESS_ERROR
+    finally:
+        for p in (inspect_script_path, tmp_report_path):
+            if p:
+                try:
+                    Path(p).unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+
 def inspect_blend_scene(
     exe: str,
     output_path: str,
@@ -202,6 +293,14 @@ def inspect_blend_scene(
                     dans report["violations"]. Toujours présent dans le
                     rapport retourné, fallback "skipped" si None.
 
+    H.4.8 — Runtime correction loop product_render :
+    Après inspection initiale, si template_name == "product_render" et que
+    Product_Subject est présent dans la scène, une passe corrective
+    déterministe (ajout Key_Light/Fill_Light canoniques, neutralisation Sun,
+    cadrage caméra canonique, re-rendu preview) peut être appliquée. La
+    scène est ensuite ré-inspectée et visual_qa recalculé. Le bloc
+    `runtime_contract` du rapport préserve l'état initial et final.
+
     Retourne toujours un dict, ne lève jamais d'exception.
     """
     inspect_timeout = min(timeout, 30)
@@ -218,8 +317,8 @@ def inspect_blend_scene(
         output_dir_path, template_name
     )
 
-    # H.4.5 — QA visuelle V0 : exécutée une seule fois, toujours présente dans le rapport
-    visual_qa = run_visual_qa(render_path)
+    # H.4.5 — QA visuelle V0 initiale (sera potentiellement recalculée après correction H.4.8)
+    initial_visual_qa = run_visual_qa(render_path)
 
     # H.4.7 — AST guard V0 : toujours présent dans le rapport, fallback skipped si None.
     # Signal-only : ses violations ne sont JAMAIS propagées dans report["violations"].
@@ -229,6 +328,9 @@ def inspect_blend_scene(
         "checks": {},
         "metrics": {},
     }
+
+    # H.4.8 — bloc runtime_contract initialisé en "skipped" (sera enrichi si applicable)
+    runtime_contract_block = _empty_runtime_contract_block(template_name)
 
     # Rapport de base (sera enrichi si l'inspection réussit)
     base_report: dict = {
@@ -244,8 +346,9 @@ def inspect_blend_scene(
         "object_names": [],
         "violations": [],
         "status": "failed",
-        "visual_qa": visual_qa,  # H.4.5 — toujours présent (skipped si pas de preview)
-        "ast_guard": ast_guard_payload,  # H.4.7 — toujours présent (skipped si None)
+        "visual_qa": initial_visual_qa,  # H.4.5 — toujours présent
+        "ast_guard": ast_guard_payload,  # H.4.7 — toujours présent
+        "runtime_contract": runtime_contract_block,  # H.4.8 — toujours présent
     }
 
     if not blend_exists:
@@ -256,99 +359,111 @@ def inspect_blend_scene(
         _write_report(report_json_path, base_report)
         return base_report
 
-    # Fichier temporaire pour recevoir le JSON d'inspection
-    tmp_report_path: str | None = None
-    inspect_script_path: str | None = None
+    # Inspection initiale via subprocess Blender
+    initial_bpy, error_violation = _run_inspection_subprocess(
+        exe, blend_path, output_dir_path, inspect_timeout
+    )
 
-    try:
-        # Créer un fichier temporaire pour le rapport bpy
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", delete=False, mode="w", encoding="utf-8"
-        ) as tmp_f:
-            tmp_report_path = tmp_f.name
-            tmp_f.write("{}")  # contenu initial vide
+    if error_violation is not None:
+        violations = _determine_violations({}, blend_exists, scene_py_exists)
+        violations.append(error_violation)
+        violations.extend(semantic_violations)
+        base_report["violations"] = violations
+        base_report["status"] = "failed"
+        _write_report(report_json_path, base_report)
+        return base_report
 
-        # Créer le script d'inspection
-        inspect_script = _INSPECT_SCRIPT_TEMPLATE.format(report_path=tmp_report_path)
-        inspect_script_path = str(output_dir_path / "_inspect_scene.py")
-        Path(inspect_script_path).write_text(inspect_script, encoding="utf-8")
+    # Inspection initiale réussie
+    initial_bpy = initial_bpy or {}
+    initial_object_names = list(initial_bpy.get("object_names", []) or [])
 
-        proc = subprocess.run(
-            [exe, "--background", str(blend_path), "--python", inspect_script_path],
-            capture_output=True,
-            text=True,
-            timeout=inspect_timeout,
+    # H.4.8 — Évaluation initiale du contrat runtime
+    initial_runtime = evaluate_runtime_contract(initial_object_names, template_name)
+
+    # Planification + application éventuelle de la correction
+    plan = plan_corrections(
+        template_name,
+        initial_object_names,
+        initial_runtime.get("violations", []),
+    )
+
+    final_bpy = initial_bpy
+    final_visual_qa = initial_visual_qa
+    final_runtime = initial_runtime
+    correction_status = "skipped"
+    correction_reason = plan["reason"]
+    corrections_applied: list[str] = []
+
+    if plan["applicable"] and plan["corrections"]:
+        correction_result = apply_corrections(
+            exe=exe,
+            blend_path=str(blend_path),
+            output_dir=str(output_dir_path),
+            render_path=render_path,
+            template_name=template_name,
+            object_names=initial_object_names,
+            initial_violations=initial_runtime.get("violations", []),
+            timeout=timeout,
         )
+        correction_status = correction_result.get("status", "error")
+        correction_reason = correction_result.get("reason")
+        corrections_applied = list(correction_result.get("corrections_applied", []) or [])
 
-        if proc.returncode != 0:
-            violations = _determine_violations({}, blend_exists, scene_py_exists)
-            violations.append(V_SUBPROCESS_ERROR)
-            violations.extend(semantic_violations)
-            base_report["violations"] = violations
-            base_report["status"] = "failed"
-            _write_report(report_json_path, base_report)
-            return base_report
+        if correction_status == "applied":
+            # Ré-inspection après correction (timeout borné, même pattern qu'initial)
+            second_bpy, second_error = _run_inspection_subprocess(
+                exe, blend_path, output_dir_path, inspect_timeout
+            )
+            if second_error is None and second_bpy is not None:
+                final_bpy = second_bpy
+                # Recalcul visual_qa sur preview.png re-rendu
+                final_visual_qa = run_visual_qa(render_path)
+                final_runtime = evaluate_runtime_contract(
+                    list(final_bpy.get("object_names", []) or []),
+                    template_name,
+                )
+            # Si la ré-inspection plante, on garde l'état initial pour
+            # éviter de mentir : runtime_contract.final_violations reflètera
+            # alors l'état initial. correction_status="applied" reste vrai.
 
-        # Lire le JSON produit par le script bpy
-        try:
-            raw = Path(tmp_report_path).read_text(encoding="utf-8")
-            bpy_data = json.loads(raw)
-        except Exception:
-            violations = _determine_violations({}, blend_exists, scene_py_exists)
-            violations.append(V_INVALID_REPORT_JSON)
-            violations.extend(semantic_violations)
-            base_report["violations"] = violations
-            base_report["status"] = "failed"
-            _write_report(report_json_path, base_report)
-            return base_report
+    # Construction du bloc runtime_contract (always present)
+    runtime_contract_block = {
+        "status": final_runtime.get("status", "skipped"),
+        "template_name": template_name,
+        "initial_violations": list(initial_runtime.get("violations", []) or []),
+        "final_violations": list(final_runtime.get("violations", []) or []),
+        "corrections_applied": corrections_applied,
+        "correction_status": correction_status,
+        "correction_reason": correction_reason,
+        "before": _snapshot_state(initial_bpy, initial_visual_qa),
+        "after": _snapshot_state(final_bpy, final_visual_qa),
+    }
 
-        # Fusionner les données bpy dans le rapport
-        report = {
-            **base_report,
-            "object_count":      bpy_data.get("object_count", 0),
-            "mesh_count":        bpy_data.get("mesh_count", 0),
-            "camera_count":      bpy_data.get("camera_count", 0),
-            "light_count":       bpy_data.get("light_count", 0),
-            "has_active_camera": bpy_data.get("has_active_camera", False),
-            "object_names":      bpy_data.get("object_names", []),
-        }
+    # Rapport final (états bpy = final, visual_qa = final)
+    report = {
+        **base_report,
+        "object_count":      final_bpy.get("object_count", 0),
+        "mesh_count":        final_bpy.get("mesh_count", 0),
+        "camera_count":      final_bpy.get("camera_count", 0),
+        "light_count":       final_bpy.get("light_count", 0),
+        "has_active_camera": final_bpy.get("has_active_camera", False),
+        "object_names":      list(final_bpy.get("object_names", []) or []),
+        "visual_qa":         final_visual_qa,
+        "runtime_contract":  runtime_contract_block,
+    }
 
-        violations = _determine_violations(report, blend_exists, scene_py_exists)
-        violations.extend(semantic_violations)
-        # H.4.5 — ajouter les violations visuelles critiques (dégradent le status structural)
-        violations.extend(visual_qa.get("violations", []))
-        report["violations"] = violations
-        report["status"] = _determine_status(violations)
+    # Agrégation des violations finales :
+    # structural (sur l'état final) + semantic scaffold + visual_qa final + runtime_contract final.
+    # NOTE : ast_guard reste signal-only (H.4.7) — ses violations NE SONT PAS ajoutées ici.
+    violations = _determine_violations(report, blend_exists, scene_py_exists)
+    violations.extend(semantic_violations)
+    violations.extend(final_visual_qa.get("violations", []) or [])
+    violations.extend(final_runtime.get("violations", []) or [])  # H.4.8
+    report["violations"] = violations
+    report["status"] = _determine_status(violations)
 
-        _write_report(report_json_path, report)
-        return report
-
-    except subprocess.TimeoutExpired:
-        violations = _determine_violations({}, blend_exists, scene_py_exists)
-        violations.append(V_TIMEOUT)
-        violations.extend(semantic_violations)
-        base_report["violations"] = violations
-        base_report["status"] = "failed"
-        _write_report(report_json_path, base_report)
-        return base_report
-
-    except Exception:
-        violations = _determine_violations({}, blend_exists, scene_py_exists)
-        violations.append(V_SUBPROCESS_ERROR)
-        violations.extend(semantic_violations)
-        base_report["violations"] = violations
-        base_report["status"] = "failed"
-        _write_report(report_json_path, base_report)
-        return base_report
-
-    finally:
-        # Nettoyage des fichiers temporaires
-        for p in (inspect_script_path, tmp_report_path):
-            if p:
-                try:
-                    Path(p).unlink(missing_ok=True)
-                except Exception:
-                    pass
+    _write_report(report_json_path, report)
+    return report
 
 
 def _write_report(path: Path, report: dict) -> None:

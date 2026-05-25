@@ -78,6 +78,8 @@ ACTIVE_AUXILIARY_MODULES = [
     "app/engine/blender_ast_guard.py",
     "app/engine/blender_validator.py",
     "app/engine/blender_qa_visual.py",
+    "app/engine/blender_runtime_contract.py",
+    "app/engine/blender_runtime_corrector.py",
     "app/engine/artifact_manifest.py",
     "app/infra/runtime_urls.py",
     "app/infra/tool_manager.py",
