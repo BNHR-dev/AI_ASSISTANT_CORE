@@ -366,17 +366,32 @@ def build_blender_script(
     # Initialiser le chemin par défaut sur legacy ; le branchement bascule sur
     # builder UNIQUEMENT si product_render + extraction réussie. Toute exception
     # inattendue retombe silencieusement sur legacy.
+    #
+    # H.5.4.1 — Traçabilité explicite (cf. BlenderRequest) : on capture
+    # ir_attempted / extraction_status / extraction_reason pour expliquer
+    # publiquement (manifest.future) pourquoi un prompt product_render peut
+    # retomber en legacy. Plus jamais de fallback silencieux.
     pipeline_path = PIPELINE_PATH_LEGACY
     product_render_intent_dict: dict | None = None
     raw_code: str | None = None
+    product_render_ir_attempted = False
+    product_render_extraction_status: str | None = "skipped"
+    product_render_extraction_reason: str | None = None
 
-    if BLENDER_USE_PRODUCT_RENDER_IR and selected_template_name == "product_render":
+    if not BLENDER_USE_PRODUCT_RENDER_IR:
+        product_render_extraction_reason = "feature_flag_disabled"
+    elif selected_template_name != "product_render":
+        product_render_extraction_reason = "template_not_product_render"
+    else:
+        product_render_ir_attempted = True
         try:
             extraction = extract_product_render_intent(message)
             if extraction.status == "parsed":
                 raw_code = build_product_render_scene_script(extraction.intent)
                 pipeline_path = PIPELINE_PATH_BUILDER
                 product_render_intent_dict = extraction.intent.model_dump()
+                product_render_extraction_status = "parsed"
+                product_render_extraction_reason = None
                 print(
                     f"[blender_client] pipeline_path={pipeline_path} "
                     f"(extraction status=parsed)"
@@ -385,6 +400,8 @@ def build_blender_script(
                 # status="fallback" → on n'utilise PAS le FALLBACK_INTENT canonique
                 # (qui force bottle/amber/glass) car ça ignore la demande utilisateur.
                 # On retombe sur le scaffold prompt-only H.4.x qui essaie sémantiquement.
+                product_render_extraction_status = "fallback"
+                product_render_extraction_reason = extraction.error
                 print(
                     f"[blender_client] pipeline_path={PIPELINE_PATH_LEGACY} "
                     f"(extraction status=fallback, reason={extraction.error!r})"
@@ -392,6 +409,8 @@ def build_blender_script(
         except Exception as exc:  # pragma: no cover - filet de sécurité
             # Toute exception inattendue (extractor ou builder) → fallback legacy.
             # Le pipeline H.4.x reste intact et fonctionnel.
+            product_render_extraction_status = "error"
+            product_render_extraction_reason = f"{type(exc).__name__}: {exc}"
             print(
                 f"[blender_client] pipeline_path={PIPELINE_PATH_LEGACY} "
                 f"(extractor/builder exception: {type(exc).__name__}: {exc})"
@@ -458,6 +477,9 @@ def build_blender_script(
         ast_guard=ast_guard_report,
         pipeline_path=pipeline_path,
         product_render_intent=product_render_intent_dict,
+        product_render_ir_attempted=product_render_ir_attempted,
+        product_render_extraction_status=product_render_extraction_status,
+        product_render_extraction_reason=product_render_extraction_reason,
     )
 
 

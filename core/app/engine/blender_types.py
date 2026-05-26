@@ -19,6 +19,15 @@ class BlenderRequest:
     pipeline_path: str = "legacy_llm_bpy_scaffold"  # H.5.3 : chemin emprunté par build_blender_script
                                                     # Valeurs : "product_render_ir_builder" | "legacy_llm_bpy_scaffold"
     product_render_intent: dict | None = None  # H.5.3 : IR product_render extraite si chemin builder utilisé (sinon None)
+    # H.5.4.1 — Traçabilité du déclenchement product_render IR (visible dans manifest.future).
+    # product_render_ir_attempted        : True si l'extracteur LLM a été lancé pour ce prompt.
+    # product_render_extraction_status   : "parsed" | "fallback" | "error" | "skipped" | None
+    #                                      "skipped" = template != product_render OU flag IR désactivé.
+    #                                      "error"   = exception inattendue dans extractor/builder.
+    # product_render_extraction_reason   : message court (None si parsed ou skipped sans raison).
+    product_render_ir_attempted: bool = False
+    product_render_extraction_status: str | None = None
+    product_render_extraction_reason: str | None = None
 
 
 @dataclass

@@ -39,7 +39,13 @@ _INTERIOR_KEYWORDS = (
 # Mots-clés produit pour le fallback message brut (H.4.2).
 # IMPORTANT : ne PAS inclure "studio" seul — trop ambigu (éclairage studio en intérieur).
 # On exige des expressions sans ambiguïté vers le packshot / rendu produit.
+#
+# H.5.4.1 — Vocabulaire élargi : tous ces tokens déclenchent product_render
+# côté message brut (fallback quand l'intent ne suffit pas). Les compositions
+# avec "cinématographique" sont volontairement entières — "cinématographique"
+# seul reste neutre (cf. test négatif "scène cinématographique sombre rue").
 _PRODUCT_KEYWORDS = (
+    # H.4.2 — vocabulaire d'origine
     "packshot",
     "rendu produit",
     "product render",
@@ -51,6 +57,28 @@ _PRODUCT_KEYWORDS = (
     "bottle of perfume",
     "perfume bottle",
     "flacon de parfum",
+    # H.5.4.1 — noms d'objets product_render typiques
+    "flacon",
+    "fiole",
+    "parfum",
+    "cosmétique",
+    "cosmetique",
+    "pot cosmétique",
+    "pot cosmetique",
+    "pot de crème",
+    "pot de creme",
+    # H.5.4.1 — expressions composées dérivées des smokes B/C
+    "rendu packshot",
+    "packshot cinématographique",
+    "packshot cinematographique",
+    "objet héros",
+    "objet heros",
+    "hero prop",
+    "prop cinématographique",
+    "prop cinematographique",
+    "prévisualisation cinématographique",
+    "previsualisation cinematographique",
+    "bloc produit",
 )
 
 
@@ -335,10 +363,12 @@ _INTERIOR_INTENT_SUBJECTS = (
 # ("bouteille" contient-il "flacon" ? non) → inactives pour le chemin intent.
 # Elles restent utiles pour un intent dict brut fourni directement.
 _PRODUCT_INTENT_SUBJECTS = (
-    "bouteille", "flacon", "parfum",
+    "bouteille", "flacon", "fiole", "parfum",
     "produit", "product",
     "mockup", "maquette", "packaging", "packshot",
     "cube", "sphère", "sphere",
+    # H.5.4.1 — sujets product retournés par _SUBJECT_RULES étendus.
+    "pot", "tube", "bloc",
 )
 
 

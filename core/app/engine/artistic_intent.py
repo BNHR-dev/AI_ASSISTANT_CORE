@@ -46,7 +46,21 @@ _MEDIUM_RULES: list[tuple[list[str], str]] = [
     # H.4.4 — "studio" retiré : c'est un terme d'éclairage (voir _LIGHTING_RULES), pas un medium.
     # "commercial" retiré : trop ambigu ("espace commercial" → intérieur, pas packshot produit).
     # Note : "product" est un substring de "production" (edge case connu, non corrigé ici — rare).
-    (["product", "produit", "packshot", "rendu produit"], "product_render"),
+    # H.5.4.1 — Vocabulaire produit élargi : noms d'objets typiquement product (flacon, fiole,
+    # bouteille, pot cosmétique, parfum, cosmétique) et expressions composées sans
+    # ambiguïté ("rendu packshot", "objet héros", "hero prop", "prop cinématographique",
+    # "prévisualisation cinématographique"). "cinématographique" SEUL n'est PAS listé
+    # ici (cf. test négatif "scène cinématographique sombre dans une rue").
+    (
+        [
+            "product", "produit", "packshot", "rendu produit", "rendu packshot",
+            "flacon", "fiole", "bouteille de parfum", "parfum", "cosmétique",
+            "pot cosmétique", "objet héros", "hero prop",
+            "prop cinématographique", "prop cinematographique",
+            "prévisualisation cinématographique", "previsualisation cinematographique",
+        ],
+        "product_render",
+    ),
     (["scène", "scene", "monde", "world", "décor", "environ", "intérieur", "extérieur",
       "laboratoire", "labo", "rue", "hangar", "île", "forêt", "ville", "salle", "chambre"], "3d_scene"),
 ]
@@ -85,9 +99,13 @@ _SUBJECT_RULES: list[tuple[list[str], str]] = [
     (["rue", "street", "ruelle", "alley"], "rue"),
     (["salle", "room", "chambre", "hall"], "salle"),
     (["personnage", "character", "figure", "humain", "human"], "personnage"),
-    (["bouteille", "bottle", "flacon", "parfum"], "bouteille"),
+    (["bouteille", "bottle", "flacon", "fiole", "parfum"], "bouteille"),
     (["hangar", "garage", "depot"], "hangar"),
     (["maquette", "mockup", "modèle"], "maquette"),
+    # H.5.4.1 — Sujets produit supplémentaires (déclencheurs typiques product_render).
+    (["pot cosmétique", "pot cosmetique", "pot de crème", "pot de creme", "jar"], "pot"),
+    (["tube cosmétique", "tube cosmetique", "tube de"], "tube"),
+    (["bloc produit", "bloc rectangulaire", "packaging rectangulaire"], "bloc"),
 ]
 
 _CAMERA_RULES: list[tuple[list[str], str]] = [

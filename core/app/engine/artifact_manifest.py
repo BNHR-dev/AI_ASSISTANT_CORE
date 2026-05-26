@@ -118,6 +118,12 @@ def build_blender_manifest(
             #   "legacy_llm_bpy_scaffold"   : ancien chemin LLM scaffold prompt-only
             "pipeline_path": getattr(request, "pipeline_path", "legacy_llm_bpy_scaffold"),
             "product_render_intent": getattr(request, "product_render_intent", None),
+            # H.5.4.1 — Traçabilité fine du déclenchement product_render IR.
+            # Permet d'expliquer pourquoi un prompt product_render retombe en legacy
+            # (extraction LLM fallback, exception interne, ou simplement skipped).
+            "product_render_ir_attempted": getattr(request, "product_render_ir_attempted", False),
+            "product_render_extraction_status": getattr(request, "product_render_extraction_status", None),
+            "product_render_extraction_reason": getattr(request, "product_render_extraction_reason", None),
         },
     }
 
