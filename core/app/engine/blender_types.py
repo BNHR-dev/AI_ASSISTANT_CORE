@@ -16,6 +16,9 @@ class BlenderRequest:
     creative_intent: dict | None = None   # intent artistique extrait — observabilité H.3
     template_used: str | None = None      # nom du template appliqué — observabilité H.4.1
     ast_guard: dict | None = None         # rapport AST guard V0 — observabilité H.4.7
+    pipeline_path: str = "legacy_llm_bpy_scaffold"  # H.5.3 : chemin emprunté par build_blender_script
+                                                    # Valeurs : "product_render_ir_builder" | "legacy_llm_bpy_scaffold"
+    product_render_intent: dict | None = None  # H.5.3 : IR product_render extraite si chemin builder utilisé (sinon None)
 
 
 @dataclass

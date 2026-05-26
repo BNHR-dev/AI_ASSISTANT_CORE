@@ -40,6 +40,13 @@ def _capture_prompt(message: str) -> tuple[str, object]:
     """
     Exécute build_blender_script() avec generate_with_ollama mocké, et
     retourne (prompt_envoyé_au_LLM, request).
+
+    H.5.3 — Force `BLENDER_USE_PRODUCT_RENDER_IR=False` pendant ce test : ces
+    tests ciblent le chemin scaffold legacy H.4.3 (guidance + fidelity blocks
+    injectés dans le prompt Ollama). Avec le flag H.5.3 actif sur product_render,
+    le chemin builder court-circuite le scaffold et `generate_with_ollama` n'est
+    plus appelé — capture vide. On désactive le flag pour exercer explicitement
+    le chemin legacy que H.4.3 valide.
     """
     captured: dict[str, str] = {}
 
@@ -48,6 +55,7 @@ def _capture_prompt(message: str) -> tuple[str, object]:
         return "```python\nimport bpy\n```"
 
     with (
+        patch("app.clients.blender_client.BLENDER_USE_PRODUCT_RENDER_IR", False),
         patch("app.clients.blender_client.generate_with_ollama",
               side_effect=_fake_generate),
         patch("app.clients.blender_client.write_intent_json", return_value=None),

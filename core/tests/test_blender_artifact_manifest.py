@@ -334,3 +334,67 @@ def test_write_manifest_returns_none_when_no_output_dir():
 def test_runtime_debug_lists_artifact_manifest():
     from app.engine.runtime_debug import ACTIVE_AUXILIARY_MODULES
     assert "app/engine/artifact_manifest.py" in ACTIVE_AUXILIARY_MODULES
+
+
+# ---------------------------------------------------------------------------
+# H.5.3 — Propagation pipeline_path + product_render_intent dans le manifest
+# ---------------------------------------------------------------------------
+
+class TestManifestH53PipelinePathPropagation:
+    """
+    H.5.3 — Le manifest doit exposer le chemin emprunté par build_blender_script :
+      manifest["future"]["pipeline_path"] = "product_render_ir_builder" | "legacy_llm_bpy_scaffold"
+      manifest["future"]["product_render_intent"] = dict | None
+    """
+
+    def test_manifest_default_pipeline_path_is_legacy(self):
+        """Backward compat : un BlenderRequest construit sans pipeline_path
+        (anciens appels) doit produire manifest.future.pipeline_path = legacy."""
+        request = _make_request()
+        result = _make_result()
+        manifest = build_blender_manifest(request, result)
+        assert manifest["future"]["pipeline_path"] == "legacy_llm_bpy_scaffold"
+        assert manifest["future"]["product_render_intent"] is None
+
+    def test_manifest_propagates_builder_pipeline_path(self):
+        request = BlenderRequest(
+            request_id=_FAKE_ID,
+            script_content="import bpy",
+            script_path=_FAKE_SCRIPT,
+            output_path=_FAKE_BLEND,
+            render_path=_FAKE_RENDER,
+            output_dir=_FAKE_DIR,
+            timeout=60,
+            source_prompt="bouteille de parfum ambrée sur fond gris",
+            template_used="product_render",
+            pipeline_path="product_render_ir_builder",
+            product_render_intent={
+                "schema_version": "v0",
+                "subject": {"kind": "bottle", "color": "amber", "material": "glass"},
+                "backdrop": {"color": "neutral_gray"},
+            },
+        )
+        result = _make_result()
+        manifest = build_blender_manifest(request, result)
+        assert manifest["future"]["pipeline_path"] == "product_render_ir_builder"
+        assert manifest["future"]["product_render_intent"] is not None
+        assert manifest["future"]["product_render_intent"]["subject"]["kind"] == "bottle"
+
+    def test_manifest_propagates_legacy_pipeline_path_explicitly(self):
+        request = BlenderRequest(
+            request_id=_FAKE_ID,
+            script_content="import bpy",
+            script_path=_FAKE_SCRIPT,
+            output_path=_FAKE_BLEND,
+            render_path=_FAKE_RENDER,
+            output_dir=_FAKE_DIR,
+            timeout=60,
+            source_prompt="anything",
+            template_used="interior_space",
+            pipeline_path="legacy_llm_bpy_scaffold",
+            product_render_intent=None,
+        )
+        result = _make_result()
+        manifest = build_blender_manifest(request, result)
+        assert manifest["future"]["pipeline_path"] == "legacy_llm_bpy_scaffold"
+        assert manifest["future"]["product_render_intent"] is None

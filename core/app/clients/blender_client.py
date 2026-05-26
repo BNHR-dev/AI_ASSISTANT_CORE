@@ -19,11 +19,28 @@ from app.engine.blender_templates import (
     get_template_name_from_intent,
 )
 from app.engine.blender_validator import inspect_blend_scene
+# H.5.3 — Branchement Product Render IR Extractor + Builder (product_render uniquement).
+# Le chemin H.4.x scaffold prompt-only reste actif comme fallback.
+from app.engine.product_render_builder import build_product_render_scene_script
+from app.engine.product_render_extractor import extract_product_render_intent
 
 
 BLENDER_EXE = os.getenv("BLENDER_EXE", "").strip()
 BLENDER_TIMEOUT = int(os.getenv("BLENDER_TIMEOUT", "60"))
 BLENDER_OUTPUT_DIR = os.getenv("BLENDER_OUTPUT_DIR", "outputs/blender").strip()
+
+# H.5.3 — Feature flag pour le chemin Product Render IR + builder déterministe.
+# Lu au module load. Activé par défaut (= "1"). Désactivable runtime via
+# `BLENDER_USE_PRODUCT_RENDER_IR=0` dans l'env (par exemple `.env` côté VM)
+# pour rollbacker au chemin legacy H.4.x sans rollback Git.
+BLENDER_USE_PRODUCT_RENDER_IR = os.getenv(
+    "BLENDER_USE_PRODUCT_RENDER_IR", "1"
+).strip() != "0"
+
+# H.5.3 — Constantes de traçabilité du chemin emprunté par build_blender_script.
+# Propagées dans `BlenderRequest.pipeline_path` puis dans `manifest.json.future`.
+PIPELINE_PATH_BUILDER = "product_render_ir_builder"
+PIPELINE_PATH_LEGACY  = "legacy_llm_bpy_scaffold"
 
 _FALLBACK_PATHS = [
     "/usr/bin/blender",
@@ -345,39 +362,82 @@ def build_blender_script(
         template_scaffold = select_template(message)
         selected_template_name = get_template_name(message)
 
-    if template_scaffold is not None:
-        # H.4.3 — Creative guidance (Option C) : injectée UNIQUEMENT lorsqu'un
-        # scaffold contrôlé est actif. Sur prompt libre (template_scaffold is
-        # None) le prompt reste strictement identique à l'état H.4.2.
-        guidance = _build_creative_guidance(intent)
-        guidance_block = f"{guidance}\n\n" if guidance else ""
-        # H.4.3-C — Consignes de fidélité scaffold spécifiques au template.
-        fidelity = _template_fidelity_block(selected_template_name)
-        fidelity_block = f"{fidelity}\n\n" if fidelity else ""
-        prompt = (
-            f"{_BLENDER_SYSTEM_PROMPT}\n\n"
-            f"--- SCAFFOLD DE SCÈNE OBLIGATOIRE ---\n"
-            f"La demande correspond à un type de scène reconnu : {selected_template_name}.\n"
-            f"Tu DOIS utiliser le scaffold suivant comme base de ton script.\n"
-            f"Tu peux adapter les dimensions, matériaux, objets secondaires et noms selon la demande.\n"
-            f"Tu NE DOIS PAS supprimer : la caméra active, la lumière Key_Light, le sol, le sujet principal, "
-            f"la sauvegarde via OUTPUT_BLEND_PATH.\n\n"
-            f"{template_scaffold}\n"
-            f"--- FIN SCAFFOLD ---\n\n"
-            f"{fidelity_block}"
-            f"{guidance_block}"
-            f"Demande utilisateur : {message}"
-        )
-    else:
-        prompt = f"{_BLENDER_SYSTEM_PROMPT}\n\nDemande utilisateur : {message}"
+    # H.5.3 — Branchement product_render IR extractor + builder déterministe.
+    # Initialiser le chemin par défaut sur legacy ; le branchement bascule sur
+    # builder UNIQUEMENT si product_render + extraction réussie. Toute exception
+    # inattendue retombe silencieusement sur legacy.
+    pipeline_path = PIPELINE_PATH_LEGACY
+    product_render_intent_dict: dict | None = None
+    raw_code: str | None = None
 
-    raw_response = generate_with_ollama("qwen2.5-coder:7b", prompt)
+    if BLENDER_USE_PRODUCT_RENDER_IR and selected_template_name == "product_render":
+        try:
+            extraction = extract_product_render_intent(message)
+            if extraction.status == "parsed":
+                raw_code = build_product_render_scene_script(extraction.intent)
+                pipeline_path = PIPELINE_PATH_BUILDER
+                product_render_intent_dict = extraction.intent.model_dump()
+                print(
+                    f"[blender_client] pipeline_path={pipeline_path} "
+                    f"(extraction status=parsed)"
+                )
+            else:
+                # status="fallback" → on n'utilise PAS le FALLBACK_INTENT canonique
+                # (qui force bottle/amber/glass) car ça ignore la demande utilisateur.
+                # On retombe sur le scaffold prompt-only H.4.x qui essaie sémantiquement.
+                print(
+                    f"[blender_client] pipeline_path={PIPELINE_PATH_LEGACY} "
+                    f"(extraction status=fallback, reason={extraction.error!r})"
+                )
+        except Exception as exc:  # pragma: no cover - filet de sécurité
+            # Toute exception inattendue (extractor ou builder) → fallback legacy.
+            # Le pipeline H.4.x reste intact et fonctionnel.
+            print(
+                f"[blender_client] pipeline_path={PIPELINE_PATH_LEGACY} "
+                f"(extractor/builder exception: {type(exc).__name__}: {exc})"
+            )
+            pipeline_path = PIPELINE_PATH_LEGACY
+            product_render_intent_dict = None
+            raw_code = None
 
-    raw_code = _extract_python_from_markdown(raw_response)
+    # Chemin legacy H.4.x : intact, identique à pré-H.5.3.
+    # Exécuté SOIT par défaut (template != product_render OU flag désactivé),
+    # SOIT en fallback transparent quand l'extracteur retourne "fallback" ou plante.
+    if raw_code is None:
+        if template_scaffold is not None:
+            # H.4.3 — Creative guidance (Option C) : injectée UNIQUEMENT lorsqu'un
+            # scaffold contrôlé est actif. Sur prompt libre (template_scaffold is
+            # None) le prompt reste strictement identique à l'état H.4.2.
+            guidance = _build_creative_guidance(intent)
+            guidance_block = f"{guidance}\n\n" if guidance else ""
+            # H.4.3-C — Consignes de fidélité scaffold spécifiques au template.
+            fidelity = _template_fidelity_block(selected_template_name)
+            fidelity_block = f"{fidelity}\n\n" if fidelity else ""
+            prompt = (
+                f"{_BLENDER_SYSTEM_PROMPT}\n\n"
+                f"--- SCAFFOLD DE SCÈNE OBLIGATOIRE ---\n"
+                f"La demande correspond à un type de scène reconnu : {selected_template_name}.\n"
+                f"Tu DOIS utiliser le scaffold suivant comme base de ton script.\n"
+                f"Tu peux adapter les dimensions, matériaux, objets secondaires et noms selon la demande.\n"
+                f"Tu NE DOIS PAS supprimer : la caméra active, la lumière Key_Light, le sol, le sujet principal, "
+                f"la sauvegarde via OUTPUT_BLEND_PATH.\n\n"
+                f"{template_scaffold}\n"
+                f"--- FIN SCAFFOLD ---\n\n"
+                f"{fidelity_block}"
+                f"{guidance_block}"
+                f"Demande utilisateur : {message}"
+            )
+        else:
+            prompt = f"{_BLENDER_SYSTEM_PROMPT}\n\nDemande utilisateur : {message}"
 
-    # H.4.7 — AST guard V0 : audit pré-exécution du code LLM brut.
+        raw_response = generate_with_ollama("qwen2.5-coder:7b", prompt)
+        raw_code = _extract_python_from_markdown(raw_response)
+
+    # H.4.7 — AST guard V0 : audit pré-exécution du code (LLM raw OU builder).
     # Signal-only en V0 : ne bloque jamais l'exécution. Le rapport est
     # transporté via BlenderRequest puis fusionné dans scene_report["ast_guard"].
+    # Préservé pour les DEUX chemins : sur le chemin builder, on s'attend à
+    # ast_guard.violations=[] mais l'audit reste un filet de sécurité.
     ast_guard_report = analyze_scene_py(raw_code, selected_template_name)
 
     final_script = _inject_output_paths(raw_code, output_path, render_path)
@@ -396,6 +456,8 @@ def build_blender_script(
         creative_intent=intent.model_dump(),
         template_used=selected_template_name,
         ast_guard=ast_guard_report,
+        pipeline_path=pipeline_path,
+        product_render_intent=product_render_intent_dict,
     )
 
 

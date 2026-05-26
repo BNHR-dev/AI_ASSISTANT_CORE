@@ -775,3 +775,280 @@ def test_run_blender_script_propagates_template_used_to_inspector(tmp_path):
         "run_blender_script doit transmettre template_used=product_render "
         "à inspect_blend_scene sous le kwarg template_name."
     )
+
+
+# ---------------------------------------------------------------------------
+# H.5.3 — Branchement product_render IR extractor + builder
+# ---------------------------------------------------------------------------
+
+class TestBuildBlenderScriptH53Branching:
+    """
+    Vérifie le branchement product_render IR introduit en H.5.3 :
+    - product_render + extraction parsed → chemin builder, pipeline_path renseigné
+    - product_render + extraction fallback → chemin legacy
+    - product_render + builder exception → chemin legacy
+    - template != product_render → chemin legacy (jamais d'extracteur appelé)
+
+    Tous les tests sont mockés. Pas d'Ollama réel, pas de Blender, pas de réseau.
+    """
+
+    def _setup_basic_mocks(self, tmp_path, mock_intent_dict=None):
+        """Patches minimal communs aux 4 cas : output dir + parse_artistic_intent
+        + write_intent_json. Retourne le dict de patches actifs pour ajout."""
+        from app.engine.product_render_ir import (
+            BackdropIR,
+            ProductRenderIntent,
+            ProductSubjectIR,
+        )
+        # Fake ArtisticIntent : on instancie le vrai modèle Pydantic ou un mock
+        # avec .model_dump() ; ici on patch carrément parse_artistic_intent.
+        fake_intent = MagicMock()
+        fake_intent.model_dump.return_value = mock_intent_dict or {"medium": "product_render"}
+        return fake_intent
+
+    def test_legacy_path_when_template_is_not_product_render(self, tmp_path, monkeypatch):
+        """Template != product_render → l'extracteur n'est PAS invoqué,
+        pipeline_path reste legacy, product_render_intent reste None."""
+        from app.clients import blender_client as bc
+
+        # Force output dir vers tmp_path pour éviter d'écrire dans outputs/
+        monkeypatch.setattr(bc, "BLENDER_OUTPUT_DIR", str(tmp_path))
+        monkeypatch.setattr(bc, "BLENDER_USE_PRODUCT_RENDER_IR", True)
+
+        fake_intent = self._setup_basic_mocks(tmp_path)
+        extractor_calls = {"count": 0}
+
+        def _track_extractor(*args, **kwargs):
+            extractor_calls["count"] += 1
+            raise AssertionError("extract_product_render_intent should NOT be called")
+
+        with patch.object(bc, "parse_artistic_intent", return_value=fake_intent), \
+             patch.object(bc, "write_intent_json"), \
+             patch.object(bc, "select_template_from_intent", return_value=None), \
+             patch.object(bc, "get_template_name_from_intent", return_value=None), \
+             patch.object(bc, "select_template", return_value=None), \
+             patch.object(bc, "get_template_name", return_value=None), \
+             patch.object(bc, "generate_with_ollama", return_value="```python\nimport bpy\n```"), \
+             patch.object(bc, "extract_product_render_intent", side_effect=_track_extractor):
+            req = bc.build_blender_script(
+                message="quelque chose sans template",
+                context={},
+                request_id="t-h53-legacy",
+            )
+
+        assert req.pipeline_path == "legacy_llm_bpy_scaffold"
+        assert req.product_render_intent is None
+        assert extractor_calls["count"] == 0, (
+            "extract_product_render_intent ne doit JAMAIS être appelé "
+            "quand selected_template_name != 'product_render'"
+        )
+
+    def test_builder_path_when_product_render_and_extraction_parsed(self, tmp_path, monkeypatch):
+        """product_render + extraction.status == 'parsed' → chemin builder,
+        pipeline_path = product_render_ir_builder, product_render_intent renseigné,
+        generate_with_ollama N'EST PAS appelé pour le scaffold."""
+        from app.clients import blender_client as bc
+        from app.engine.product_render_extractor import ProductRenderExtractionResult
+        from app.engine.product_render_ir import (
+            BackdropIR,
+            ProductRenderIntent,
+            ProductSubjectIR,
+        )
+
+        monkeypatch.setattr(bc, "BLENDER_OUTPUT_DIR", str(tmp_path))
+        monkeypatch.setattr(bc, "BLENDER_USE_PRODUCT_RENDER_IR", True)
+
+        fake_intent = self._setup_basic_mocks(tmp_path)
+
+        # IR parsé que l'extracteur retourne
+        parsed_ir = ProductRenderIntent(
+            schema_version="v0",
+            subject=ProductSubjectIR(kind="bottle", color="amber", material="glass"),
+            backdrop=BackdropIR(color="neutral_gray"),
+        )
+        extraction_result = ProductRenderExtractionResult(
+            intent=parsed_ir,
+            status="parsed",
+            raw_response="raw llm",
+            extracted_json={"schema_version": "v0"},
+            error=None,
+            model="qwen2.5-coder:7b",
+        )
+
+        ollama_calls = {"count": 0}
+
+        def _track_ollama(*args, **kwargs):
+            ollama_calls["count"] += 1
+            return "```python\nimport bpy\n```"
+
+        with patch.object(bc, "parse_artistic_intent", return_value=fake_intent), \
+             patch.object(bc, "write_intent_json"), \
+             patch.object(bc, "select_template_from_intent", return_value="<scaffold-stub>"), \
+             patch.object(bc, "get_template_name_from_intent", return_value="product_render"), \
+             patch.object(bc, "extract_product_render_intent", return_value=extraction_result), \
+             patch.object(
+                 bc,
+                 "build_product_render_scene_script",
+                 return_value="import bpy\n# H.5.1 deterministic script\n",
+             ), \
+             patch.object(bc, "generate_with_ollama", side_effect=_track_ollama):
+            req = bc.build_blender_script(
+                message="bouteille de parfum ambrée sur fond gris",
+                context={},
+                request_id="t-h53-builder",
+            )
+
+        assert req.pipeline_path == "product_render_ir_builder"
+        assert req.product_render_intent is not None
+        assert req.product_render_intent["subject"]["kind"] == "bottle"
+        assert req.product_render_intent["subject"]["color"] == "amber"
+        assert ollama_calls["count"] == 0, (
+            "generate_with_ollama NE DOIT PAS être appelé quand le chemin "
+            "builder est emprunté (sinon double appel LLM gratuit)."
+        )
+
+    def test_legacy_path_when_extraction_returns_fallback(self, tmp_path, monkeypatch):
+        """product_render + extraction.status == 'fallback' → retombe sur
+        le scaffold prompt-only legacy (pas sur le FALLBACK_INTENT canonique
+        qui forcerait bottle/amber/glass indépendamment de la demande)."""
+        from app.clients import blender_client as bc
+        from app.engine.product_render_extractor import (
+            FALLBACK_INTENT,
+            ProductRenderExtractionResult,
+        )
+
+        monkeypatch.setattr(bc, "BLENDER_OUTPUT_DIR", str(tmp_path))
+        monkeypatch.setattr(bc, "BLENDER_USE_PRODUCT_RENDER_IR", True)
+
+        fake_intent = self._setup_basic_mocks(tmp_path)
+
+        fallback_result = ProductRenderExtractionResult(
+            intent=FALLBACK_INTENT,
+            status="fallback",
+            raw_response="not json",
+            extracted_json=None,
+            error="json_decode_error: ...",
+            model="qwen2.5-coder:7b",
+        )
+
+        builder_calls = {"count": 0}
+
+        def _track_builder(*args, **kwargs):
+            builder_calls["count"] += 1
+            return "import bpy\n"
+
+        with patch.object(bc, "parse_artistic_intent", return_value=fake_intent), \
+             patch.object(bc, "write_intent_json"), \
+             patch.object(bc, "select_template_from_intent", return_value="<scaffold-stub>"), \
+             patch.object(bc, "get_template_name_from_intent", return_value="product_render"), \
+             patch.object(bc, "extract_product_render_intent", return_value=fallback_result), \
+             patch.object(bc, "build_product_render_scene_script", side_effect=_track_builder), \
+             patch.object(bc, "generate_with_ollama", return_value="```python\nimport bpy\n```"):
+            req = bc.build_blender_script(
+                message="autre demande qui fait planter l'extracteur",
+                context={},
+                request_id="t-h53-fallback",
+            )
+
+        assert req.pipeline_path == "legacy_llm_bpy_scaffold"
+        assert req.product_render_intent is None
+        assert builder_calls["count"] == 0, (
+            "build_product_render_scene_script NE DOIT PAS être appelé "
+            "quand extraction.status == 'fallback'."
+        )
+
+    def test_legacy_path_when_builder_raises(self, tmp_path, monkeypatch):
+        """product_render + extraction parsed mais build_product_render_scene_script
+        lève une exception → catch + fallback legacy. Jamais de crash."""
+        from app.clients import blender_client as bc
+        from app.engine.product_render_extractor import ProductRenderExtractionResult
+        from app.engine.product_render_ir import (
+            BackdropIR,
+            ProductRenderIntent,
+            ProductSubjectIR,
+        )
+
+        monkeypatch.setattr(bc, "BLENDER_OUTPUT_DIR", str(tmp_path))
+        monkeypatch.setattr(bc, "BLENDER_USE_PRODUCT_RENDER_IR", True)
+
+        fake_intent = self._setup_basic_mocks(tmp_path)
+
+        parsed_ir = ProductRenderIntent(
+            schema_version="v0",
+            subject=ProductSubjectIR(kind="bottle", color="amber", material="glass"),
+            backdrop=BackdropIR(color="neutral_gray"),
+        )
+        extraction_result = ProductRenderExtractionResult(
+            intent=parsed_ir,
+            status="parsed",
+            raw_response="raw",
+            extracted_json={"schema_version": "v0"},
+            error=None,
+            model="qwen2.5-coder:7b",
+        )
+
+        def _builder_explodes(intent):
+            raise RuntimeError("simulated builder bug for H.5.3 test")
+
+        with patch.object(bc, "parse_artistic_intent", return_value=fake_intent), \
+             patch.object(bc, "write_intent_json"), \
+             patch.object(bc, "select_template_from_intent", return_value="<scaffold-stub>"), \
+             patch.object(bc, "get_template_name_from_intent", return_value="product_render"), \
+             patch.object(bc, "extract_product_render_intent", return_value=extraction_result), \
+             patch.object(bc, "build_product_render_scene_script", side_effect=_builder_explodes), \
+             patch.object(bc, "generate_with_ollama", return_value="```python\nimport bpy\n```"):
+            req = bc.build_blender_script(
+                message="bouteille amber glass déclenche un bug builder",
+                context={},
+                request_id="t-h53-bldr-exc",
+            )
+
+        # Le pipeline ne crashe pas et retombe sur legacy
+        assert req.pipeline_path == "legacy_llm_bpy_scaffold"
+        assert req.product_render_intent is None
+
+    def test_feature_flag_disabled_forces_legacy_path_even_for_product_render(
+        self, tmp_path, monkeypatch
+    ):
+        """Garde-fou : si BLENDER_USE_PRODUCT_RENDER_IR=False, l'extracteur
+        n'est jamais appelé même quand template_used == product_render."""
+        from app.clients import blender_client as bc
+
+        monkeypatch.setattr(bc, "BLENDER_OUTPUT_DIR", str(tmp_path))
+        monkeypatch.setattr(bc, "BLENDER_USE_PRODUCT_RENDER_IR", False)
+
+        fake_intent = self._setup_basic_mocks(tmp_path)
+        extractor_calls = {"count": 0}
+
+        def _track_extractor(*args, **kwargs):
+            extractor_calls["count"] += 1
+            raise AssertionError("extractor must NOT be called when flag is off")
+
+        with patch.object(bc, "parse_artistic_intent", return_value=fake_intent), \
+             patch.object(bc, "write_intent_json"), \
+             patch.object(bc, "select_template_from_intent", return_value="<scaffold-stub>"), \
+             patch.object(bc, "get_template_name_from_intent", return_value="product_render"), \
+             patch.object(bc, "extract_product_render_intent", side_effect=_track_extractor), \
+             patch.object(bc, "generate_with_ollama", return_value="```python\nimport bpy\n```"):
+            req = bc.build_blender_script(
+                message="anything", context={}, request_id="t-h53-flag-off",
+            )
+
+        assert req.pipeline_path == "legacy_llm_bpy_scaffold"
+        assert req.product_render_intent is None
+        assert extractor_calls["count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# H.5.3 — Constantes de traçabilité du chemin
+# ---------------------------------------------------------------------------
+
+def test_pipeline_path_constants_are_stable_strings():
+    """Garde-fou : ces constantes apparaissent dans manifest.json.future.
+    Tout renommage est cassant pour les consommateurs en aval."""
+    from app.clients.blender_client import (
+        PIPELINE_PATH_BUILDER,
+        PIPELINE_PATH_LEGACY,
+    )
+    assert PIPELINE_PATH_BUILDER == "product_render_ir_builder"
+    assert PIPELINE_PATH_LEGACY == "legacy_llm_bpy_scaffold"

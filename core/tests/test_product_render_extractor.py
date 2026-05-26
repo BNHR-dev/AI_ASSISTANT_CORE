@@ -483,19 +483,31 @@ def test_extractor_does_not_import_blender_client():
     assert "import app.clients.blender_client" not in source
 
 
-def test_extractor_does_not_modify_build_blender_script():
-    """Garantie de non-branchement : le module blender_client (qui contient
-    build_blender_script) ne doit pas avoir été modifié par H.5.2. Vérifié
-    indirectement : on importe blender_client et on confirme que sa surface
-    publique n'a pas changé (les fonctions H.5.x ne sont pas exposées)."""
+def test_blender_client_h53_wiring_is_intentional():
+    """H.5.2 livrait l'extracteur comme brique isolée (PAS branché dans
+    blender_client). H.5.3 câble explicitement extract_product_render_intent
+    et build_product_render_scene_script dans `build_blender_script`. Ce test
+    acte cette transition : le branchement est intentionnel et documenté.
+
+    Garde-fou maintenu pour la version H.5.2 : ce test version H.5.3 confirme
+    le câblage attendu mais préserve la séparation des responsabilités du
+    module extractor (lui ne dépend pas de blender_client — voir
+    test_extractor_does_not_import_blender_client)."""
     import app.clients.blender_client as bc
-    # build_blender_script existe et n'a pas été remplacé par un wrapper H.5.x
     assert hasattr(bc, "build_blender_script")
-    # Aucune référence à product_render_extractor dans blender_client
     source = Path(bc.__file__).read_text(encoding="utf-8")
-    assert "product_render_extractor" not in source
-    assert "product_render_builder" not in source
-    assert "product_render_ir" not in source
+    # H.5.3 — câblage attendu :
+    assert "extract_product_render_intent" in source, (
+        "H.5.3 doit importer extract_product_render_intent dans blender_client"
+    )
+    assert "build_product_render_scene_script" in source, (
+        "H.5.3 doit importer build_product_render_scene_script dans blender_client"
+    )
+    # Constantes de traçabilité du chemin
+    assert "product_render_ir_builder" in source
+    assert "legacy_llm_bpy_scaffold" in source
+    # Feature flag de rollback runtime
+    assert "BLENDER_USE_PRODUCT_RENDER_IR" in source
 
 
 def test_extractor_does_not_touch_filesystem_outputs():

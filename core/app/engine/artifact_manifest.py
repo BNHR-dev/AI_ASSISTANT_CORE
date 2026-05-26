@@ -112,6 +112,12 @@ def build_blender_manifest(
             "creative_intent": getattr(request, "creative_intent", None),
             "template_used": getattr(request, "template_used", None),
             "iteration_parent": None,
+            # H.5.3 — Traçabilité du chemin emprunté par build_blender_script.
+            # Permet d'auditer après coup quel pipeline a produit le .blend :
+            #   "product_render_ir_builder" : nouveau chemin IR + builder déterministe
+            #   "legacy_llm_bpy_scaffold"   : ancien chemin LLM scaffold prompt-only
+            "pipeline_path": getattr(request, "pipeline_path", "legacy_llm_bpy_scaffold"),
+            "product_render_intent": getattr(request, "product_render_intent", None),
         },
     }
 
