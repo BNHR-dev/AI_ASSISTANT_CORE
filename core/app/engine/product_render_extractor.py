@@ -50,14 +50,18 @@ from app.engine.product_render_ir import (
 # pour éviter d'introduire un modèle inattendu via H.5.2.
 DEFAULT_EXTRACTION_MODEL = "qwen2.5-coder:7b"
 
-# Listes pour le prompt strict. Source de vérité = enums Pydantic V0.
-# Si l'IR V1 est introduite via H.5.4, ces listes devront être resynchronisées.
+# Listes pour le prompt strict. Source de vérité = enums Pydantic.
 _KIND_VALUES: tuple[str, ...] = (
     "bottle", "jar", "box", "tube", "cylinder", "sphere",
 )
 _MATERIAL_VALUES: tuple[str, ...] = (
     "matte", "glossy", "glass", "metallic",
 )
+# H.5.4 — Enums V1 (resynchronisés avec product_render_ir).
+_SHAPE_VALUES: tuple[str, ...] = ("cylindrical", "rectangular", "rounded")
+_CAP_VALUES: tuple[str, ...] = ("present", "absent")
+_TRANSPARENCY_VALUES: tuple[str, ...] = ("opaque", "translucent", "glass")
+_FRAMING_VALUES: tuple[str, ...] = ("close_packshot", "medium")
 _PALETTE_NAMES: tuple[str, ...] = tuple(sorted(NAMED_COLOR_PALETTE.keys()))
 
 
@@ -115,25 +119,43 @@ Tu réponds UNIQUEMENT par un objet JSON valide. Aucun texte avant, aucun \
 texte après, aucun commentaire, aucun bloc markdown ```. Juste l'objet \
 JSON.
 
-Le JSON doit avoir EXACTEMENT cette forme :
+Le JSON doit avoir EXACTEMENT cette forme (schema_version v1) :
 
 {{
-  "schema_version": "v0",
+  "schema_version": "v1",
   "subject": {{
     "kind": "<one of: {kinds}>",
     "color": "<named color OR #RRGGBB hex>",
-    "material": "<one of: {materials}>"
+    "material": "<one of: {materials}>",
+    "shape": "<one of: {shapes}>",
+    "cap": "<one of: {caps}>",
+    "transparency": "<one of: {transparencies}>"
   }},
   "backdrop": {{
     "color": "<named color OR #RRGGBB hex>"
-  }}
+  }},
+  "framing": "<one of: {framings}>"
 }}
 
 Valeurs autorisées pour `subject.kind` : {kinds}.
 Valeurs autorisées pour `subject.material` : {materials}.
+Valeurs autorisées pour `subject.shape` : {shapes}.
+Valeurs autorisées pour `subject.cap` : {caps}.
+Valeurs autorisées pour `subject.transparency` : {transparencies}.
+Valeurs autorisées pour `framing` : {framings}.
 Couleurs nommées autorisées : {palette}.
 Tu peux aussi utiliser un code hex de la forme #RRGGBB (par exemple \
 #a83232).
+
+Indications V1 :
+- `shape` décrit la silhouette : `cylindrical` pour un flacon cylindrique, \
+`rectangular` pour un packaging carré, `rounded` pour un flacon arrondi.
+- `cap` = `present` si l'objet a un bouchon visible (bouteille, flacon, \
+spray), sinon `absent`.
+- `transparency` = `glass` pour le verre, `translucent` pour un plastique \
+diffusant, `opaque` sinon.
+- `framing` = `close_packshot` si la demande mentionne packshot, rendu \
+produit serré, plan rapproché ; sinon `medium`.
 
 Choisis les valeurs qui correspondent le mieux à la demande utilisateur. \
 Si la demande est ambiguë, choisis des valeurs simples qui restent dans \
@@ -148,15 +170,19 @@ Réponds UNIQUEMENT avec l'objet JSON.\
 
 def build_extraction_prompt(user_message: str) -> str:
     """
-    Construit le prompt LLM strict pour l'extraction IR product_render.
+    Construit le prompt LLM strict pour l'extraction IR product_render V1.
 
     Pure : pas d'I/O. Le prompt liste explicitement les enums autorisés
-    et la palette de couleurs, pour réduire le risque d'hallucination
-    LLM hors-schéma.
+    (V0 + V1) et la palette de couleurs, pour réduire le risque
+    d'hallucination LLM hors-schéma.
     """
     return _PROMPT_TEMPLATE.format(
         kinds=", ".join(_KIND_VALUES),
         materials=", ".join(_MATERIAL_VALUES),
+        shapes=", ".join(_SHAPE_VALUES),
+        caps=", ".join(_CAP_VALUES),
+        transparencies=", ".join(_TRANSPARENCY_VALUES),
+        framings=", ".join(_FRAMING_VALUES),
         palette=", ".join(_PALETTE_NAMES),
         message=user_message or "",
     )

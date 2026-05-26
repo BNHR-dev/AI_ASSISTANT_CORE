@@ -36,9 +36,48 @@ from app.engine.blender_runtime_corrector import (
     CANONICAL_KEY_LIGHT,
 )
 from app.engine.product_render_ir import (
+    V1_DEFAULTS,
     ProductRenderIntent,
     resolve_color,
 )
+
+
+# ---------------------------------------------------------------------------
+# H.5.4 — Constantes V1
+# ---------------------------------------------------------------------------
+
+# Facteur de mise à l'échelle du sujet pour framing=close_packshot.
+# Le corrector H.4.8.x réapplique la caméra canonique sur les .blend builder
+# (NORMALIZATION_MINIMUM_OBJECTS toujours satisfait). Pour produire un
+# cadrage rapproché stable sans toucher au tuning H.4.8.x, on agrandit le
+# sujet (et son éventuel bouchon) plutôt que de bouger la caméra.
+CLOSE_PACKSHOT_SUBJECT_SCALE: float = 1.4
+
+# Géométrie du bouchon V1 quand subject.cap=present.
+# Cylindre court placé sur le sommet du sujet, ~50 % du rayon du sujet.
+V1_CAP_RADIUS_RATIO: float = 0.55
+V1_CAP_HEIGHT_RATIO: float = 0.25  # hauteur rel. à la hauteur du sujet
+V1_CAP_COLOR_RGBA: tuple[float, float, float, float] = (0.20, 0.20, 0.20, 1.0)
+V1_CAP_NAME: str = "Product_Cap"
+
+# Profil matériau verre forcé quand subject.transparency=glass.
+# Compatible Blender 4.0.2 (Principled BSDF — Base Color, Roughness,
+# Metallic, Transmission, IOR). Roughness 0.05 + transmission 1.0 +
+# ior 1.45 + métallique 0 → effet verre net.
+V1_GLASS_PROFILE: dict[str, float] = {
+    "roughness": 0.05,
+    "metallic": 0.0,
+    "transmission": 1.0,
+    "ior": 1.45,
+}
+
+# Profil translucent (transmission partielle).
+V1_TRANSLUCENT_PROFILE: dict[str, float] = {
+    "roughness": 0.20,
+    "metallic": 0.0,
+    "transmission": 0.5,
+    "ior": 1.45,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -187,13 +226,21 @@ MATERIAL_PROFILES: dict[str, dict] = {
 
 def build_product_render_scene_script(intent: ProductRenderIntent) -> str:
     """
-    Génère un script bpy product_render déterministe à partir de l'IR V0.
+    Génère un script bpy product_render déterministe à partir de l'IR.
 
-    Le script retourné est une string Python prête à être :
-    - écrite dans `scene.py`
-    - enveloppée par `_inject_output_paths()` de `blender_client.py`
-      (pour l'injection de `OUTPUT_BLEND_PATH` et le try/finally pipeline)
-    - exécutée par `blender --background --python scene.py`
+    Dispatch H.5.4 :
+    - schema_version == "v0" → chemin H.5.1 strictement identique.
+    - schema_version == "v1" → chemin H.5.4 enrichi (shape, cap,
+      transparency, framing).
+    """
+    if intent.schema_version == "v1":
+        return _build_v1_script(intent)
+    return _build_v0_script(intent)
+
+
+def _build_v0_script(intent: ProductRenderIntent) -> str:
+    """
+    Chemin H.5.1 — préservé byte-équivalent à la version pré-H.5.4.
 
     Le script :
     - importe bpy
@@ -391,6 +438,377 @@ def build_product_render_scene_script(intent: ProductRenderIntent) -> str:
     ]
 
     # Sauvegarde via le placeholder OUTPUT_BLEND_PATH injecté par le pipeline
+    lines += [
+        "# --- Sauvegarde gérée par le pipeline (OUTPUT_BLEND_PATH injecté) ---",
+        "bpy.ops.wm.save_as_mainfile(filepath=OUTPUT_BLEND_PATH)",
+        "",
+    ]
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# H.5.4 — Builder V1 (shape, cap, transparency, framing)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_v1(intent: ProductRenderIntent) -> dict[str, str]:
+    """Résout les 4 champs V1 avec leurs défauts. Pure."""
+    return {
+        "shape": intent.subject.shape or V1_DEFAULTS["shape"],
+        "cap": intent.subject.cap or V1_DEFAULTS["cap"],
+        "transparency": intent.subject.transparency or V1_DEFAULTS["transparency"],
+        "framing": intent.framing or V1_DEFAULTS["framing"],
+    }
+
+
+def _subject_geometry_v1(kind: str, shape: str) -> dict:
+    """
+    Dérive la géométrie V1 depuis (kind, shape).
+
+    - cylindrical → géométrie d'origine de SUBJECT_GEOMETRY[kind] (V0 behavior).
+    - rectangular → cube allongé (forme de packaging carré).
+    - rounded     → sphère aplatie (silhouette de flacon arrondi).
+
+    Retourne un dict normalisé contenant :
+      primitive : nom de l'op bpy.ops.mesh.*
+      params    : dict des paramètres positionnels de l'op
+      half_h    : demi-hauteur effective (pour positionner sur le pedestal)
+      scale     : tuple (sx, sy, sz) éventuel à appliquer après l'add
+    """
+    base = SUBJECT_GEOMETRY[kind]
+    if shape == "cylindrical":
+        if "depth" in base:
+            return {
+                "primitive": base["primitive"],
+                "params": {"radius": base["radius"], "depth": base["depth"]},
+                "half_h": base["depth"] / 2.0,
+                "scale": (1.0, 1.0, 1.0),
+            }
+        if "size" in base:
+            return {
+                "primitive": base["primitive"],
+                "params": {"size": base["size"]},
+                "half_h": base["size"] / 2.0,
+                "scale": (1.0, 1.0, 1.0),
+            }
+        # sphère
+        return {
+            "primitive": base["primitive"],
+            "params": {"radius": base["radius"]},
+            "half_h": base["radius"],
+            "scale": (1.0, 1.0, 1.0),
+        }
+
+    # Hauteur de référence : dépend du kind V0 (depth, size ou radius*2).
+    if "depth" in base:
+        ref_h = base["depth"]
+        ref_r = base["radius"]
+    elif "size" in base:
+        ref_h = base["size"]
+        ref_r = base["size"] / 2.0
+    else:
+        ref_h = base["radius"] * 2.0
+        ref_r = base["radius"]
+
+    if shape == "rectangular":
+        # Cube unitaire scalé : largeur ~ 2*ref_r, profondeur ~ 1.6*ref_r,
+        # hauteur ~ ref_h. Donne une silhouette de packaging carré.
+        sx = 2.0 * ref_r
+        sy = 1.6 * ref_r
+        sz = ref_h
+        return {
+            "primitive": "primitive_cube_add",
+            "params": {"size": 1.0},
+            "half_h": sz / 2.0,
+            "scale": (sx, sy, sz),
+        }
+
+    if shape == "rounded":
+        # UV-sphere aplatie verticalement pour silhouette de flacon arrondi.
+        # On scale x/y autour de ref_r et z autour de ref_h/2.
+        sx = ref_r * 1.4
+        sy = ref_r * 1.4
+        sz = ref_h * 0.7
+        return {
+            "primitive": "primitive_uv_sphere_add",
+            "params": {"radius": 1.0},
+            "half_h": sz,  # sphère unitaire scalée → demi-hauteur = sz
+            "scale": (sx, sy, sz),
+        }
+
+    # Garde-fou : shape inconnue → fallback cylindrical
+    return _subject_geometry_v1(kind, "cylindrical")
+
+
+def _build_v1_script(intent: ProductRenderIntent) -> str:
+    """
+    Chemin H.5.4 — IR V1 enrichi (shape, cap, transparency, framing).
+
+    Invariants conservés depuis V0 :
+    - mêmes noms contractuels : Backdrop_Plane, Pedestal, Product_Subject,
+      Camera, Key_Light, Fill_Light.
+    - mêmes constantes canoniques CANONICAL_CAMERA / KEY_LIGHT / FILL_LIGHT.
+    - mêmes patterns interdits AST guard.
+    - sauvegarde via OUTPUT_BLEND_PATH placeholder.
+
+    Ajouts V1 :
+    - shape != cylindrical → primitive et scale différents.
+    - cap == present → cylindre 'Product_Cap' au sommet du sujet.
+    - transparency in {translucent, glass} → override des params Principled.
+    - framing == close_packshot → scale 1.4x du sujet + cap (le corrector
+      réapplique CANONICAL_CAMERA, scaler le sujet est la voie déterministe
+      pour rapprocher le cadrage sans toucher au tuning H.4.8.x).
+    """
+    resolved = _resolve_v1(intent)
+    shape = resolved["shape"]
+    cap = resolved["cap"]
+    transparency = resolved["transparency"]
+    framing = resolved["framing"]
+
+    subject_color_rgba = resolve_color(intent.subject.color)
+    backdrop_color_rgba = resolve_color(intent.backdrop.color)
+
+    geom = _subject_geometry_v1(intent.subject.kind, shape)
+    sx, sy, sz = geom["scale"]
+    half_h = geom["half_h"]
+
+    # Échelle additionnelle pour framing close_packshot — multiplie le scale
+    # final + la demi-hauteur pour conserver la base posée sur le pedestal.
+    framing_factor = (
+        CLOSE_PACKSHOT_SUBJECT_SCALE if framing == "close_packshot" else 1.0
+    )
+    final_sx = sx * framing_factor
+    final_sy = sy * framing_factor
+    final_sz = sz * framing_factor
+    final_half_h = half_h * framing_factor
+    subject_z = PEDESTAL_TOP_Z + final_half_h
+    subject_loc = (0.0, 0.0, subject_z)
+
+    # Résolution du matériau du sujet : transparency a priorité sur material.
+    if transparency == "glass":
+        subject_material_params = V1_GLASS_PROFILE
+    elif transparency == "translucent":
+        subject_material_params = V1_TRANSLUCENT_PROFILE
+    else:
+        subject_material_params = MATERIAL_PROFILES[intent.subject.material]
+
+    lines: list[str] = []
+
+    # En-tête + cleanup canonique
+    lines += [
+        "import bpy",
+        "",
+        "# --- H.5.4 deterministic product_render builder (IR V1) ---",
+        f"# schema_version = {intent.schema_version!r}",
+        f"# subject.kind = {intent.subject.kind!r}",
+        f"# subject.color = {intent.subject.color!r}",
+        f"# subject.material = {intent.subject.material!r}",
+        f"# subject.shape = {shape!r}",
+        f"# subject.cap = {cap!r}",
+        f"# subject.transparency = {transparency!r}",
+        f"# backdrop.color = {intent.backdrop.color!r}",
+        f"# framing = {framing!r}",
+        "",
+        "# Cleanup canonique scène par défaut",
+        "bpy.ops.object.select_all(action='SELECT')",
+        "bpy.ops.object.delete()",
+        "",
+        "# Unités métriques",
+        "bpy.context.scene.unit_settings.system = 'METRIC'",
+        "bpy.context.scene.unit_settings.scale_length = 1.0",
+        "",
+        "# Collections SCENE + PROPS (cohérent avec TEMPLATE_PRODUCT_RENDER)",
+        "scene_col = bpy.data.collections.new('SCENE')",
+        "bpy.context.scene.collection.children.link(scene_col)",
+        "props_col = bpy.data.collections.new('PROPS')",
+        "bpy.context.scene.collection.children.link(props_col)",
+        "",
+        "def _link_to(obj, col):",
+        "    if obj.name in bpy.context.scene.collection.objects:",
+        "        bpy.context.scene.collection.objects.unlink(obj)",
+        "    col.objects.link(obj)",
+        "",
+        "def _make_principled_material(name, base_color_rgba, roughness, metallic, transmission, ior):",
+        "    mat = bpy.data.materials.new(name=name)",
+        "    mat.use_nodes = True",
+        "    nodes = mat.node_tree.nodes",
+        "    bsdf = nodes.get('Principled BSDF')",
+        "    if bsdf is not None:",
+        "        bsdf.inputs['Base Color'].default_value = base_color_rgba",
+        "        bsdf.inputs['Roughness'].default_value = roughness",
+        "        bsdf.inputs['Metallic'].default_value = metallic",
+        "        if 'Transmission' in bsdf.inputs:",
+        "            bsdf.inputs['Transmission'].default_value = transmission",
+        "        elif 'Transmission Weight' in bsdf.inputs:",
+        "            bsdf.inputs['Transmission Weight'].default_value = transmission",
+        "        if 'IOR' in bsdf.inputs:",
+        "            bsdf.inputs['IOR'].default_value = ior",
+        "    return mat",
+        "",
+    ]
+
+    # Backdrop canonique
+    bd = CANONICAL_BACKDROP
+    bd_params = MATERIAL_PROFILES[bd["material_profile"]]
+    lines += [
+        "# --- Backdrop_Plane (canonique) ---",
+        f"bpy.ops.mesh.{bd['primitive']}(size={bd['size']}, location={bd['location']})",
+        "backdrop = bpy.context.object",
+        f"backdrop.name = {bd['name']!r}",
+        f"backdrop.rotation_euler = {bd['rotation_euler']}",
+        f"backdrop.scale = {bd['scale']}",
+        "backdrop_mat = _make_principled_material(",
+        "    'Backdrop_Material',",
+        f"    {backdrop_color_rgba},",
+        f"    {bd_params['roughness']}, {bd_params['metallic']}, "
+        f"{bd_params['transmission']}, {bd_params['ior']},",
+        ")",
+        "backdrop.data.materials.append(backdrop_mat)",
+        "_link_to(backdrop, scene_col)",
+        "",
+    ]
+
+    # Pedestal canonique
+    pd = CANONICAL_PEDESTAL
+    pd_params = MATERIAL_PROFILES[pd["material_profile"]]
+    lines += [
+        "# --- Pedestal (canonique) ---",
+        f"bpy.ops.mesh.{pd['primitive']}(radius={pd['radius']}, "
+        f"depth={pd['depth']}, location={pd['location']})",
+        "pedestal = bpy.context.object",
+        f"pedestal.name = {pd['name']!r}",
+        "pedestal_mat = _make_principled_material(",
+        "    'Pedestal_Material',",
+        f"    {pd['color_rgba']},",
+        f"    {pd_params['roughness']}, {pd_params['metallic']}, "
+        f"{pd_params['transmission']}, {pd_params['ior']},",
+        ")",
+        "pedestal.data.materials.append(pedestal_mat)",
+        "_link_to(pedestal, scene_col)",
+        "",
+    ]
+
+    # Product_Subject (forme V1)
+    primitive = geom["primitive"]
+    params = geom["params"]
+    if primitive == "primitive_cylinder_add":
+        primitive_call = (
+            f"bpy.ops.mesh.primitive_cylinder_add("
+            f"radius={params['radius']}, depth={params['depth']}, "
+            f"location={subject_loc})"
+        )
+    elif primitive == "primitive_cube_add":
+        primitive_call = (
+            f"bpy.ops.mesh.primitive_cube_add("
+            f"size={params['size']}, location={subject_loc})"
+        )
+    elif primitive == "primitive_uv_sphere_add":
+        primitive_call = (
+            f"bpy.ops.mesh.primitive_uv_sphere_add("
+            f"radius={params['radius']}, location={subject_loc})"
+        )
+    else:  # pragma: no cover - garde-fou interne
+        raise ValueError(f"Unknown primitive: {primitive}")
+
+    lines += [
+        f"# --- Product_Subject (V1 shape={shape!r}, framing={framing!r}) ---",
+        primitive_call,
+        "product = bpy.context.object",
+        "product.name = 'Product_Subject'",
+        f"product.scale = ({final_sx}, {final_sy}, {final_sz})",
+        "product_mat = _make_principled_material(",
+        "    'Product_Material',",
+        f"    {subject_color_rgba},",
+        f"    {subject_material_params['roughness']}, "
+        f"{subject_material_params['metallic']}, "
+        f"{subject_material_params['transmission']}, "
+        f"{subject_material_params['ior']},",
+        ")",
+        "product.data.materials.append(product_mat)",
+        "_link_to(product, scene_col)",
+        "",
+    ]
+
+    # Product_Cap (V1 — cap=present)
+    if cap == "present":
+        # Rayon du bouchon : proportion du rayon effectif du sujet.
+        # Pour shape rectangular on prend la moitié de la plus petite
+        # base horizontale ; pour les autres on prend final_sx.
+        if shape == "rectangular":
+            base_radius = min(final_sx, final_sy) / 2.0
+        else:
+            base_radius = final_sx / 2.0 if primitive == "primitive_cube_add" else final_sx
+            # final_sx pour cylinder/sphere a déjà été appliqué via scale ;
+            # pour cylinder/sphere le primitive_add a un radius unitaire-ish,
+            # donc on relit ce rayon de référence depuis params si présent.
+            if "radius" in params:
+                base_radius = params["radius"] * final_sx
+        cap_radius = base_radius * V1_CAP_RADIUS_RATIO
+        cap_height = (final_half_h * 2.0) * V1_CAP_HEIGHT_RATIO
+        cap_z = subject_z + final_half_h + cap_height / 2.0
+        cap_loc = (0.0, 0.0, cap_z)
+        cap_mat_params = MATERIAL_PROFILES["matte"]
+        lines += [
+            f"# --- Product_Cap (V1 cap=present) ---",
+            f"bpy.ops.mesh.primitive_cylinder_add(radius={cap_radius}, "
+            f"depth={cap_height}, location={cap_loc})",
+            "cap = bpy.context.object",
+            f"cap.name = {V1_CAP_NAME!r}",
+            "cap_mat = _make_principled_material(",
+            "    'Cap_Material',",
+            f"    {V1_CAP_COLOR_RGBA},",
+            f"    {cap_mat_params['roughness']}, {cap_mat_params['metallic']}, "
+            f"{cap_mat_params['transmission']}, {cap_mat_params['ior']},",
+            ")",
+            "cap.data.materials.append(cap_mat)",
+            "_link_to(cap, props_col)",
+            "",
+        ]
+
+    # Camera canonique
+    cam = CANONICAL_CAMERA
+    lines += [
+        "# --- Camera (CANONICAL_CAMERA H.4.8.1, single source of truth) ---",
+        f"bpy.ops.object.camera_add(location={cam['location']})",
+        "cam = bpy.context.object",
+        "cam.name = 'Camera'",
+        f"cam.rotation_euler = {cam['rotation_euler']}",
+        f"cam.data.lens = {cam['lens']}",
+        "bpy.context.scene.camera = cam",
+        "_link_to(cam, scene_col)",
+        "",
+    ]
+
+    # Key_Light canonique
+    kl = CANONICAL_KEY_LIGHT
+    lines += [
+        "# --- Key_Light (CANONICAL_KEY_LIGHT H.4.8, single source of truth) ---",
+        f"bpy.ops.object.light_add(type='AREA', location={kl['location']})",
+        "key_light = bpy.context.object",
+        "key_light.name = 'Key_Light'",
+        f"key_light.data.energy = {kl['energy']}",
+        f"key_light.data.size = {kl['size']}",
+        f"key_light.rotation_euler = {kl['rotation_euler']}",
+        "_link_to(key_light, scene_col)",
+        "",
+    ]
+
+    # Fill_Light canonique
+    fl = CANONICAL_FILL_LIGHT
+    lines += [
+        "# --- Fill_Light (CANONICAL_FILL_LIGHT H.4.8, single source of truth) ---",
+        f"bpy.ops.object.light_add(type='AREA', location={fl['location']})",
+        "fill_light = bpy.context.object",
+        "fill_light.name = 'Fill_Light'",
+        f"fill_light.data.energy = {fl['energy']}",
+        f"fill_light.data.size = {fl['size']}",
+        f"fill_light.rotation_euler = {fl['rotation_euler']}",
+        "_link_to(fill_light, scene_col)",
+        "",
+    ]
+
+    # Sauvegarde
     lines += [
         "# --- Sauvegarde gérée par le pipeline (OUTPUT_BLEND_PATH injecté) ---",
         "bpy.ops.wm.save_as_mainfile(filepath=OUTPUT_BLEND_PATH)",

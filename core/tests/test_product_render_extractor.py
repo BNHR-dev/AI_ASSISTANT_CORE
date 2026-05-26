@@ -523,3 +523,162 @@ def test_extractor_does_not_touch_filesystem_outputs():
     )
     for io in forbidden_io:
         assert io not in source, f"Unexpected I/O / subprocess in extractor: {io}"
+
+
+# ---------------------------------------------------------------------------
+# H.5.4 — Extractor V1
+# ---------------------------------------------------------------------------
+
+
+VALID_V1_JSON_TEXT = (
+    '{"schema_version":"v1",'
+    '"subject":{"kind":"bottle","color":"amber","material":"glass",'
+    '"shape":"cylindrical","cap":"present","transparency":"glass"},'
+    '"backdrop":{"color":"neutral_gray"},'
+    '"framing":"close_packshot"}'
+)
+
+
+class TestExtractorPromptV1:
+
+    def test_prompt_mentions_schema_v1(self):
+        p = build_extraction_prompt("anything")
+        assert '"schema_version": "v1"' in p or "v1" in p
+
+    def test_prompt_lists_all_shape_values(self):
+        p = build_extraction_prompt("anything")
+        for v in ("cylindrical", "rectangular", "rounded"):
+            assert v in p, f"shape {v!r} missing from prompt"
+
+    def test_prompt_lists_all_cap_values(self):
+        p = build_extraction_prompt("anything")
+        for v in ("present", "absent"):
+            assert v in p, f"cap {v!r} missing from prompt"
+
+    def test_prompt_lists_all_transparency_values(self):
+        p = build_extraction_prompt("anything")
+        for v in ("opaque", "translucent", "glass"):
+            assert v in p, f"transparency {v!r} missing from prompt"
+
+    def test_prompt_lists_all_framing_values(self):
+        p = build_extraction_prompt("anything")
+        for v in ("close_packshot", "medium"):
+            assert v in p, f"framing {v!r} missing from prompt"
+
+
+class TestExtractorParseV1:
+
+    def test_valid_v1_json_parses(self):
+        result = parse_product_render_intent_from_text(VALID_V1_JSON_TEXT)
+        assert result.status == "parsed"
+        assert result.intent.schema_version == "v1"
+        assert result.intent.subject.shape == "cylindrical"
+        assert result.intent.subject.cap == "present"
+        assert result.intent.subject.transparency == "glass"
+        assert result.intent.framing == "close_packshot"
+
+    def test_v1_partial_fields_use_pydantic_defaults_none(self):
+        """V1 sans les 4 champs nouveaux : valide, les champs restent None,
+        le builder appliquera les défauts."""
+        text = (
+            '{"schema_version":"v1",'
+            '"subject":{"kind":"bottle","color":"amber","material":"glass"},'
+            '"backdrop":{"color":"neutral_gray"}}'
+        )
+        result = parse_product_render_intent_from_text(text)
+        assert result.status == "parsed"
+        assert result.intent.subject.shape is None
+        assert result.intent.subject.cap is None
+        assert result.intent.subject.transparency is None
+        assert result.intent.framing is None
+
+    def test_invalid_shape_falls_back(self):
+        text = (
+            '{"schema_version":"v1",'
+            '"subject":{"kind":"bottle","color":"amber","material":"glass",'
+            '"shape":"square"},'
+            '"backdrop":{"color":"neutral_gray"}}'
+        )
+        result = parse_product_render_intent_from_text(text)
+        assert result.status == "fallback"
+
+    def test_invalid_cap_falls_back(self):
+        text = (
+            '{"schema_version":"v1",'
+            '"subject":{"kind":"bottle","color":"amber","material":"glass",'
+            '"cap":"maybe"},'
+            '"backdrop":{"color":"neutral_gray"}}'
+        )
+        result = parse_product_render_intent_from_text(text)
+        assert result.status == "fallback"
+
+    def test_invalid_transparency_falls_back(self):
+        text = (
+            '{"schema_version":"v1",'
+            '"subject":{"kind":"bottle","color":"amber","material":"glass",'
+            '"transparency":"cloudy"},'
+            '"backdrop":{"color":"neutral_gray"}}'
+        )
+        result = parse_product_render_intent_from_text(text)
+        assert result.status == "fallback"
+
+    def test_invalid_framing_falls_back(self):
+        text = (
+            '{"schema_version":"v1",'
+            '"subject":{"kind":"bottle","color":"amber","material":"glass"},'
+            '"backdrop":{"color":"neutral_gray"},'
+            '"framing":"wide"}'
+        )
+        result = parse_product_render_intent_from_text(text)
+        assert result.status == "fallback"
+
+    def test_v0_intent_still_parses_unchanged(self):
+        """Compat : un IR V0 strict reste valide."""
+        result = parse_product_render_intent_from_text(VALID_JSON_TEXT)
+        assert result.status == "parsed"
+        assert result.intent.schema_version == "v0"
+
+
+class TestExtractorEndToEndV1:
+
+    def test_mocked_llm_v1_canonical_smoke_prompt(self):
+        """Cas canonique smoke H.5.4 : bouteille de parfum en verre ambré
+        sur socle, packshot. Le LLM mocké renvoie l'IR V1 attendue."""
+        smoke_prompt = (
+            "Crée une scène Blender de prévisualisation 3D : "
+            "bouteille de parfum en verre ambré sur socle, "
+            "rendu produit packshot, fond neutre, éclairage studio doux, "
+            "composition centrée, style minimaliste réaliste"
+        )
+        result = extract_product_render_intent(
+            smoke_prompt, generate_fn=_fake_gen(VALID_V1_JSON_TEXT),
+        )
+        assert result.status == "parsed"
+        assert result.intent.schema_version == "v1"
+        assert result.intent.subject.kind == "bottle"
+        assert result.intent.subject.color == "amber"
+        assert result.intent.subject.material == "glass"
+        assert result.intent.subject.transparency == "glass"
+        assert result.intent.subject.cap == "present"
+        assert result.intent.framing == "close_packshot"
+
+    def test_mocked_llm_garbage_falls_back_to_v0_canonical(self):
+        """Le fallback doit rester l'IR canonique H.5.1 (v0) — pas de
+        régression de comportement après H.5.4."""
+        result = extract_product_render_intent(
+            "anything", generate_fn=_fake_gen("absolute garbage"),
+        )
+        assert result.status == "fallback"
+        assert result.intent.schema_version == "v0"
+
+    def test_parsed_v1_intent_consumable_by_builder(self):
+        """Bouclage : extracteur V1 → builder V1 → script bpy valide."""
+        from app.engine.product_render_builder import build_product_render_scene_script
+        result = extract_product_render_intent(
+            "anything", generate_fn=_fake_gen(VALID_V1_JSON_TEXT),
+        )
+        script = build_product_render_scene_script(result.intent)
+        assert "import bpy" in script
+        assert "Product_Subject" in script
+        assert "Product_Cap" in script   # cap=present
+        assert "1.0" in script           # transmission=1.0 (glass)

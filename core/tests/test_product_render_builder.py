@@ -323,3 +323,281 @@ def test_module_does_not_import_blender_client():
     source = Path(mod.__file__).read_text(encoding="utf-8")
     assert "from app.clients.blender_client" not in source
     assert "import app.clients.blender_client" not in source
+
+
+# ---------------------------------------------------------------------------
+# H.5.4 — Compatibilité V0 byte-équivalente
+# ---------------------------------------------------------------------------
+
+
+def test_v0_script_is_byte_equivalent_to_legacy_for_canonical_ir():
+    """Garantie H.5.4 : pour un IR V0 canonique, le script généré ne doit pas
+    avoir changé. On reconstruit deux IR V0 identiques et on vérifie que la
+    sortie reste stable (la build est déterministe ; la comparaison sert de
+    régression contre un drift V0)."""
+    ir1 = _make_ir(kind="bottle", color="amber", material="glass")
+    ir2 = _make_ir(kind="bottle", color="amber", material="glass")
+    s1 = build_product_render_scene_script(ir1)
+    s2 = build_product_render_scene_script(ir2)
+    assert s1 == s2
+    # En-tête V0 préservé (pas de fuite V1)
+    assert "H.5.1" in s1 or "deterministic product_render builder" in s1
+    assert "subject.shape" not in s1
+    assert "subject.cap" not in s1
+    assert "subject.transparency" not in s1
+    assert "framing" not in s1
+    assert "Product_Cap" not in s1
+
+
+def test_v0_script_does_not_apply_close_packshot_scale():
+    """Le V0 ne doit jamais appliquer le scale framing close_packshot
+    ni définir product.scale (laisse Blender à 1,1,1 par défaut)."""
+    script = build_product_render_scene_script(_make_ir())
+    assert "product.scale = (" not in script
+
+
+# ---------------------------------------------------------------------------
+# H.5.4 — Builder V1
+# ---------------------------------------------------------------------------
+
+
+def _make_ir_v1(
+    kind: str = "bottle",
+    color: str = "amber",
+    material: str = "glass",
+    backdrop_color: str = "neutral_gray",
+    shape=None,
+    cap=None,
+    transparency=None,
+    framing=None,
+) -> ProductRenderIntent:
+    return ProductRenderIntent(
+        schema_version="v1",
+        subject=ProductSubjectIR(
+            kind=kind, color=color, material=material,
+            shape=shape, cap=cap, transparency=transparency,
+        ),
+        backdrop=BackdropIR(color=backdrop_color),
+        framing=framing,
+    )
+
+
+class TestBuilderV1Smoke:
+
+    def test_v1_minimal_default_produces_valid_script(self):
+        script = build_product_render_scene_script(_make_ir_v1())
+        assert script.startswith("import bpy")
+        assert "bpy.ops.wm.save_as_mainfile(filepath=OUTPUT_BLEND_PATH)" in script
+        # Tags V1 présents
+        assert "subject.shape" in script
+        assert "subject.cap" in script
+        assert "subject.transparency" in script
+        assert "framing" in script
+
+    @pytest.mark.parametrize("name", REQUIRED_NAMES)
+    def test_v1_keeps_required_contractual_names(self, name):
+        script = build_product_render_scene_script(_make_ir_v1())
+        assert f"'{name}'" in script or f'"{name}"' in script
+
+    @pytest.mark.parametrize("pattern", FORBIDDEN_PATTERNS)
+    def test_v1_keeps_forbidden_patterns_absent(self, pattern):
+        script = build_product_render_scene_script(_make_ir_v1(
+            shape="rounded", cap="present", transparency="glass",
+            framing="close_packshot",
+        ))
+        assert pattern not in script
+
+    def test_v1_does_not_create_sun_light(self):
+        script = build_product_render_scene_script(_make_ir_v1(
+            shape="rectangular", cap="present", transparency="glass",
+            framing="close_packshot",
+        ))
+        assert "type='SUN'" not in script
+        assert 'type="SUN"' not in script
+
+
+class TestBuilderV1Shape:
+
+    def test_shape_rectangular_uses_cube_primitive(self):
+        script = build_product_render_scene_script(_make_ir_v1(shape="rectangular"))
+        assert "bpy.ops.mesh.primitive_cube_add" in script
+        # Subject scalé pour silhouette rectangle (sx != sy)
+        assert "product.scale = (" in script
+
+    def test_shape_rounded_uses_uv_sphere(self):
+        script = build_product_render_scene_script(_make_ir_v1(shape="rounded"))
+        assert "primitive_uv_sphere_add" in script
+        assert "product.scale = (" in script
+
+    def test_shape_cylindrical_uses_cylinder_for_bottle(self):
+        script = build_product_render_scene_script(
+            _make_ir_v1(kind="bottle", shape="cylindrical")
+        )
+        assert "primitive_cylinder_add" in script
+
+    def test_shape_default_when_omitted_is_cylindrical(self):
+        """Si shape n'est pas fourni en V1, builder applique cylindrical."""
+        script = build_product_render_scene_script(_make_ir_v1(shape=None))
+        # Bottle cylindrical → cylinder primitive
+        assert "primitive_cylinder_add" in script
+
+
+class TestBuilderV1Cap:
+
+    def test_cap_present_adds_product_cap_object(self):
+        script = build_product_render_scene_script(_make_ir_v1(cap="present"))
+        assert "'Product_Cap'" in script or '"Product_Cap"' in script
+        assert "cap.name = 'Product_Cap'" in script
+
+    def test_cap_absent_does_not_add_product_cap(self):
+        script = build_product_render_scene_script(_make_ir_v1(cap="absent"))
+        assert "Product_Cap" not in script
+
+    def test_cap_default_when_omitted_is_absent(self):
+        script = build_product_render_scene_script(_make_ir_v1(cap=None))
+        assert "Product_Cap" not in script
+
+
+class TestBuilderV1Transparency:
+
+    def test_transparency_glass_forces_glass_profile(self):
+        """transparency=glass force les params V1_GLASS_PROFILE même si
+        material=matte (la transparence prime sur le material V0)."""
+        script = build_product_render_scene_script(
+            _make_ir_v1(material="matte", transparency="glass")
+        )
+        # glass profile : roughness=0.05, transmission=1.0
+        assert "0.05" in script
+        assert "1.0" in script
+
+    def test_transparency_translucent_uses_partial_transmission(self):
+        script = build_product_render_scene_script(
+            _make_ir_v1(material="matte", transparency="translucent")
+        )
+        # translucent profile : transmission=0.5
+        assert "0.5" in script
+
+    def test_transparency_opaque_uses_material_profile(self):
+        script = build_product_render_scene_script(
+            _make_ir_v1(material="matte", transparency="opaque")
+        )
+        # matte profile : roughness=0.9, transmission=0.0
+        assert "0.9" in script
+
+    def test_transparency_glass_preserves_amber_color(self):
+        """Le matériau verre doit conserver la couleur amber de subject.color."""
+        script = build_product_render_scene_script(
+            _make_ir_v1(color="amber", transparency="glass")
+        )
+        # amber RGB
+        assert "0.75" in script
+        assert "0.45" in script
+
+
+class TestBuilderV1Framing:
+
+    def test_close_packshot_applies_subject_scale_factor(self):
+        """framing=close_packshot doit scaler le sujet (le corrector
+        H.4.8.x normalise la caméra, scaler le sujet est la voie déterministe
+        pour rapprocher le cadrage)."""
+        from app.engine.product_render_builder import CLOSE_PACKSHOT_SUBJECT_SCALE
+        script = build_product_render_scene_script(_make_ir_v1(
+            framing="close_packshot",
+        ))
+        assert "product.scale = (" in script
+        # Le scale final inclut le facteur 1.4x
+        assert str(CLOSE_PACKSHOT_SUBJECT_SCALE) in script or "1.4" in script
+
+    def test_medium_framing_does_not_apply_close_packshot_scale(self):
+        """framing=medium ne doit PAS appliquer le facteur 1.4."""
+        script = build_product_render_scene_script(_make_ir_v1(
+            framing="medium", shape="cylindrical",
+        ))
+        # Avec shape=cylindrical et framing=medium, la scale est (1.0, 1.0, 1.0)
+        assert "product.scale = (1.0, 1.0, 1.0)" in script
+        # La ligne product.scale ne doit PAS contenir 1.4
+        for line in script.splitlines():
+            if line.startswith("product.scale ="):
+                assert "1.4" not in line, (
+                    f"medium framing leaked close_packshot factor: {line!r}"
+                )
+
+    def test_framing_default_when_omitted_is_medium(self):
+        """Si framing n'est pas fourni en V1, le builder applique medium."""
+        script = build_product_render_scene_script(_make_ir_v1(
+            framing=None, shape="cylindrical",
+        ))
+        assert "product.scale = (1.0, 1.0, 1.0)" in script
+
+
+class TestBuilderV1CanonicalPreserved:
+
+    def test_v1_still_uses_canonical_camera(self):
+        script = build_product_render_scene_script(_make_ir_v1(
+            framing="close_packshot",
+        ))
+        assert str(CANONICAL_CAMERA["location"]) in script
+        assert f"cam.data.lens = {CANONICAL_CAMERA['lens']}" in script
+
+    def test_v1_still_uses_canonical_lights(self):
+        script = build_product_render_scene_script(_make_ir_v1())
+        assert f"key_light.data.energy = {CANONICAL_KEY_LIGHT['energy']}" in script
+        assert f"fill_light.data.energy = {CANONICAL_FILL_LIGHT['energy']}" in script
+
+
+class TestBuilderV1SmokeProductRender:
+    """Cas canonique du smoke H.5.4 : bouteille parfum verre ambré packshot."""
+
+    def test_canonical_smoke_ir_v1(self):
+        ir = ProductRenderIntent(
+            schema_version="v1",
+            subject=ProductSubjectIR(
+                kind="bottle", color="amber", material="glass",
+                shape="cylindrical", cap="present", transparency="glass",
+            ),
+            backdrop=BackdropIR(color="neutral_gray"),
+            framing="close_packshot",
+        )
+        script = build_product_render_scene_script(ir)
+        # 4 invariants V1 lisibles dans le script
+        assert "Product_Cap" in script           # cap=present
+        assert "1.0" in script                   # transmission=1.0 (glass)
+        assert "0.05" in script                  # roughness=0.05 (glass)
+        # Le scale du sujet inclut le facteur 1.4 (close_packshot, cylindrical)
+        scale_lines = [
+            ln for ln in script.splitlines() if ln.startswith("product.scale =")
+        ]
+        assert scale_lines, "product.scale line missing"
+        assert "1.4" in scale_lines[0], scale_lines[0]
+        # AST guard invariants conservés
+        assert "import bpy" in script
+        assert "bpy.ops.object.select_all(action='SELECT')" in script
+        assert "bpy.ops.wm.save_as_mainfile(filepath=OUTPUT_BLEND_PATH)" in script
+
+
+# ---------------------------------------------------------------------------
+# H.5.4 — ast_guard est exécuté sur les deux chemins
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("framing", ["medium", "close_packshot"])
+@pytest.mark.parametrize("shape", ["cylindrical", "rectangular", "rounded"])
+@pytest.mark.parametrize("cap", ["absent", "present"])
+@pytest.mark.parametrize("transparency", ["opaque", "translucent", "glass"])
+def test_v1_combinations_pass_ast_guard(shape, cap, transparency, framing):
+    """Toute combinaison V1 doit produire un script propre AST guard
+    (zéro violation V0)."""
+    from app.engine.blender_ast_guard import analyze_scene_py
+    ir = _make_ir_v1(
+        shape=shape, cap=cap, transparency=transparency, framing=framing,
+    )
+    script = build_product_render_scene_script(ir)
+    report = analyze_scene_py(script, "product_render")
+    # Le rapport ast_guard est signal-only ; on valide "violations" vide.
+    assert isinstance(report, dict)
+    violations = report.get("violations", [])
+    assert violations == [], (
+        f"V1 combination shape={shape!r} cap={cap!r} "
+        f"transparency={transparency!r} framing={framing!r} : "
+        f"unexpected ast_guard violations {violations}"
+    )

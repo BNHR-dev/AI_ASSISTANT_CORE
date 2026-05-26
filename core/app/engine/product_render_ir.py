@@ -1,19 +1,30 @@
 """
-H.5.1 — Product Render Intermediate Representation (IR) V0.
+H.5.1 / H.5.4 — Product Render Intermediate Representation (IR).
 
-Mini-IR product_render-spécifique, ultra-plate, ~5 champs leaf.
+Mini-IR product_render-spécifique, ultra-plate.
 Cadrée par l'ADR [[16_H5_PRODUCT_RENDER_IR_CADRAGE]] (Décision 11).
 
-Politique V0 (stricte, à respecter par toute extension future) :
-- IR product_render-SPÉCIFIQUE uniquement (pas de Scene Graph polymorphe).
-- IR PLATE (pas d'arbres récursifs, pas de listes d'objets).
-- 5 champs LEAF maximum : schema_version + subject.{kind, color, material} + backdrop.color.
-- Pas de pedestal, pas de camera, pas de lighting exposés en V0
-  (restent canoniques via blender_runtime_corrector.CANONICAL_*).
-- Toute extension passe par une ADR séparée (V1 = H.5.4 envisagée).
+V0 (H.5.1) — 5 champs leaf : schema_version + subject.{kind, color, material}
+                              + backdrop.color.
 
-Le LLM décide QUOI (forme, couleur, matériau, fond).
-Le système (product_render_builder) décide COMMENT (code bpy déterministe).
+V1 (H.5.4) — V0 + 4 champs leaf optionnels enrichissant la lisibilité du
+             rendu, avec défauts explicites résolus par le builder :
+  - subject.shape         (cylindrical | rectangular | rounded) — défaut cylindrical
+  - subject.cap           (present | absent)                    — défaut absent
+  - subject.transparency  (opaque | translucent | glass)        — défaut opaque
+  - framing               (close_packshot | medium)             — défaut medium
+
+Compatibilité :
+- schema_version accepte v0 ET v1.
+- En v0, les 4 nouveaux champs DOIVENT rester non fournis (extra="forbid"
+  ne les rejette pas car ils existent dans le modèle ; c'est un validateur
+  de niveau IR qui interdit leur présence quand schema_version == "v0",
+  garantissant un comportement strictement identique à H.5.1).
+- En v1, leur absence vaut "non spécifié" → le builder applique les défauts.
+
+Le LLM décide QUOI (forme, couleur, matériau, fond + shape, cap, transparency,
+framing en v1). Le système (product_render_builder) décide COMMENT (code bpy
+déterministe).
 
 Aucun import LLM, aucun appel réseau, aucun I/O.
 Fonction PURE : import + validation Pydantic.
@@ -21,9 +32,9 @@ Fonction PURE : import + validation Pydantic.
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +48,42 @@ SubjectKind = Literal["bottle", "jar", "box", "tube", "cylinder", "sphere"]
 # Set borné de profils matériaux. Le builder mappe chaque material vers
 # une configuration Principled BSDF déterministe (roughness, metallic, etc.).
 SubjectMaterial = Literal["matte", "glossy", "glass", "metallic"]
+
+
+# ---------------------------------------------------------------------------
+# Enums fermés (V1 — H.5.4)
+# ---------------------------------------------------------------------------
+
+# Silhouette globale du sujet. Affine le rendu sans changer subject.kind.
+# Builder V1 mapping :
+#   cylindrical → primitive d'origine pour kind (V0 behavior)
+#   rectangular → flacon "carré" (cube allongé : forme de packaging)
+#   rounded     → flacon arrondi (sphère aplatie verticalement)
+SubjectShape = Literal["cylindrical", "rectangular", "rounded"]
+
+# Présence d'un bouchon secondaire posé au sommet du sujet.
+SubjectCap = Literal["present", "absent"]
+
+# Profil de transparence. Orthogonal à subject.material : si transparency=glass,
+# le builder force un matériau verre (transmission=1.0) en conservant la couleur
+# du subject (tint amber, etc.).
+SubjectTransparency = Literal["opaque", "translucent", "glass"]
+
+# Profil de cadrage. medium = cadrage canonique H.4.8.x. close_packshot = sujet
+# agrandi (scale 1.4x) pour rapprocher le cadrage sans toucher au tuning
+# caméra/lumière H.4.8.x — la normalisation passive du corrector réapplique
+# CANONICAL_CAMERA à l'identique, donc seule la mise à l'échelle du sujet
+# produit un effet de framing rapproché stable.
+Framing = Literal["close_packshot", "medium"]
+
+
+# Valeurs par défaut V1 (résolues côté builder quand le champ est None).
+V1_DEFAULTS: dict[str, str] = {
+    "shape": "cylindrical",
+    "cap": "absent",
+    "transparency": "opaque",
+    "framing": "medium",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +166,7 @@ def resolve_color(token: str) -> tuple[float, float, float, float]:
 # ---------------------------------------------------------------------------
 
 class ProductSubjectIR(BaseModel):
-    """Sujet produit : forme + couleur + profil matériau."""
+    """Sujet produit : forme + couleur + profil matériau (+ champs V1 optionnels)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -131,6 +178,22 @@ class ProductSubjectIR(BaseModel):
     )
     material: SubjectMaterial = Field(
         ..., description="Profil matériau Principled BSDF (enum fermé V0)."
+    )
+    # --- Champs V1 (H.5.4) ---
+    # Optionnels avec sentinel `None`. Le builder résout les défauts V1
+    # uniquement quand schema_version == "v1". En v0 leur présence est
+    # interdite par le validateur de niveau ProductRenderIntent.
+    shape: Optional[SubjectShape] = Field(
+        default=None,
+        description="V1 : silhouette globale du sujet (défaut builder = cylindrical).",
+    )
+    cap: Optional[SubjectCap] = Field(
+        default=None,
+        description="V1 : bouchon secondaire au sommet du sujet (défaut builder = absent).",
+    )
+    transparency: Optional[SubjectTransparency] = Field(
+        default=None,
+        description="V1 : profil de transparence (défaut builder = opaque).",
     )
 
     @field_validator("color")
@@ -156,23 +219,46 @@ class BackdropIR(BaseModel):
 
 class ProductRenderIntent(BaseModel):
     """
-    Intent product_render V0 — 5 champs leaf maximum.
+    Intent product_render — V0 (H.5.1) ou V1 (H.5.4).
 
-    schema_version : versionné dès V0 pour permettre une migration future
-                     non-cassante quand V1 ajoutera des champs.
-    subject        : la chose à mettre en scène (kind + color + material).
-    backdrop       : le fond (color en V0).
+    schema_version : "v0" ou "v1". Détermine le comportement du builder.
+    subject        : la chose à mettre en scène (kind + color + material
+                     + shape/cap/transparency optionnels en V1).
+    backdrop       : le fond (color).
+    framing        : V1 uniquement — cadrage (défaut builder = medium).
 
-    PAS en V0 :
-    - pedestal : toujours canonique en V0.
-    - camera   : toujours canonique (CANONICAL_CAMERA H.4.8.1).
-    - lighting : toujours canonique (CANONICAL_KEY_LIGHT + CANONICAL_FILL_LIGHT).
+    Garde-fous V0 (préservation byte-équivalente de H.5.1) :
+    - les champs V1 (subject.shape/cap/transparency, framing) doivent rester
+      non fournis quand schema_version == "v0".
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["v0"] = Field(
-        ..., description="Version du schéma IR. V0 figée en H.5.1."
+    schema_version: Literal["v0", "v1"] = Field(
+        ..., description="Version du schéma IR. V0 figée en H.5.1, V1 en H.5.4."
     )
     subject: ProductSubjectIR
     backdrop: BackdropIR
+    # --- Champ V1 (H.5.4) ---
+    framing: Optional[Framing] = Field(
+        default=None,
+        description="V1 : cadrage du rendu (défaut builder = medium).",
+    )
+
+    @model_validator(mode="after")
+    def _enforce_v0_purity(self) -> "ProductRenderIntent":
+        """En v0, aucun champ V1 ne doit être fourni (compat byte-équivalente)."""
+        if self.schema_version == "v0":
+            forbidden_v1 = {
+                "subject.shape": self.subject.shape,
+                "subject.cap": self.subject.cap,
+                "subject.transparency": self.subject.transparency,
+                "framing": self.framing,
+            }
+            offenders = [k for k, v in forbidden_v1.items() if v is not None]
+            if offenders:
+                raise ValueError(
+                    f"schema_version='v0' interdit les champs V1 : {offenders}. "
+                    f"Utilise schema_version='v1' pour activer ces champs."
+                )
+        return self

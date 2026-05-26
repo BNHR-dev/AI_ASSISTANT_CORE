@@ -66,9 +66,10 @@ def test_invalid_subject_material_rejected():
 
 
 def test_invalid_schema_version_rejected():
+    """H.5.4 — v0 et v1 sont valides ; toute autre valeur doit être rejetée."""
     with pytest.raises(ValidationError):
         ProductRenderIntent(
-            schema_version="v1",  # type: ignore[arg-type]
+            schema_version="v99",  # type: ignore[arg-type]
             subject=ProductSubjectIR(kind="box", color="white", material="matte"),
             backdrop=BackdropIR(color="black"),
         )
@@ -223,3 +224,137 @@ def test_validate_color_token_strips_whitespace_implicitly():
 def test_validate_color_token_non_str_rejected():
     with pytest.raises(ValueError):
         _validate_color_token(42)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# H.5.4 — IR V1 : 4 nouveaux champs optionnels
+# ---------------------------------------------------------------------------
+
+from app.engine.product_render_ir import V1_DEFAULTS  # noqa: E402
+
+
+class TestIRV1Schema:
+
+    def test_v1_minimal_valid_without_new_fields(self):
+        """V1 sans aucun champ V1 fourni : valide, les champs restent None."""
+        ir = ProductRenderIntent(
+            schema_version="v1",
+            subject=ProductSubjectIR(kind="bottle", color="amber", material="glass"),
+            backdrop=BackdropIR(color="neutral_gray"),
+        )
+        assert ir.schema_version == "v1"
+        assert ir.subject.shape is None
+        assert ir.subject.cap is None
+        assert ir.subject.transparency is None
+        assert ir.framing is None
+
+    def test_v1_with_all_new_fields(self):
+        ir = ProductRenderIntent(
+            schema_version="v1",
+            subject=ProductSubjectIR(
+                kind="bottle", color="amber", material="glass",
+                shape="rounded", cap="present", transparency="glass",
+            ),
+            backdrop=BackdropIR(color="neutral_gray"),
+            framing="close_packshot",
+        )
+        assert ir.subject.shape == "rounded"
+        assert ir.subject.cap == "present"
+        assert ir.subject.transparency == "glass"
+        assert ir.framing == "close_packshot"
+
+    @pytest.mark.parametrize("shape", ["cylindrical", "rectangular", "rounded"])
+    def test_v1_valid_shape_values(self, shape):
+        ir = ProductRenderIntent(
+            schema_version="v1",
+            subject=ProductSubjectIR(
+                kind="bottle", color="amber", material="glass", shape=shape,
+            ),
+            backdrop=BackdropIR(color="neutral_gray"),
+        )
+        assert ir.subject.shape == shape
+
+    @pytest.mark.parametrize("cap", ["present", "absent"])
+    def test_v1_valid_cap_values(self, cap):
+        ir = ProductRenderIntent(
+            schema_version="v1",
+            subject=ProductSubjectIR(
+                kind="bottle", color="amber", material="glass", cap=cap,
+            ),
+            backdrop=BackdropIR(color="neutral_gray"),
+        )
+        assert ir.subject.cap == cap
+
+    @pytest.mark.parametrize("trans", ["opaque", "translucent", "glass"])
+    def test_v1_valid_transparency_values(self, trans):
+        ir = ProductRenderIntent(
+            schema_version="v1",
+            subject=ProductSubjectIR(
+                kind="bottle", color="amber", material="glass", transparency=trans,
+            ),
+            backdrop=BackdropIR(color="neutral_gray"),
+        )
+        assert ir.subject.transparency == trans
+
+    @pytest.mark.parametrize("framing", ["close_packshot", "medium"])
+    def test_v1_valid_framing_values(self, framing):
+        ir = ProductRenderIntent(
+            schema_version="v1",
+            subject=ProductSubjectIR(kind="bottle", color="amber", material="glass"),
+            backdrop=BackdropIR(color="neutral_gray"),
+            framing=framing,
+        )
+        assert ir.framing == framing
+
+    def test_v1_invalid_shape_rejected(self):
+        with pytest.raises(ValidationError):
+            ProductSubjectIR(
+                kind="bottle", color="amber", material="glass", shape="square",
+            )
+
+    def test_v1_invalid_cap_rejected(self):
+        with pytest.raises(ValidationError):
+            ProductSubjectIR(
+                kind="bottle", color="amber", material="glass", cap="maybe",
+            )
+
+    def test_v1_invalid_transparency_rejected(self):
+        with pytest.raises(ValidationError):
+            ProductSubjectIR(
+                kind="bottle", color="amber", material="glass", transparency="cloudy",
+            )
+
+    def test_v1_invalid_framing_rejected(self):
+        with pytest.raises(ValidationError):
+            ProductRenderIntent(
+                schema_version="v1",
+                subject=ProductSubjectIR(kind="bottle", color="amber", material="glass"),
+                backdrop=BackdropIR(color="neutral_gray"),
+                framing="ultra_wide",  # type: ignore[arg-type]
+            )
+
+    def test_v0_rejects_v1_field_shape(self):
+        """En v0, fournir un champ V1 est interdit (compat byte-équivalente)."""
+        with pytest.raises(ValidationError):
+            ProductRenderIntent(
+                schema_version="v0",
+                subject=ProductSubjectIR(
+                    kind="bottle", color="amber", material="glass", shape="rounded",
+                ),
+                backdrop=BackdropIR(color="neutral_gray"),
+            )
+
+    def test_v0_rejects_v1_framing(self):
+        with pytest.raises(ValidationError):
+            ProductRenderIntent(
+                schema_version="v0",
+                subject=ProductSubjectIR(kind="bottle", color="amber", material="glass"),
+                backdrop=BackdropIR(color="neutral_gray"),
+                framing="close_packshot",
+            )
+
+    def test_v1_defaults_constant_shape(self):
+        assert V1_DEFAULTS["shape"] == "cylindrical"
+        assert V1_DEFAULTS["cap"] == "absent"
+        assert V1_DEFAULTS["transparency"] == "opaque"
+        assert V1_DEFAULTS["framing"] == "medium"
