@@ -70,6 +70,7 @@ from app.engine.blender_templates import (
     select_template,
     select_template_from_intent,
 )
+from app.engine.llm_trajectory_log import log_trajectory
 from app.engine.script_gen_eval_cases import (
     ALL_CHECKS,
     CHECK_ACTIVE_CAMERA_ASSIGNED,
@@ -172,6 +173,13 @@ class ScriptGenCaseScore:
     score: float
     error: str | None
 
+    # H.6.8.b.1 — Code Python extrait (markdown-strip) à persister sur disque
+    # par le runner. PAS sérialisé dans le rapport JSON (`case_score_to_dict`)
+    # pour ne pas bloater le rapport. Le runner accède à ce champ pour
+    # écrire `<scripts_dir>/<case_id>.py` puis fixe `raw_script_path` dans
+    # le payload final.
+    extracted_code: str | None = None
+
 
 @dataclass(frozen=True)
 class ScriptGenHarnessReport:
@@ -247,6 +255,75 @@ def _ast_check_passed(ast_report: Mapping[str, Any], ast_key: str) -> bool:
     if not isinstance(check, Mapping):
         return False
     return check.get("status") == "passed"
+
+
+# ---------------------------------------------------------------------------
+# H.6.8.b.2 — Stabilisation d'inférence `script_gen`
+# ---------------------------------------------------------------------------
+# Miroir du patron H.6.5.a appliqué à l'extractor IR, adapté au site
+# `script_gen` :
+# - mêmes leviers déterministes (temperature=0, top_p=1, top_k=1, seed).
+# - **PAS de `format="json"`** : le LLM `script_gen` produit du Python
+#   markdown, pas du JSON. Forcer JSON casserait l'extraction.
+# - `num_ctx=8192` vs 4096 chez l'extractor : les scripts bpy générés
+#   peuvent atteindre 3000+ chars (cf. baseline H.6.8.a : C4 = 3142 chars),
+#   prévoir une marge pour scripts plus longs sans tronquer.
+#
+# Le seed=42 garde la traçabilité directe avec la baseline H.6.8.a (qui
+# avait variance non mesurée). Modifiable via la factory
+# `build_script_gen_generate_fn`.
+
+SCRIPT_GEN_INFERENCE_OPTIONS: dict[str, object] = {
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "top_k": 1,
+    "seed": 42,
+    "num_ctx": 8192,
+}
+
+
+def _default_generate_fn(model: str, prompt: str) -> str:
+    """
+    `generate_fn` par défaut H.6.8.b.2 : encapsule `generate_with_ollama`
+    avec la config d'inférence stabilisée `script_gen`. Préserve la
+    signature `(model, prompt) -> str` attendue par le harness et par
+    les mocks de test, donc aucun test mocké n'est affecté.
+
+    Pas de `format=...` : `script_gen` produit du Python en markdown,
+    contrairement à l'extractor qui utilise `format="json"`.
+    """
+    return generate_with_ollama(
+        model,
+        prompt,
+        options=SCRIPT_GEN_INFERENCE_OPTIONS,
+    )
+
+
+def build_script_gen_generate_fn(seed: int) -> Callable[[str, str], str]:
+    """
+    Factory qui retourne un `generate_fn` câblé sur un seed arbitraire,
+    sans modifier `SCRIPT_GEN_INFERENCE_OPTIONS` global.
+
+    Utile pour des passes de robustesse multi-seed (équivalent
+    H.6.7a côté extractor). Non utilisé dans H.6.8.b.2 (qui mesure la
+    stabilité multi-run au même seed=42 par défaut), mais exposé dès
+    maintenant pour ne pas redessiner l'interface en H.6.8.c
+    éventuelle.
+
+    Pure : retourne une closure qui, à l'appel, fera l'I/O via
+    `generate_with_ollama`.
+    """
+    options = dict(SCRIPT_GEN_INFERENCE_OPTIONS)
+    options["seed"] = seed
+
+    def _fn(model: str, prompt: str) -> str:
+        return generate_with_ollama(
+            model,
+            prompt,
+            options=options,
+        )
+
+    return _fn
 
 
 def score_script(
@@ -412,6 +489,7 @@ def score_script(
         duration_seconds=duration_seconds,
         score=score,
         error=error,
+        extracted_code=(extracted if extracted else None),
     )
 
 
@@ -422,11 +500,6 @@ def score_script(
 # Signature d'une fonction d'inférence injectable.
 # Conforme à `generate_with_ollama(model, prompt) -> str`.
 GenerateFn = Callable[[str, str], str]
-
-
-def _default_generate_fn(model: str, prompt: str) -> str:
-    """Inférence Ollama réelle par défaut, utilisée hors tests."""
-    return generate_with_ollama(model, prompt)
 
 
 def run_harness(
@@ -479,6 +552,23 @@ def run_harness(
             duration_seconds=duration,
         )
         case_scores.append(score)
+
+        # H.6.8.b.1 — Capture passive de la trajectoire `script_gen_eval`.
+        # Non-bloquante (le log est best-effort, swallow toute exception).
+        # Stage distinct du `script_gen` runtime pour éviter de polluer le
+        # corpus runtime avec des appels eval. Désactivé pendant pytest
+        # via conftest (AAC_TRAJECTORY_LOG_ENABLED=false).
+        log_trajectory(
+            stage="script_gen_eval",
+            model=chosen_model,
+            prompt=prompt,
+            raw_response=raw_response,
+            parse_ok=score.python_extracted,
+            ir=None,
+            fallback=False,
+            error=error,
+            request_id=f"script_gen_eval:{case.id}",
+        )
 
     aggregate = _aggregate(case_scores)
     return ScriptGenHarnessReport(

@@ -454,3 +454,87 @@ def test_aggregate_empty_corpus_returns_zeros() -> None:
     assert report.aggregate["n_cases"] == 0
     assert report.aggregate["mean_score"] == 0.0
     assert report.aggregate["per_check_pass_rate"] == {}
+
+
+# ---------------------------------------------------------------------------
+# H.6.8.b.1 — extracted_code exposé dans ScriptGenCaseScore
+# ---------------------------------------------------------------------------
+
+def test_score_script_exposes_extracted_code_when_generation_ok() -> None:
+    score = score_script(
+        raw_response=_GOOD_FREEFORM_SCRIPT,
+        case=_FAKE_FREEFORM_CASE,
+        template_name_actual=None,
+    )
+    assert score.extracted_code is not None
+    assert "import bpy" in score.extracted_code
+    # On a bien dépouillé le markdown.
+    assert "```" not in score.extracted_code
+
+
+def test_score_script_extracted_code_none_when_generation_failed() -> None:
+    score = score_script(
+        raw_response=None,
+        case=_FAKE_FREEFORM_CASE,
+        template_name_actual=None,
+    )
+    assert score.extracted_code is None
+
+
+def test_score_script_extracted_code_none_when_empty() -> None:
+    score = score_script(
+        raw_response="   ",
+        case=_FAKE_FREEFORM_CASE,
+        template_name_actual=None,
+    )
+    assert score.extracted_code is None
+
+
+def test_case_score_to_dict_does_not_include_extracted_code() -> None:
+    """
+    `extracted_code` est volontairement absent du dict JSON pour ne pas
+    bloater le rapport. Le runner persiste séparément via
+    `persist_extracted_scripts`.
+    """
+    score = score_script(
+        raw_response=_GOOD_FREEFORM_SCRIPT,
+        case=_FAKE_FREEFORM_CASE,
+        template_name_actual=None,
+    )
+    d = case_score_to_dict(score)
+    assert "extracted_code" not in d
+
+
+# ---------------------------------------------------------------------------
+# H.6.8.b.2 — Stabilisation inférence (smoke)
+# ---------------------------------------------------------------------------
+
+def test_run_harness_uses_default_stabilised_fn_when_none_provided(monkeypatch) -> None:
+    """
+    Quand `generate_fn=None`, run_harness doit appeler
+    `_default_generate_fn` (stabilisé). On vérifie indirectement en
+    monkeypatchant `generate_with_ollama` et en confirmant que les
+    options stabilisées sont transmises.
+    """
+    import app.engine.script_gen_eval_harness as harness_mod
+
+    captured_options: list[dict] = []
+
+    def fake_generate_with_ollama(model, prompt, **kwargs):
+        captured_options.append(kwargs.get("options", {}))
+        return "```python\nimport bpy\n```"
+
+    monkeypatch.setattr(harness_mod, "generate_with_ollama", fake_generate_with_ollama)
+
+    # Un seul cas pour limiter les appels
+    report = run_harness(
+        cases=DEFAULT_CASES[:1],
+        model="any",
+        generate_fn=None,  # → utilise _default_generate_fn
+    )
+    assert len(captured_options) == 1
+    opts = captured_options[0]
+    assert opts["temperature"] == 0.0
+    assert opts["seed"] == 42
+    assert opts["top_k"] == 1
+    assert opts["num_ctx"] == 8192
