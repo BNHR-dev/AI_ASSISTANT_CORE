@@ -104,6 +104,35 @@ def _default_extraction_generate_fn(model: str, prompt: str) -> str:
         format=EXTRACTION_RESPONSE_FORMAT,
     )
 
+
+def build_extraction_generate_fn(seed: int) -> Callable[[str, str], str]:
+    """
+    H.6.7a — Factory qui retourne un `generate_fn` câblé sur un seed
+    arbitraire, sans modifier le `EXTRACTION_INFERENCE_OPTIONS` global.
+
+    Utilisé par le runner multi-seed pour mesurer la robustesse du
+    modèle au-delà du seed unique (42) figé en H.6.5.a. Le reste des
+    paramètres (temperature=0, top_p, top_k, num_ctx) est préservé pour
+    isoler la variable d'intérêt : seul le seed varie.
+
+    Pure : retourne une closure qui, à l'appel, fera l'I/O via
+    `generate_with_ollama`. Les tests unitaires peuvent monkeypatcher
+    `generate_with_ollama` au point d'import du module pour vérifier le
+    payload final.
+    """
+    options = dict(EXTRACTION_INFERENCE_OPTIONS)
+    options["seed"] = seed
+
+    def _fn(model: str, prompt: str) -> str:
+        return generate_with_ollama(
+            model,
+            prompt,
+            options=options,
+            format=EXTRACTION_RESPONSE_FORMAT,
+        )
+
+    return _fn
+
 # Listes pour le prompt strict. Source de vérité = enums Pydantic.
 _KIND_VALUES: tuple[str, ...] = (
     "bottle", "jar", "box", "tube", "cylinder", "sphere",

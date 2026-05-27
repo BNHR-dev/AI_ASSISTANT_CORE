@@ -41,6 +41,7 @@ from app.engine.product_render_eval_harness import (
     report_to_dict,
     run_harness,
 )
+from app.engine.product_render_extractor import build_extraction_generate_fn
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +482,280 @@ def format_summary_multirun(payload: dict[str, Any], path: Path) -> str:
     return "\n".join(lines)
 
 
+# ===========================================================================
+# H.6.7a — Multi-seed robustness
+# ===========================================================================
+#
+# Sans cette section, le bench multi-run mesure N fois le MÊME seed
+# (déterminisme post-H.6.5.a). Cela révèle la stabilité d'inférence
+# mais ne dit rien de la robustesse du modèle au-delà de seed=42.
+#
+# Le multi-seed exécute le corpus une fois par seed avec un
+# `generate_fn` câblé sur ce seed (les autres paramètres d'inférence
+# restent ceux d'`EXTRACTION_INFERENCE_OPTIONS`). On agrège ensuite
+# mean/min/max/stdev sur les N seeds pour distinguer :
+#  - un mean_score robuste (faible stdev cross-seed) ;
+#  - un mean_score fragile (stdev élevé : un autre seed donnerait
+#    une mesure différente).
+#
+# Schema rapport : `report_schema_version="3"`. Fichier suffixé
+# `_x{N}seeds.json` pour ne pas se confondre avec `_xNruns.json`.
+
+# Set de seeds canonique par défaut. Inclut 42 pour traçabilité
+# directe avec la baseline H.6.6. Les autres sont diversifiés en
+# magnitude pour exercer la diversité de l'échantillonnage Ollama.
+DEFAULT_SEEDS: tuple[int, ...] = (42, 7, 1, 123, 999)
+
+
+def aggregate_multiseed(
+    seeds: Sequence[int],
+    reports: Sequence[HarnessReport],
+    *,
+    cases: Optional[tuple[EvalCase, ...]] = None,
+) -> dict[str, Any]:
+    """
+    Agrège N `HarnessReport` produits sur le MÊME corpus avec N seeds
+    distincts. Pure.
+
+    Hypothèses (vérifiées) :
+    - `len(seeds) == len(reports)` (1:1) ;
+    - tous les rapports proviennent du même corpus (même nb cas, même
+      ordre des `case_id`).
+
+    Structure de sortie :
+      {
+        "seeds": [...],
+        "n_seeds", "n_cases",
+        "aggregate": {parse_ok_rate, mean_score, per_field_accuracy: {field: stats}},
+        "case_aggregates": [{case_id, parse_ok_count, score: stats}, ...],
+        "per_seed_summaries": [{seed, parse_ok_rate, mean_score,
+                                per_field_accuracy, case_results: [...]}],
+        "common_errors": [{error_prefix, count}],
+      }
+    """
+    if len(seeds) != len(reports):
+        raise ValueError(
+            f"aggregate_multiseed: len(seeds)={len(seeds)} ≠ "
+            f"len(reports)={len(reports)}"
+        )
+    n = len(reports)
+    if n == 0:
+        return {
+            "seeds": [],
+            "n_seeds": 0,
+            "n_cases": 0,
+            "aggregate": {
+                "parse_ok_rate": _stats_block([]),
+                "mean_score": _stats_block([]),
+                "per_field_accuracy": {},
+            },
+            "case_aggregates": [],
+            "per_seed_summaries": [],
+            "common_errors": [],
+        }
+
+    n_cases = reports[0].total_cases
+    for r in reports[1:]:
+        if r.total_cases != n_cases:
+            raise ValueError(
+                f"aggregate_multiseed: rapports incohérents "
+                f"(total_cases varie : {n_cases} vs {r.total_cases})"
+            )
+
+    parse_ok_rates = [r.parse_ok_rate for r in reports]
+    mean_scores = [r.mean_score for r in reports]
+
+    all_field_keys: set[str] = set()
+    for r in reports:
+        all_field_keys.update(r.per_field_accuracy.keys())
+    per_field_stats: dict[str, dict[str, float]] = {
+        key: _stats_block([r.per_field_accuracy.get(key, 0.0) for r in reports])
+        for key in sorted(all_field_keys)
+    }
+
+    case_ids = [s.case_id for s in reports[0].case_scores]
+    case_aggregates: list[dict[str, Any]] = []
+    for idx, case_id in enumerate(case_ids):
+        for r in reports[1:]:
+            if r.case_scores[idx].case_id != case_id:
+                raise ValueError(
+                    f"aggregate_multiseed: case_id différent à l'index {idx} "
+                    f"({case_id!r} vs {r.case_scores[idx].case_id!r})"
+                )
+        scores = [r.case_scores[idx].score for r in reports]
+        parse_ok_count = sum(1 for r in reports if r.case_scores[idx].parse_ok)
+        case_aggregates.append({
+            "case_id": case_id,
+            "parse_ok_count": parse_ok_count,
+            "score": _stats_block(scores),
+        })
+
+    per_seed_summaries: list[dict[str, Any]] = []
+    for seed, r in zip(seeds, reports):
+        per_seed_summaries.append({
+            "seed": seed,
+            "parse_ok_rate": r.parse_ok_rate,
+            "mean_score": r.mean_score,
+            "per_field_accuracy": dict(r.per_field_accuracy),
+            "case_results": [
+                {
+                    "case_id": s.case_id,
+                    "parse_ok": s.parse_ok,
+                    "score": s.score,
+                    "error": s.error,
+                }
+                for s in r.case_scores
+            ],
+        })
+
+    error_counter: Counter[str] = Counter()
+    for r in reports:
+        for s in r.case_scores:
+            if s.error:
+                prefix = s.error.split(":", 1)[0].strip()
+                error_counter[prefix] += 1
+    common_errors = [
+        {"error_prefix": k, "count": v}
+        for k, v in error_counter.most_common()
+    ]
+
+    return {
+        "seeds": list(seeds),
+        "n_seeds": n,
+        "n_cases": n_cases,
+        "aggregate": {
+            "parse_ok_rate": _stats_block(parse_ok_rates),
+            "mean_score": _stats_block(mean_scores),
+            "per_field_accuracy": per_field_stats,
+        },
+        "case_aggregates": case_aggregates,
+        "per_seed_summaries": per_seed_summaries,
+        "common_errors": common_errors,
+    }
+
+
+def build_multiseed_report_path(
+    *,
+    model: str,
+    n_seeds: int,
+    now: datetime,
+    base_dir: Path = DEFAULT_EVAL_REPORTS_DIR,
+) -> Path:
+    """Chemin canonique d'un rapport multi-seed. Suffixe `_x{N}seeds.json`."""
+    fname = (
+        f"{_format_timestamp(now)}_{slugify_model(model)}"
+        f"_x{n_seeds}seeds.json"
+    )
+    return base_dir / fname
+
+
+def run_and_save_multiseed(
+    *,
+    seeds: Sequence[int],
+    model: Optional[str] = None,
+    generate_fn_factory: Optional[Callable[[int], Callable[[str, str], str]]] = None,
+    cases: Optional[tuple[EvalCase, ...]] = None,
+    base_dir: Optional[Path] = None,
+    now: Optional[datetime] = None,
+) -> tuple[dict[str, Any], Path]:
+    """
+    Exécute le harness une fois par seed et persiste un rapport agrégé.
+
+    - `seeds` : iterable d'entiers (typiquement `DEFAULT_SEEDS`).
+    - `generate_fn_factory` : `seed -> Callable[(model, prompt), str]`.
+      Si None, utilise `build_extraction_generate_fn` (Ollama réel,
+      inférence stabilisée H.6.5.a, seed surchargé). Permet aux tests
+      de fournir un factory qui renvoie un mock par seed sans toucher
+      à Ollama.
+
+    Retourne `(payload_agrégé, chemin_écrit)`. Le rapport a
+    `report_schema_version="3"`.
+    """
+    seeds_t = tuple(seeds)
+    if not seeds_t:
+        raise ValueError("seeds must be a non-empty sequence")
+    if len(set(seeds_t)) != len(seeds_t):
+        raise ValueError(f"seeds must be unique, got {seeds_t}")
+
+    if model is None:
+        model = get_blender_llm_model()
+    if cases is None:
+        cases = DEFAULT_CASES
+    if now is None:
+        now = _utc_now()
+    if base_dir is None:
+        base_dir = DEFAULT_EVAL_REPORTS_DIR
+    if generate_fn_factory is None:
+        generate_fn_factory = build_extraction_generate_fn
+
+    reports: list[HarnessReport] = []
+    for seed in seeds_t:
+        gen = generate_fn_factory(seed)
+        reports.append(run_harness(generate_fn=gen, model=model, cases=cases))
+
+    aggregated = aggregate_multiseed(seeds_t, reports, cases=cases)
+    payload: dict[str, Any] = {
+        "report_schema_version": "3",
+        "timestamp": now.isoformat(),
+        "model": model,
+    }
+    payload.update(aggregated)
+
+    base_dir.mkdir(parents=True, exist_ok=True)
+    path = build_multiseed_report_path(
+        model=model, n_seeds=len(seeds_t), now=now, base_dir=base_dir,
+    )
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return payload, path
+
+
+def format_summary_multiseed(payload: dict[str, Any], path: Path) -> str:
+    """Texte synthétique multi-lignes pour CLI. Pure."""
+    agg = payload["aggregate"]
+    lines: list[str] = []
+    lines.append(f"model              : {payload['model']}")
+    lines.append(f"report             : {path}")
+    lines.append(f"seeds              : {payload['seeds']}")
+    lines.append(f"n_cases            : {payload['n_cases']}")
+    pr = agg["parse_ok_rate"]
+    ms = agg["mean_score"]
+    lines.append(
+        f"parse_ok_rate      : mean={pr['mean']:.3f}  "
+        f"min={pr['min']:.3f}  max={pr['max']:.3f}  stdev={pr['stdev']:.3f}"
+    )
+    lines.append(
+        f"mean_score         : mean={ms['mean']:.3f}  "
+        f"min={ms['min']:.3f}  max={ms['max']:.3f}  stdev={ms['stdev']:.3f}"
+    )
+    lines.append("per_field_accuracy (mean across seeds) :")
+    for k, stats in agg["per_field_accuracy"].items():
+        lines.append(
+            f"  {k:<28} mean={stats['mean']:.3f}  stdev={stats['stdev']:.3f}"
+        )
+    lines.append("case_aggregates (score mean across seeds) :")
+    for c in payload["case_aggregates"]:
+        s = c["score"]
+        lines.append(
+            f"  {c['case_id']:<48} mean={s['mean']:.3f}  "
+            f"min={s['min']:.3f}  max={s['max']:.3f}  "
+            f"parse_ok={c['parse_ok_count']}/{payload['n_seeds']}"
+        )
+    lines.append("per_seed_summaries :")
+    for s in payload["per_seed_summaries"]:
+        lines.append(
+            f"  seed={s['seed']:<6} parse_ok_rate={s['parse_ok_rate']:.3f}  "
+            f"mean_score={s['mean_score']:.3f}"
+        )
+    if payload.get("common_errors"):
+        lines.append("common_errors :")
+        for e in payload["common_errors"]:
+            lines.append(f"  {e['error_prefix']:<32} count={e['count']}")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # CLI __main__ (non testée ; appelle Ollama réel)
 # ---------------------------------------------------------------------------
@@ -506,8 +781,25 @@ def _main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover
         "--runs",
         type=int,
         default=1,
-        help="Nombre d'exécutions du harness. >1 produit un rapport "
-             "multi-run agrégé (schema v2). Défaut : 1 (rapport single-run).",
+        help="Nombre d'exécutions du harness avec le seed figé (H.6.5.a). "
+             ">1 produit un rapport multi-run agrégé (schema v2, stdev≈0 "
+             "vu le déterminisme). Défaut : 1.",
+    )
+    parser.add_argument(
+        "--seeds",
+        type=str,
+        default=None,
+        help="Liste de seeds entiers séparés par des virgules, ex. "
+             "'42,7,1,123,999'. Produit un rapport multi-seed agrégé "
+             "(schema v3). Mutuellement exclusif avec --runs>1. "
+             f"Defaults canoniques : {','.join(str(s) for s in DEFAULT_SEEDS)}.",
+    )
+    parser.add_argument(
+        "--multi-seed",
+        action="store_true",
+        help=f"Raccourci : utilise les seeds canoniques par défaut "
+             f"({DEFAULT_SEEDS}). Équivalent à --seeds "
+             f"'{','.join(str(s) for s in DEFAULT_SEEDS)}'.",
     )
     parser.add_argument(
         "--quiet",
@@ -518,7 +810,33 @@ def _main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover
 
     base_dir = Path(args.base_dir) if args.base_dir else None
 
-    if args.runs > 1:
+    # Résolution du mode (single / multi-run / multi-seed).
+    multi_seed_active = bool(args.seeds or args.multi_seed)
+    if multi_seed_active and args.runs > 1:
+        parser.error(
+            "--seeds / --multi-seed et --runs>1 sont mutuellement exclusifs."
+        )
+
+    if multi_seed_active:
+        if args.seeds:
+            try:
+                seeds = tuple(
+                    int(s.strip()) for s in args.seeds.split(",") if s.strip()
+                )
+            except ValueError as exc:
+                parser.error(f"--seeds: liste invalide : {exc}")
+            if not seeds:
+                parser.error("--seeds: liste vide")
+        else:
+            seeds = DEFAULT_SEEDS
+        payload, path = run_and_save_multiseed(
+            seeds=seeds, model=args.model, base_dir=base_dir,
+        )
+        if args.quiet:
+            print(path)
+        else:
+            print(format_summary_multiseed(payload, path))
+    elif args.runs > 1:
         payload, path = run_and_save_multi(
             n_runs=args.runs, model=args.model, base_dir=base_dir,
         )
