@@ -83,6 +83,8 @@ ACTIVE_AUXILIARY_MODULES = [
     "app/engine/product_render_ir.py",
     "app/engine/product_render_builder.py",
     "app/engine/product_render_extractor.py",
+    "app/engine/product_render_eval_cases.py",
+    "app/engine/product_render_eval_harness.py",
     "app/engine/blender_model_config.py",
     "app/engine/llm_trajectory_log.py",
     "app/engine/artifact_manifest.py",
