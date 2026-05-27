@@ -54,6 +54,54 @@ from app.engine.product_render_ir import (
 # explicitement `model=get_blender_llm_model()` à l'appel.
 DEFAULT_EXTRACTION_MODEL = get_blender_llm_model()
 
+
+# ---------------------------------------------------------------------------
+# H.6.5.a — Paramètres d'inférence pour stabiliser l'extraction IR.
+# ---------------------------------------------------------------------------
+# La pipeline d'extraction n'a pas besoin de créativité : elle convertit un
+# prompt utilisateur en une structure typée fermée. La variance run-to-run
+# observée sur le benchmark H.6.4 (parse_ok_rate ∈ [0.7, 1.0]) est due
+# essentiellement à la randomisation par défaut d'Ollama. On force ici un
+# régime quasi-déterministe + format JSON serveur.
+#
+# - `temperature=0.0`  : pas de sampling stochastique.
+# - `top_p=1.0`        : neutre quand temp=0 (présent pour explicitness).
+# - `top_k=1`          : argmax explicite (certaines versions d'Ollama
+#                        ignorent top_k à temp=0 ; redondant et sûr).
+# - `seed=42`          : reproductibilité d'un run à l'autre.
+# - `num_ctx=4096`     : marge contre toute troncation du prompt verbeux
+#                        (palette + enums + scaffolding ≈ 1-2k tokens).
+#
+# `format="json"` force le serveur Ollama à émettre un JSON syntaxiquement
+# valide (sans markdown ni commentaires). N'enforce pas le schéma de l'IR,
+# mais élimine les modes "no_json_block_found" / "json_decode_error".
+EXTRACTION_INFERENCE_OPTIONS: dict[str, object] = {
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "top_k": 1,
+    "seed": 42,
+    "num_ctx": 4096,
+}
+EXTRACTION_RESPONSE_FORMAT: str = "json"
+
+
+def _default_extraction_generate_fn(model: str, prompt: str) -> str:
+    """
+    `generate_fn` par défaut de l'extracteur H.6.5.a : encapsule
+    `generate_with_ollama` avec les paramètres d'inférence stabilisés et
+    le format JSON serveur.
+
+    Préserve la signature `(model, prompt) -> str` attendue par
+    `extract_product_render_intent` et par les mocks de test, donc aucun
+    test existant n'est affecté.
+    """
+    return generate_with_ollama(
+        model,
+        prompt,
+        options=EXTRACTION_INFERENCE_OPTIONS,
+        format=EXTRACTION_RESPONSE_FORMAT,
+    )
+
 # Listes pour le prompt strict. Source de vérité = enums Pydantic.
 _KIND_VALUES: tuple[str, ...] = (
     "bottle", "jar", "box", "tube", "cylinder", "sphere",
@@ -585,7 +633,9 @@ def extract_product_render_intent(
     - Si la sortie LLM est vide ou inexploitable, status="fallback".
     """
     if generate_fn is None:
-        generate_fn = generate_with_ollama
+        # H.6.5.a — par défaut, on passe par le wrapper stabilisé qui
+        # injecte les options d'inférence et le format JSON serveur.
+        generate_fn = _default_extraction_generate_fn
 
     prompt = build_extraction_prompt(message)
 

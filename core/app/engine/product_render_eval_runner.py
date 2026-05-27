@@ -27,10 +27,12 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import statistics
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from app.engine.blender_model_config import get_blender_llm_model
 from app.engine.product_render_eval_cases import DEFAULT_CASES, EvalCase
@@ -204,6 +206,281 @@ def format_summary(report: HarnessReport, path: Path) -> str:
     return "\n".join(lines)
 
 
+# ===========================================================================
+# H.6.5.b — Multi-run aggregation
+# ===========================================================================
+#
+# Un single-run est trop bruité pour décider de l'effet d'un changement
+# (variance LLM observée jusqu'à ±0.13 sur parse_ok_rate en H.6.4). Cette
+# section ajoute la possibilité d'exécuter le harness N fois et de
+# produire un rapport agrégé unique, JSON-sérialisable, sauvegardé sous
+# `outputs/blender/_eval_reports/{ts}_{model}_xNruns.json`.
+#
+# Le rapport multi-run a `report_schema_version="2"`, distinct de la
+# version "1" du single-run. Les consommateurs peuvent router sur ce
+# champ.
+
+
+def _stats_block(values: Sequence[float]) -> dict[str, float]:
+    """
+    Calcule mean / min / max / stdev (population) d'une liste de valeurs.
+
+    Pure. Retourne 0.0 partout si `values` est vide ; stdev=0.0 pour N=1
+    (via `pstdev`).
+    """
+    if not values:
+        return {"mean": 0.0, "min": 0.0, "max": 0.0, "stdev": 0.0}
+    return {
+        "mean": statistics.mean(values),
+        "min": min(values),
+        "max": max(values),
+        "stdev": statistics.pstdev(values),  # accepte N=1 → 0.0
+    }
+
+
+def aggregate_multirun(
+    reports: Sequence[HarnessReport],
+    *,
+    cases: Optional[tuple[EvalCase, ...]] = None,
+) -> dict[str, Any]:
+    """
+    Agrège N `HarnessReport` produits par le MÊME corpus en un dict prêt
+    à sérialiser. Pure.
+
+    Hypothèses :
+    - tous les rapports proviennent du même `cases` (même ordre, mêmes ids) ;
+    - même modèle (informatif uniquement, on remonte le 1er).
+
+    Structure de sortie :
+      {
+        "n_runs", "n_cases",
+        "aggregate": {parse_ok_rate, mean_score, per_field_accuracy: {field: stats}},
+        "case_aggregates": [{case_id, parse_ok_count, score: stats}, ...],
+        "per_run_summaries": [{run_index, parse_ok_rate, mean_score, per_field_accuracy, case_results: [...]}],
+        "common_errors": [{error_prefix, count}],
+      }
+    """
+    n_runs = len(reports)
+    if n_runs == 0:
+        return {
+            "n_runs": 0,
+            "n_cases": 0,
+            "aggregate": {
+                "parse_ok_rate": _stats_block([]),
+                "mean_score": _stats_block([]),
+                "per_field_accuracy": {},
+            },
+            "case_aggregates": [],
+            "per_run_summaries": [],
+            "common_errors": [],
+        }
+
+    # n_cases : tous les rapports DOIVENT avoir le même nombre de cas.
+    n_cases = reports[0].total_cases
+    for r in reports[1:]:
+        if r.total_cases != n_cases:
+            raise ValueError(
+                f"aggregate_multirun: rapports incohérents "
+                f"(total_cases varie : {n_cases} vs {r.total_cases})"
+            )
+
+    # 1. Agrégat top-level : parse_ok_rate, mean_score sur les N runs.
+    parse_ok_rates = [r.parse_ok_rate for r in reports]
+    mean_scores = [r.mean_score for r in reports]
+
+    # 2. per_field_accuracy : union des clés observées, valeur=0.0 pour les
+    #    runs où la clé est absente (cas vide), même si le corpus stable
+    #    garantit normalement les mêmes clés à chaque run.
+    all_field_keys: set[str] = set()
+    for r in reports:
+        all_field_keys.update(r.per_field_accuracy.keys())
+    per_field_stats: dict[str, dict[str, float]] = {}
+    for key in sorted(all_field_keys):
+        values = [r.per_field_accuracy.get(key, 0.0) for r in reports]
+        per_field_stats[key] = _stats_block(values)
+
+    # 3. case_aggregates : par case_id (basé sur l'ordre du 1er run, identique
+    #    aux autres par hypothèse), stats sur scores + comptage parse_ok.
+    case_ids = [s.case_id for s in reports[0].case_scores]
+    case_aggregates: list[dict[str, Any]] = []
+    for idx, case_id in enumerate(case_ids):
+        # Cohérence cross-run : même case_id à la même position.
+        for r in reports[1:]:
+            if r.case_scores[idx].case_id != case_id:
+                raise ValueError(
+                    f"aggregate_multirun: case_id différent à l'index {idx} "
+                    f"({case_id!r} vs {r.case_scores[idx].case_id!r})"
+                )
+        scores = [r.case_scores[idx].score for r in reports]
+        parse_ok_count = sum(1 for r in reports if r.case_scores[idx].parse_ok)
+        case_aggregates.append({
+            "case_id": case_id,
+            "parse_ok_count": parse_ok_count,
+            "score": _stats_block(scores),
+        })
+
+    # 4. per_run_summaries : détail run par run pour traçabilité.
+    per_run_summaries: list[dict[str, Any]] = []
+    for i, r in enumerate(reports):
+        per_run_summaries.append({
+            "run_index": i,
+            "parse_ok_rate": r.parse_ok_rate,
+            "mean_score": r.mean_score,
+            "per_field_accuracy": dict(r.per_field_accuracy),
+            "case_results": [
+                {
+                    "case_id": s.case_id,
+                    "parse_ok": s.parse_ok,
+                    "score": s.score,
+                    "error": s.error,
+                }
+                for s in r.case_scores
+            ],
+        })
+
+    # 5. common_errors : préfixes d'erreur (avant le premier ':') triés
+    #    par fréquence décroissante. Aide au diagnostic.
+    error_counter: Counter[str] = Counter()
+    for r in reports:
+        for s in r.case_scores:
+            if s.error:
+                # On garde uniquement le préfixe avant ":" pour grouper
+                # "pydantic_validation_error: ..." de toutes les variantes.
+                prefix = s.error.split(":", 1)[0].strip()
+                error_counter[prefix] += 1
+    common_errors = [
+        {"error_prefix": k, "count": v}
+        for k, v in error_counter.most_common()
+    ]
+
+    return {
+        "n_runs": n_runs,
+        "n_cases": n_cases,
+        "aggregate": {
+            "parse_ok_rate": _stats_block(parse_ok_rates),
+            "mean_score": _stats_block(mean_scores),
+            "per_field_accuracy": per_field_stats,
+        },
+        "case_aggregates": case_aggregates,
+        "per_run_summaries": per_run_summaries,
+        "common_errors": common_errors,
+    }
+
+
+def build_multirun_report_path(
+    *,
+    model: str,
+    n_runs: int,
+    now: datetime,
+    base_dir: Path = DEFAULT_EVAL_REPORTS_DIR,
+) -> Path:
+    """Chemin canonique d'un rapport multi-run. Suffixe `_x{N}runs.json`."""
+    fname = (
+        f"{_format_timestamp(now)}_{slugify_model(model)}"
+        f"_x{n_runs}runs.json"
+    )
+    return base_dir / fname
+
+
+def run_and_save_multi(
+    *,
+    n_runs: int,
+    model: Optional[str] = None,
+    generate_fn: Optional[Callable[[str, str], str]] = None,
+    cases: Optional[tuple[EvalCase, ...]] = None,
+    base_dir: Optional[Path] = None,
+    now: Optional[datetime] = None,
+) -> tuple[dict[str, Any], Path]:
+    """
+    Exécute le harness N fois et persiste un rapport agrégé.
+
+    Retourne (payload_agrégé, chemin_écrit).
+
+    Quand `generate_fn` est injecté (tests), le bench est purement local.
+    Quand `generate_fn=None`, l'extracteur appelle Ollama via le wrapper
+    stabilisé H.6.5.a.
+
+    Pour N=1, le rapport multi-run a la même information qu'un single-run
+    (stdev=0 partout) mais reste dans le format multi-run. Le single-run
+    classique reste accessible via `run_and_save`.
+    """
+    if n_runs < 1:
+        raise ValueError(f"n_runs doit être >= 1, got {n_runs}")
+    if model is None:
+        model = get_blender_llm_model()
+    if cases is None:
+        cases = DEFAULT_CASES
+    if now is None:
+        now = _utc_now()
+    if base_dir is None:
+        base_dir = DEFAULT_EVAL_REPORTS_DIR
+
+    reports: list[HarnessReport] = []
+    for _ in range(n_runs):
+        report = run_harness(
+            generate_fn=generate_fn,
+            model=model,
+            cases=cases,
+        )
+        reports.append(report)
+
+    aggregated = aggregate_multirun(reports, cases=cases)
+    payload: dict[str, Any] = {
+        "report_schema_version": "2",
+        "timestamp": now.isoformat(),
+        "model": model,
+    }
+    payload.update(aggregated)
+
+    base_dir.mkdir(parents=True, exist_ok=True)
+    path = build_multirun_report_path(
+        model=model, n_runs=n_runs, now=now, base_dir=base_dir,
+    )
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return payload, path
+
+
+def format_summary_multirun(payload: dict[str, Any], path: Path) -> str:
+    """Texte synthétique multi-lignes pour CLI. Pure."""
+    agg = payload["aggregate"]
+    lines: list[str] = []
+    lines.append(f"model              : {payload['model']}")
+    lines.append(f"report             : {path}")
+    lines.append(f"n_runs             : {payload['n_runs']}")
+    lines.append(f"n_cases            : {payload['n_cases']}")
+    pr = agg["parse_ok_rate"]
+    ms = agg["mean_score"]
+    lines.append(
+        f"parse_ok_rate      : mean={pr['mean']:.3f}  "
+        f"min={pr['min']:.3f}  max={pr['max']:.3f}  stdev={pr['stdev']:.3f}"
+    )
+    lines.append(
+        f"mean_score         : mean={ms['mean']:.3f}  "
+        f"min={ms['min']:.3f}  max={ms['max']:.3f}  stdev={ms['stdev']:.3f}"
+    )
+    lines.append("per_field_accuracy (mean) :")
+    for k, stats in agg["per_field_accuracy"].items():
+        lines.append(
+            f"  {k:<28} mean={stats['mean']:.3f}  stdev={stats['stdev']:.3f}"
+        )
+    lines.append("case_aggregates (score mean) :")
+    for c in payload["case_aggregates"]:
+        s = c["score"]
+        lines.append(
+            f"  {c['case_id']:<48} mean={s['mean']:.3f}  "
+            f"min={s['min']:.3f}  max={s['max']:.3f}  "
+            f"parse_ok={c['parse_ok_count']}/{payload['n_runs']}"
+        )
+    if payload.get("common_errors"):
+        lines.append("common_errors :")
+        for e in payload["common_errors"]:
+            lines.append(f"  {e['error_prefix']:<32} count={e['count']}")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # CLI __main__ (non testée ; appelle Ollama réel)
 # ---------------------------------------------------------------------------
@@ -211,7 +488,8 @@ def format_summary(report: HarnessReport, path: Path) -> str:
 def _main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover
     parser = argparse.ArgumentParser(
         description="Bench réel Ollama du harness Product Render IR avec "
-                    "persistance JSON sous outputs/blender/_eval_reports/.",
+                    "persistance JSON sous outputs/blender/_eval_reports/. "
+                    "Mode single-run (défaut) ou multi-run (--runs N).",
     )
     parser.add_argument(
         "--model",
@@ -225,6 +503,13 @@ def _main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover
         help=f"Répertoire de sortie. Défaut : {DEFAULT_EVAL_REPORTS_DIR}.",
     )
     parser.add_argument(
+        "--runs",
+        type=int,
+        default=1,
+        help="Nombre d'exécutions du harness. >1 produit un rapport "
+             "multi-run agrégé (schema v2). Défaut : 1 (rapport single-run).",
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
         help="N'imprime que le chemin du rapport.",
@@ -232,12 +517,21 @@ def _main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover
     args = parser.parse_args(argv)
 
     base_dir = Path(args.base_dir) if args.base_dir else None
-    report, path = run_and_save(model=args.model, base_dir=base_dir)
 
-    if args.quiet:
-        print(path)
+    if args.runs > 1:
+        payload, path = run_and_save_multi(
+            n_runs=args.runs, model=args.model, base_dir=base_dir,
+        )
+        if args.quiet:
+            print(path)
+        else:
+            print(format_summary_multirun(payload, path))
     else:
-        print(format_summary(report, path))
+        report, path = run_and_save(model=args.model, base_dir=base_dir)
+        if args.quiet:
+            print(path)
+        else:
+            print(format_summary(report, path))
     return 0
 
 
