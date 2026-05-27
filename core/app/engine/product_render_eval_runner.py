@@ -29,6 +29,8 @@ import json
 import re
 import statistics
 import sys
+import time
+import traceback
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -756,6 +758,308 @@ def format_summary_multiseed(payload: dict[str, Any], path: Path) -> str:
     return "\n".join(lines)
 
 
+# ===========================================================================
+# H.6.7c — Cross-model benchmark
+# ===========================================================================
+#
+# Objectif : exécuter le même corpus eval contre plusieurs modèles Ollama
+# locaux pour mesurer où qwen2.5-coder:7b (baseline H.6.6) se situe vs
+# qwen2.5-coder:14b, deepseek-coder-v2:16b, etc.
+#
+# Principes :
+# - Aucun téléchargement automatique : un modèle absent est `skipped`,
+#   pas téléchargé.
+# - Aucun changement du modèle par défaut runtime : H.6.7c est purement
+#   un outil de mesure.
+# - Default = 1 seed (42) par modèle. Le multi-seed via `--seeds X,Y,Z`
+#   est compatible mais optionnel (H.6.7a a montré que la config
+#   déterministe annihile l'effet du seed).
+# - Robustesse : un modèle qui plante n'arrête pas le bench, son entrée
+#   est marquée `status="error"` avec le message d'erreur.
+#
+# Schema rapport : `report_schema_version="4"`. Fichier suffixé
+# `_x{N}models.json` où N = nombre total de modèles tentés (completed +
+# skipped + error).
+
+
+def list_available_ollama_models() -> list[str]:
+    """
+    Retourne la liste des noms de modèles installés localement sur Ollama,
+    via `/api/tags`. Tolérant aux erreurs : retourne `[]` si Ollama est
+    injoignable, si la réponse est malformée, ou si tout autre incident.
+
+    Pure côté contrat (pas d'effet observable hors I/O HTTP), idempotent.
+    """
+    try:
+        # Import différé : évite de payer le coût `requests` au chargement
+        # du module quand le bench cross-model n'est pas utilisé.
+        import requests
+
+        from app.infra.runtime_urls import get_ollama_tags_url
+
+        r = requests.get(get_ollama_tags_url(), timeout=5)
+        if not r.ok:
+            return []
+        data = r.json()
+        models = data.get("models", []) if isinstance(data, dict) else []
+        return [m["name"] for m in models if isinstance(m, dict) and "name" in m]
+    except Exception:
+        return []
+
+
+def _build_cross_model_entry(
+    *,
+    model: str,
+    seeds: tuple[int, ...],
+    cases: tuple[EvalCase, ...],
+    generate_fn_factory: Callable[[int], Callable[[str, str], str]],
+) -> dict[str, Any]:
+    """
+    Exécute le harness sur (model, seeds) et retourne un dict décrivant
+    le résultat. Capture toute exception et la convertit en
+    `status="error"` plutôt que de la propager.
+    """
+    start = time.monotonic()
+    try:
+        reports: list[HarnessReport] = []
+        for seed in seeds:
+            gen = generate_fn_factory(seed)
+            reports.append(run_harness(generate_fn=gen, model=model, cases=cases))
+        agg = aggregate_multiseed(seeds, reports, cases=cases)
+        duration = time.monotonic() - start
+        return {
+            "model": model,
+            "status": "completed",
+            "duration_seconds": duration,
+            "seeds_used": list(seeds),
+            "aggregate": agg["aggregate"],
+            "case_aggregates": agg["case_aggregates"],
+            "common_errors": agg["common_errors"],
+        }
+    except Exception as exc:
+        duration = time.monotonic() - start
+        return {
+            "model": model,
+            "status": "error",
+            "duration_seconds": duration,
+            "seeds_used": list(seeds),
+            "error": f"{type(exc).__name__}: {exc}",
+            "traceback_tail": traceback.format_exc()[-2000:],
+        }
+
+
+def _build_cross_model_comparison(
+    entries: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Construit la table de comparaison entre modèles `completed`.
+    Pure.
+
+    - `ranking_by_mean_score` : liste triée décroissante de
+      `(model, parse_ok_rate.mean, mean_score.mean, duration_seconds)`.
+    - `best_overall` : top du ranking (ou None si aucun completed).
+    - `best_by_field` : par champ, le ou les modèles avec l'accuracy moyenne
+      maximale (peut être ex æquo).
+    """
+    completed = [e for e in entries if e["status"] == "completed"]
+    if not completed:
+        return {
+            "ranking_by_mean_score": [],
+            "best_overall": None,
+            "best_by_field": {},
+        }
+
+    ranking = sorted(
+        (
+            {
+                "model": e["model"],
+                "parse_ok_rate_mean": e["aggregate"]["parse_ok_rate"]["mean"],
+                "mean_score_mean": e["aggregate"]["mean_score"]["mean"],
+                "duration_seconds": e["duration_seconds"],
+            }
+            for e in completed
+        ),
+        key=lambda r: (-r["mean_score_mean"], -r["parse_ok_rate_mean"]),
+    )
+
+    # Best by field : pour chaque clé observée, le modèle qui a la
+    # meilleure mean. Ex æquo → liste.
+    field_keys: set[str] = set()
+    for e in completed:
+        field_keys.update(e["aggregate"]["per_field_accuracy"].keys())
+    best_by_field: dict[str, dict[str, Any]] = {}
+    for key in sorted(field_keys):
+        scored = [
+            (e["model"], e["aggregate"]["per_field_accuracy"].get(key, {}).get("mean", 0.0))
+            for e in completed
+        ]
+        best_score = max(s for _, s in scored)
+        winners = [m for m, s in scored if s == best_score]
+        best_by_field[key] = {"mean": best_score, "models": winners}
+
+    return {
+        "ranking_by_mean_score": ranking,
+        "best_overall": ranking[0]["model"] if ranking else None,
+        "best_by_field": best_by_field,
+    }
+
+
+def build_cross_model_report_path(
+    *,
+    n_models: int,
+    now: datetime,
+    base_dir: Path = DEFAULT_EVAL_REPORTS_DIR,
+) -> Path:
+    """
+    Chemin canonique d'un rapport cross-model. Pas de slug modèle dans le
+    nom (plusieurs modèles), suffixe `_x{N}models.json`.
+    """
+    fname = f"{_format_timestamp(now)}_cross_model_x{n_models}models.json"
+    return base_dir / fname
+
+
+def run_and_save_cross_model(
+    *,
+    models: Sequence[str],
+    seeds: Sequence[int] = (42,),
+    generate_fn_factory: Optional[Callable[[int], Callable[[str, str], str]]] = None,
+    available_models: Optional[Sequence[str]] = None,
+    cases: Optional[tuple[EvalCase, ...]] = None,
+    base_dir: Optional[Path] = None,
+    now: Optional[datetime] = None,
+) -> tuple[dict[str, Any], Path]:
+    """
+    Exécute le harness contre N modèles et persiste un rapport agrégé
+    cross-model. Schema `report_schema_version="4"`.
+
+    Arguments :
+    - `models`              : liste de noms de modèles Ollama à benchmarker.
+    - `seeds`               : seeds à utiliser (default `(42,)` = single seed).
+    - `generate_fn_factory` : `seed -> generate_fn`. Défaut :
+                              `build_extraction_generate_fn` (Ollama réel).
+    - `available_models`    : liste explicite des modèles disponibles. Si
+                              None, est lue via `list_available_ollama_models()`.
+                              Permet aux tests d'injecter une liste sans
+                              toucher au réseau.
+
+    Retourne `(payload, path)`.
+
+    Robustesse :
+    - Un modèle absent → entrée `status="skipped"` avec `error="not installed"`.
+    - Une exception pendant un run → entrée `status="error"` avec le détail.
+      Les autres modèles continuent à être benchmarkés.
+    """
+    if not models:
+        raise ValueError("models must be a non-empty sequence")
+    if len(set(models)) != len(models):
+        raise ValueError(f"models must be unique, got {list(models)}")
+
+    seeds_t = tuple(seeds)
+    if not seeds_t:
+        raise ValueError("seeds must be a non-empty sequence")
+    if len(set(seeds_t)) != len(seeds_t):
+        raise ValueError(f"seeds must be unique, got {seeds_t}")
+
+    if cases is None:
+        cases = DEFAULT_CASES
+    if now is None:
+        now = _utc_now()
+    if base_dir is None:
+        base_dir = DEFAULT_EVAL_REPORTS_DIR
+    if generate_fn_factory is None:
+        generate_fn_factory = build_extraction_generate_fn
+    if available_models is None:
+        available_models = list_available_ollama_models()
+    available_set = set(available_models)
+
+    entries: list[dict[str, Any]] = []
+    for model in models:
+        if model not in available_set:
+            entries.append({
+                "model": model,
+                "status": "skipped",
+                "duration_seconds": 0.0,
+                "seeds_used": [],
+                "error": "model not installed locally",
+            })
+            continue
+        entries.append(_build_cross_model_entry(
+            model=model,
+            seeds=seeds_t,
+            cases=cases,
+            generate_fn_factory=generate_fn_factory,
+        ))
+
+    comparison = _build_cross_model_comparison(entries)
+
+    payload: dict[str, Any] = {
+        "report_schema_version": "4",
+        "timestamp": now.isoformat(),
+        "seeds": list(seeds_t),
+        "n_seeds": len(seeds_t),
+        "n_cases": len(cases),
+        "models_requested": list(models),
+        "models_available": sorted(available_set),
+        "models": entries,
+        "comparison": comparison,
+    }
+
+    base_dir.mkdir(parents=True, exist_ok=True)
+    path = build_cross_model_report_path(
+        n_models=len(models), now=now, base_dir=base_dir,
+    )
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return payload, path
+
+
+def format_summary_cross_model(payload: dict[str, Any], path: Path) -> str:
+    """Texte synthétique multi-lignes. Pure."""
+    lines: list[str] = []
+    lines.append(f"report             : {path}")
+    lines.append(f"seeds              : {payload['seeds']}")
+    lines.append(f"n_cases            : {payload['n_cases']}")
+    lines.append("models :")
+    for e in payload["models"]:
+        if e["status"] == "completed":
+            agg = e["aggregate"]
+            lines.append(
+                f"  [OK]      {e['model']:<28} "
+                f"parse_ok={agg['parse_ok_rate']['mean']:.3f}  "
+                f"mean_score={agg['mean_score']['mean']:.3f}  "
+                f"duration={e['duration_seconds']:.1f}s"
+            )
+        elif e["status"] == "skipped":
+            lines.append(f"  [SKIP]    {e['model']:<28} (not installed locally)")
+        else:
+            lines.append(
+                f"  [ERROR]   {e['model']:<28} "
+                f"{e.get('error', '?')[:80]}"
+            )
+    cmp = payload.get("comparison", {})
+    if cmp.get("ranking_by_mean_score"):
+        lines.append("ranking (by mean_score) :")
+        for i, r in enumerate(cmp["ranking_by_mean_score"], 1):
+            lines.append(
+                f"  {i}. {r['model']:<28} mean_score={r['mean_score_mean']:.3f}  "
+                f"parse_ok={r['parse_ok_rate_mean']:.3f}  "
+                f"({r['duration_seconds']:.1f}s)"
+            )
+    if cmp.get("best_overall"):
+        lines.append(f"best_overall       : {cmp['best_overall']}")
+    if cmp.get("best_by_field"):
+        lines.append("best_by_field (winning model per field) :")
+        for k, info in cmp["best_by_field"].items():
+            winners = ", ".join(info["models"])
+            # ASCII "->" pour rester compatible cp1252 (console Windows par
+            # défaut). Évite le UnicodeEncodeError observé lors du bench
+            # cross-model H.6.7c.
+            lines.append(f"  {k:<28} mean={info['mean']:.3f}  -> {winners}")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # CLI __main__ (non testée ; appelle Ollama réel)
 # ---------------------------------------------------------------------------
@@ -802,6 +1106,16 @@ def _main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover
              f"'{','.join(str(s) for s in DEFAULT_SEEDS)}'.",
     )
     parser.add_argument(
+        "--models",
+        type=str,
+        default=None,
+        help="Liste de modèles Ollama séparés par des virgules, ex. "
+             "'qwen2.5-coder:7b,qwen2.5-coder:14b,deepseek-coder-v2:16b'. "
+             "Bench cross-model (schema v4). Modèles absents → status "
+             "'skipped' sans téléchargement. Compatible avec --seeds. "
+             "Mutex avec --runs>1.",
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
         help="N'imprime que le chemin du rapport.",
@@ -810,27 +1124,55 @@ def _main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover
 
     base_dir = Path(args.base_dir) if args.base_dir else None
 
-    # Résolution du mode (single / multi-run / multi-seed).
+    # Résolution du mode : cross-model > multi-seed > multi-run > single.
+    cross_model_active = bool(args.models)
     multi_seed_active = bool(args.seeds or args.multi_seed)
+    if cross_model_active and args.runs > 1:
+        parser.error("--models et --runs>1 sont mutuellement exclusifs.")
     if multi_seed_active and args.runs > 1:
         parser.error(
             "--seeds / --multi-seed et --runs>1 sont mutuellement exclusifs."
         )
 
-    if multi_seed_active:
-        if args.seeds:
-            try:
-                seeds = tuple(
-                    int(s.strip()) for s in args.seeds.split(",") if s.strip()
-                )
-            except ValueError as exc:
-                parser.error(f"--seeds: liste invalide : {exc}")
-            if not seeds:
-                parser.error("--seeds: liste vide")
+    # Résolution des seeds (commun à multi-seed et cross-model).
+    resolved_seeds: tuple[int, ...]
+    if args.seeds:
+        try:
+            resolved_seeds = tuple(
+                int(s.strip()) for s in args.seeds.split(",") if s.strip()
+            )
+        except ValueError as exc:
+            parser.error(f"--seeds: liste invalide : {exc}")
+        if not resolved_seeds:
+            parser.error("--seeds: liste vide")
+    elif args.multi_seed:
+        resolved_seeds = DEFAULT_SEEDS
+    else:
+        resolved_seeds = (42,)  # default single seed (cohérent H.6.6)
+
+    if cross_model_active:
+        try:
+            models = tuple(
+                s.strip() for s in args.models.split(",") if s.strip()
+            )
+        except Exception as exc:
+            parser.error(f"--models: liste invalide : {exc}")
+        if not models:
+            parser.error("--models: liste vide")
+        payload, path = run_and_save_cross_model(
+            models=models,
+            seeds=resolved_seeds,
+            base_dir=base_dir,
+        )
+        if args.quiet:
+            print(path)
         else:
-            seeds = DEFAULT_SEEDS
+            print(format_summary_cross_model(payload, path))
+        return 0
+
+    if multi_seed_active:
         payload, path = run_and_save_multiseed(
-            seeds=seeds, model=args.model, base_dir=base_dir,
+            seeds=resolved_seeds, model=args.model, base_dir=base_dir,
         )
         if args.quiet:
             print(path)
