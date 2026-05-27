@@ -236,14 +236,20 @@ class TestParseProductRenderIntentFromText:
         result = parse_product_render_intent_from_text(text)
         assert result.status == "fallback"
 
-    def test_invalid_color_falls_back(self):
+    def test_invalid_color_normalized_to_safety_default(self):
+        # H.6.6 — un token couleur invalide n'entraîne plus de fallback :
+        # le normalizer `_normalize_color_safety_default` le remplace par
+        # "neutral_gray" pour préserver la mesurabilité des autres champs.
+        # La valeur brute reste tracée dans `extracted_json` pour diagnostic.
         text = (
             '{"schema_version":"v0",'
             '"subject":{"kind":"bottle","color":"amber-tinted","material":"glass"},'
             '"backdrop":{"color":"neutral_gray"}}'
         )
         result = parse_product_render_intent_from_text(text)
-        assert result.status == "fallback"
+        assert result.status == "parsed"
+        assert result.intent.subject.color == "neutral_gray"
+        assert result.extracted_json["subject"]["color"] == "amber-tinted"
 
     def test_missing_required_field_falls_back(self):
         text = '{"schema_version":"v0","subject":{"kind":"bottle"}}'

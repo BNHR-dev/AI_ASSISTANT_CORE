@@ -41,6 +41,8 @@ from app.engine.product_render_ir import (
     ProductSubjectIR,
     SubjectKind,
     SubjectMaterial,
+    V1_DEFAULTS,
+    _validate_color_token,
 )
 
 
@@ -230,6 +232,15 @@ Par exemple écris `white` plutôt que `#ffffff`, `beige` plutôt que \
 - Utilise un hex `#RRGGBB` SEULEMENT si aucune couleur nommée ne \
 correspond raisonnablement.
 
+Hints lexicaux français → enum kind (à appliquer dès que le mot \
+apparaît dans la demande, sans inventer) :
+- "pot" ou "pot de crème" → kind=jar
+- "flacon", "bouteille" → kind=bottle
+- "boîte", "coffret" → kind=box
+- "tube" → kind=tube
+- "sphère", "boule" → kind=sphere
+- "cylindre" → kind=cylinder
+
 Choisis les valeurs qui correspondent le mieux à la demande utilisateur. \
 Si la demande est ambiguë, choisis des valeurs simples qui restent dans \
 ces listes. NE PAS inventer de valeur hors des listes ci-dessus.
@@ -380,6 +391,61 @@ _HEX_TO_PALETTE_SYNONYMS: dict[str, str] = {
 _TRANSPARENCY_ONLY: frozenset[str] = frozenset({"opaque", "translucent"})
 
 
+# Couleur "safety default" appliquée quand le LLM produit un token
+# couleur que la validation Pydantic refuserait (ni palette, ni hex).
+# Sans cette protection, une seule couleur hallucinée (ex. "chrome",
+# "silver", "ivory") fait tomber tout le cas en fallback, ce qui efface
+# l'évaluation des autres champs corrects.
+#
+# `neutral_gray` est choisi parce qu'il est :
+#  - dans la palette (donc accepté par Pydantic) ;
+#  - sémantiquement neutre (n'affirme rien que le LLM n'aurait pas dit) ;
+#  - aligné avec le défaut implicite du builder pour les rendus sans
+#    contrainte couleur forte.
+_INVALID_COLOR_SAFETY_DEFAULT: str = "neutral_gray"
+
+
+def _is_valid_color_token(value: object) -> bool:
+    """Pure : retourne True si `value` est un token couleur que
+    `_validate_color_token` accepterait."""
+    if not isinstance(value, str):
+        return False
+    try:
+        _validate_color_token(value)
+        return True
+    except ValueError:
+        return False
+
+
+def _normalize_color_safety_default(data: dict) -> dict:
+    """
+    Remplace toute valeur de `subject.color` / `backdrop.color` que
+    Pydantic refuserait par `_INVALID_COLOR_SAFETY_DEFAULT`.
+
+    Préserve la mesurabilité du benchmark : un LLM qui invente "chrome"
+    voit son cas continuer à scorer les autres champs (kind, material,
+    backdrop, ...), au prix d'une couleur erronée — au lieu d'un
+    fallback complet qui mettrait *tous* les champs à zéro.
+
+    Aucun effet sur les valeurs déjà valides (palette ou hex correct).
+    Pure, idempotent.
+    """
+    new_data = dict(data)
+    subj = new_data.get("subject")
+    if isinstance(subj, dict) and "color" in subj:
+        if not _is_valid_color_token(subj["color"]):
+            new_subj = dict(subj)
+            new_subj["color"] = _INVALID_COLOR_SAFETY_DEFAULT
+            new_data["subject"] = new_subj
+    backdrop = new_data.get("backdrop")
+    if isinstance(backdrop, dict) and "color" in backdrop:
+        if not _is_valid_color_token(backdrop["color"]):
+            new_backdrop = dict(backdrop)
+            new_backdrop["color"] = _INVALID_COLOR_SAFETY_DEFAULT
+            new_data["backdrop"] = new_backdrop
+    return new_data
+
+
 def _normalize_color_hex_to_palette(value: object) -> object:
     """
     Si `value` est un hex CSS courant équivalent à un nom de la palette,
@@ -449,29 +515,59 @@ def _normalize_material_transparency(data: dict) -> dict:
 
 def _normalize_schema_version(data: dict) -> dict:
     """
-    Si `schema_version="v1"` mais qu'aucun champ V1 explicite n'est fourni
-    (`subject.shape`, `subject.cap`, `subject.transparency`, `framing` tous
-    absents ou None), coerce à `"v0"` et purge les clés V1 None pour
-    respecter le validateur de pureté V0.
+    Coerce `schema_version="v1"` vers `"v0"` dans deux cas symétriques :
 
-    Évite la sur-promotion v1 observée systématiquement en H.6.3 sur les
-    cas V0. Pure, idempotent.
+    A. **V1 vide** (H.6.4) : aucun champ V1 (`subject.shape`, `subject.cap`,
+       `subject.transparency`, `framing`) fourni ou tous None. Le serveur
+       LLM a juste annoncé v1 par sur-promotion du prompt sans rien dire
+       d'utile.
+
+    B. **V1 dump complet à défaut** (H.6.6) : les **4** champs V1 sont
+       tous présents et tous égaux à leur valeur par défaut builder
+       (`V1_DEFAULTS`). Observé sur v0-jar au benchmark H.6.5 : le LLM
+       remplissait `shape=cylindrical`, `cap=absent`, `transparency=opaque`,
+       `framing=medium`. Sémantiquement équivalent à v0 (= "rien à
+       ajouter par rapport au comportement défaut du builder").
+
+    Cas conservés en v1 :
+    - n'importe quel V1 informatif (= ≠ default) présent ;
+    - **présence partielle** des V1 (même tous au default) : le LLM a fait
+      un choix sélectif, on respecte. C'est notamment le cas après
+      `_normalize_material_transparency` qui fait remonter une seule
+      valeur (typiquement `transparency=opaque`) depuis material.
+
+    Lors du downgrade, on purge `subject.shape`, `subject.cap`,
+    `subject.transparency` et `framing` pour respecter `_enforce_v0_purity`
+    côté Pydantic.
+
+    Pure, idempotent.
     """
     if data.get("schema_version") != "v1":
         return data
     subj_in = data.get("subject", {})
     subj = subj_in if isinstance(subj_in, dict) else {}
-    has_v1 = (
-        subj.get("shape") is not None
-        or subj.get("cap") is not None
-        or subj.get("transparency") is not None
-        or data.get("framing") is not None
+
+    # Collecte des valeurs V1 effectivement présentes (non-None).
+    v1_values: dict[str, object] = {}
+    for short in ("shape", "cap", "transparency"):
+        v = subj.get(short)
+        if v is not None:
+            v1_values[short] = v
+    f = data.get("framing")
+    if f is not None:
+        v1_values["framing"] = f
+
+    # Cas A — V1 vide.
+    case_a = (len(v1_values) == 0)
+    # Cas B — V1 dump complet à défaut (4/4 présents, tous au default).
+    case_b = (
+        len(v1_values) == 4
+        and all(val == V1_DEFAULTS[name] for name, val in v1_values.items())
     )
-    if has_v1:
+    if not (case_a or case_b):
         return data
-    # Aucun champ V1 effectif → recadrage v0. On retire les clés V1
-    # explicitement positionnées à None (sinon le validator V0 reste
-    # satisfait, mais on évite de transporter du None inutile).
+
+    # Downgrade + purge totale des clés V1 (qu'elles soient None ou default).
     cleaned_subj = {
         k: v for k, v in subj.items()
         if k not in ("shape", "cap", "transparency")
@@ -488,15 +584,20 @@ def _apply_normalizers(data: dict) -> dict:
     Applique l'ensemble des normalizers dans un ordre stable. Pure.
 
     Ordre :
-    1. _normalize_colors                — fix hex→palette
-    2. _normalize_material_transparency — fix swap enum
-    3. _normalize_schema_version        — fix sur-promotion v1
+    1. _normalize_colors                — fix hex CSS → palette nommée
+    2. _normalize_color_safety_default  — fix couleurs inventées hors palette/hex
+    3. _normalize_material_transparency — fix swap enum (opaque/translucent → transparency)
+    4. _normalize_schema_version        — fix sur-promotion v1 (vide ou dump complet à default)
 
-    L'ordre 2 avant 3 est important : si on libère `transparency` à partir
-    de `material`, le cas devient un vrai V1 et 3 ne déclenchera pas la
-    coercition à v0.
+    Justifications de l'ordre :
+    - 1 avant 2 : un hex CSS commun (`#ffffff`) doit avoir une chance d'être
+      mappé sur son nom de palette AVANT que le safety default ne s'applique.
+    - 3 avant 4 : si on libère `transparency` à partir de `material`,
+      le cas devient un vrai V1 informatif et 4 ne déclenchera pas la
+      coercition à v0.
     """
     data = _normalize_colors(data)
+    data = _normalize_color_safety_default(data)
     data = _normalize_material_transparency(data)
     data = _normalize_schema_version(data)
     return data
