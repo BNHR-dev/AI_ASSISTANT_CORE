@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Dict, Optional
 
+from app.engine.blender_model_config import get_blender_llm_model
+
 
 @dataclass(frozen=True)
 class TaskRoute:
@@ -88,7 +90,7 @@ TASK_ROUTING: Dict[str, TaskRoute] = {
     "blender_script": TaskRoute(
         task_type="blender_script",
         primary_agent="AGENT_BUILDER_IA",
-        model="qwen2.5-coder:7b",
+        model=get_blender_llm_model(),
         web=False,
         second_call=None,
         output_format="blender_script",

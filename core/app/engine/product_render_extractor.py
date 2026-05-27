@@ -32,6 +32,8 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from app.clients.ollama_client import generate_with_ollama
+from app.engine.blender_model_config import get_blender_llm_model
+from app.engine.llm_trajectory_log import log_trajectory
 from app.engine.product_render_ir import (
     BackdropIR,
     NAMED_COLOR_PALETTE,
@@ -46,9 +48,11 @@ from app.engine.product_render_ir import (
 # Constantes
 # ---------------------------------------------------------------------------
 
-# Modèle Ollama par défaut. Identique au modèle utilisé par blender_client.py
-# pour éviter d'introduire un modèle inattendu via H.5.2.
-DEFAULT_EXTRACTION_MODEL = "qwen2.5-coder:7b"
+# H.6.1 — Source de vérité unique via blender_model_config. Évalué à l'import
+# pour préserver l'API publique (DEFAULT_EXTRACTION_MODEL est ré-exporté et
+# utilisé par les tests). Pour un override dynamique sans redémarrage, passer
+# explicitement `model=get_blender_llm_model()` à l'appel.
+DEFAULT_EXTRACTION_MODEL = get_blender_llm_model()
 
 # Listes pour le prompt strict. Source de vérité = enums Pydantic.
 _KIND_VALUES: tuple[str, ...] = (
@@ -396,11 +400,36 @@ def extract_product_render_intent(
     try:
         raw = generate_fn(model, prompt)
     except Exception as exc:
-        return _fallback_result(
+        result = _fallback_result(
             raw_response=None,
             extracted_json=None,
             error=f"llm_call_error: {type(exc).__name__}: {exc}",
             model=model,
         )
+        # H.6.1 — capture passive de la trajectoire (non-bloquante).
+        log_trajectory(
+            stage="extractor",
+            model=model,
+            prompt=prompt,
+            raw_response=None,
+            parse_ok=False,
+            ir=None,
+            fallback=True,
+            error=result.error,
+        )
+        return result
 
-    return parse_product_render_intent_from_text(raw, model=model)
+    result = parse_product_render_intent_from_text(raw, model=model)
+
+    # H.6.1 — capture passive de la trajectoire (non-bloquante).
+    log_trajectory(
+        stage="extractor",
+        model=model,
+        prompt=prompt,
+        raw_response=raw,
+        parse_ok=(result.status == "parsed"),
+        ir=result.intent.model_dump() if result.intent is not None else None,
+        fallback=(result.status == "fallback"),
+        error=result.error,
+    )
+    return result

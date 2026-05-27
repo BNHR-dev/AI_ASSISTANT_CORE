@@ -11,6 +11,8 @@ from app.clients.ollama_client import generate_with_ollama
 from app.engine.artifact_manifest import write_blender_manifest
 from app.engine.artistic_intent import parse_artistic_intent, write_intent_json
 from app.engine.blender_ast_guard import analyze_scene_py
+from app.engine.blender_model_config import get_blender_llm_model
+from app.engine.llm_trajectory_log import log_trajectory
 from app.engine.blender_types import BlenderRequest, BlenderResult
 from app.engine.blender_templates import (
     select_template,
@@ -449,8 +451,24 @@ def build_blender_script(
         else:
             prompt = f"{_BLENDER_SYSTEM_PROMPT}\n\nDemande utilisateur : {message}"
 
-        raw_response = generate_with_ollama("qwen2.5-coder:7b", prompt)
+        _script_model = get_blender_llm_model()
+        raw_response = generate_with_ollama(_script_model, prompt)
         raw_code = _extract_python_from_markdown(raw_response)
+        # H.6.1 — capture passive (non-bloquante) de la trajectoire script-gen.
+        # parse_ok / ir ne sont pas pertinents ici : le LLM produit du Python,
+        # pas une IR. Les signaux qualité (ast_guard) sont déjà tracés en aval
+        # via scene_report et pourront être agrégés dans une phase ultérieure.
+        log_trajectory(
+            stage="script_gen",
+            model=_script_model,
+            prompt=prompt,
+            raw_response=raw_response,
+            parse_ok=None,
+            ir=None,
+            fallback=False,
+            error=None,
+            request_id=request_id,
+        )
 
     # H.4.7 — AST guard V0 : audit pré-exécution du code (LLM raw OU builder).
     # Signal-only en V0 : ne bloque jamais l'exécution. Le rapport est

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.engine.blender_model_config import get_blender_llm_model
 from app.engine.planner_types import ExecutionPlan, PlanStep
 
 
@@ -20,7 +21,7 @@ def build_plan_from_decision(decision: dict, message: str) -> ExecutionPlan:
                 step_type="prepare_blender_script",
                 goal="Générer le script bpy via Ollama et préparer la BlenderRequest",
                 agent="AGENT_BUILDER_IA",
-                model="qwen2.5-coder:7b",
+                model=get_blender_llm_model(),
             )
         )
         steps.append(
