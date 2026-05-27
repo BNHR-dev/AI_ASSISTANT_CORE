@@ -161,6 +161,27 @@ diffusant, `opaque` sinon.
 - `framing` = `close_packshot` si la demande mentionne packshot, rendu \
 produit serré, plan rapproché ; sinon `medium`.
 
+Choix entre v0 et v1 :
+- Utilise `schema_version="v0"` si la demande ne mentionne AUCUN des \
+champs V1 (silhouette, bouchon, transparence, cadrage). Dans ce cas, \
+OMETS complètement les clés `shape`, `cap`, `transparency`, `framing` \
+du JSON (ne les mets pas à null).
+- Utilise `schema_version="v1"` UNIQUEMENT si tu remplis effectivement \
+au moins un de ces champs V1.
+
+Distinction CRITIQUE material vs transparency :
+- `material` est l'aspect de surface : matte, glossy, glass, metallic.
+- `transparency` est le profil de transmission : opaque, translucent, glass.
+- `opaque` et `translucent` ne sont PAS des valeurs de `material`. \
+Ne les mets JAMAIS dans `material`.
+
+Choix entre couleur nommée et hex :
+- Préfère la couleur nommée si elle existe dans la palette. \
+Par exemple écris `white` plutôt que `#ffffff`, `beige` plutôt que \
+`#f5deb3`.
+- Utilise un hex `#RRGGBB` SEULEMENT si aucune couleur nommée ne \
+correspond raisonnablement.
+
 Choisis les valeurs qui correspondent le mieux à la demande utilisateur. \
 Si la demande est ambiguë, choisis des valeurs simples qui restent dans \
 ces listes. NE PAS inventer de valeur hors des listes ci-dessus.
@@ -267,6 +288,172 @@ def _extract_json_block(text: str) -> Optional[str]:
     return _extract_balanced_braces(text)
 
 
+# ---------------------------------------------------------------------------
+# H.6.4 — Normalizers déterministes post-parse / pré-Pydantic
+# ---------------------------------------------------------------------------
+# Cible : corriger trois biais récurrents observés sur qwen2.5-coder:7b lors
+# du premier benchmark réel H.6.3, sans changer le modèle ni l'IR. Toutes
+# les fonctions sont pures, idempotentes, et appliquées en pipeline AVANT
+# que Pydantic valide. Le `extracted_json` retourné dans le résultat reste
+# la donnée brute (pré-normalisation) pour traçabilité.
+
+# Synonymes hex → palette nommée. Choix conservateur : on ne mappe que des
+# hex CSS communs sans ambiguïté. Pas de distance euclidienne (trop fragile,
+# risque de faux positifs). Extensible au cas par cas avec preuve via le
+# rapport eval.
+_HEX_TO_PALETTE_SYNONYMS: dict[str, str] = {
+    "#ffffff": "white",
+    "#fff":    "white",
+    "#000000": "black",
+    "#000":    "black",
+    "#ff0000": "red",
+    "#f00":    "red",
+    "#00ff00": "green",
+    "#0f0":    "green",
+    "#0000ff": "blue",
+    "#0000ff": "blue",
+    "#00f":    "blue",
+    "#ffff00": "yellow",
+    "#ff0":    "yellow",
+    "#ffa500": "orange",        # CSS orange
+    "#ffc0cb": "pink",          # CSS pink
+    "#a52a2a": "brown",         # CSS brown
+    "#f5f5dc": "beige",         # CSS beige
+    "#f5deb3": "beige",         # CSS wheat — observé H.6.3 dans v1-jar
+    "#808080": "neutral_gray",
+    "#888888": "neutral_gray",
+    "#888":    "neutral_gray",
+}
+
+# Valeurs de l'enum SubjectTransparency qui ne sont *pas* aussi des valeurs
+# de SubjectMaterial. Sur ces tokens, une présence dans le champ `material`
+# du JSON LLM est forcément une erreur de placement (le modèle a confondu
+# les deux). "glass" est volontairement exclu (token légal des deux côtés).
+_TRANSPARENCY_ONLY: frozenset[str] = frozenset({"opaque", "translucent"})
+
+
+def _normalize_color_hex_to_palette(value: object) -> object:
+    """
+    Si `value` est un hex CSS courant équivalent à un nom de la palette,
+    retourne le nom. Sinon retourne `value` inchangé. Pure.
+    """
+    if not isinstance(value, str):
+        return value
+    key = value.strip().lower()
+    return _HEX_TO_PALETTE_SYNONYMS.get(key, value)
+
+
+def _normalize_colors(data: dict) -> dict:
+    """
+    Applique la normalisation hex→palette aux deux champs couleur de
+    l'IR : subject.color et backdrop.color. N'altère pas le reste. Pure.
+    """
+    new_data = dict(data)
+    subj = new_data.get("subject")
+    if isinstance(subj, dict) and "color" in subj:
+        new_subj = dict(subj)
+        new_subj["color"] = _normalize_color_hex_to_palette(subj["color"])
+        new_data["subject"] = new_subj
+    backdrop = new_data.get("backdrop")
+    if isinstance(backdrop, dict) and "color" in backdrop:
+        new_backdrop = dict(backdrop)
+        new_backdrop["color"] = _normalize_color_hex_to_palette(backdrop["color"])
+        new_data["backdrop"] = new_backdrop
+    return new_data
+
+
+def _normalize_material_transparency(data: dict) -> dict:
+    """
+    Corrige les valeurs hors-enum dans `subject.material` qui appartiennent
+    en réalité à l'enum SubjectTransparency (`opaque` ou `translucent`).
+
+    Règle (révisée H.6.4 d'après l'observation du benchmark) : si
+    `subject.material` ∈ {opaque, translucent}, la valeur est *illégale*
+    pour material et provoquerait un `pydantic_validation_error`. La
+    correction est donc systématique :
+
+    - `material` est **toujours** remplacé par `"matte"` (défaut neutre)
+      quand la valeur courante est dans `_TRANSPARENCY_ONLY`.
+    - `transparency` :
+        - si absent → hérite de la valeur précédente de `material` ;
+        - si déjà set → préservé (ne dégrade pas l'information existante,
+          même si elle diffère).
+
+    Cas non touchés :
+    - material valide (matte / glossy / glass / metallic) → inchangé ;
+    - material = "glass" → légal des deux côtés, pas de confusion supposée ;
+    - subject absent ou non-dict → inchangé.
+
+    Pure, idempotent.
+    """
+    subj = data.get("subject")
+    if not isinstance(subj, dict):
+        return data
+    material = subj.get("material")
+    if material not in _TRANSPARENCY_ONLY:
+        return data
+    new_subj = dict(subj)
+    if subj.get("transparency") is None:
+        new_subj["transparency"] = material
+    new_subj["material"] = "matte"
+    return {**data, "subject": new_subj}
+
+
+def _normalize_schema_version(data: dict) -> dict:
+    """
+    Si `schema_version="v1"` mais qu'aucun champ V1 explicite n'est fourni
+    (`subject.shape`, `subject.cap`, `subject.transparency`, `framing` tous
+    absents ou None), coerce à `"v0"` et purge les clés V1 None pour
+    respecter le validateur de pureté V0.
+
+    Évite la sur-promotion v1 observée systématiquement en H.6.3 sur les
+    cas V0. Pure, idempotent.
+    """
+    if data.get("schema_version") != "v1":
+        return data
+    subj_in = data.get("subject", {})
+    subj = subj_in if isinstance(subj_in, dict) else {}
+    has_v1 = (
+        subj.get("shape") is not None
+        or subj.get("cap") is not None
+        or subj.get("transparency") is not None
+        or data.get("framing") is not None
+    )
+    if has_v1:
+        return data
+    # Aucun champ V1 effectif → recadrage v0. On retire les clés V1
+    # explicitement positionnées à None (sinon le validator V0 reste
+    # satisfait, mais on évite de transporter du None inutile).
+    cleaned_subj = {
+        k: v for k, v in subj.items()
+        if k not in ("shape", "cap", "transparency")
+    }
+    new_data = dict(data)
+    new_data["schema_version"] = "v0"
+    new_data["subject"] = cleaned_subj
+    new_data.pop("framing", None)
+    return new_data
+
+
+def _apply_normalizers(data: dict) -> dict:
+    """
+    Applique l'ensemble des normalizers dans un ordre stable. Pure.
+
+    Ordre :
+    1. _normalize_colors                — fix hex→palette
+    2. _normalize_material_transparency — fix swap enum
+    3. _normalize_schema_version        — fix sur-promotion v1
+
+    L'ordre 2 avant 3 est important : si on libère `transparency` à partir
+    de `material`, le cas devient un vrai V1 et 3 ne déclenchera pas la
+    coercition à v0.
+    """
+    data = _normalize_colors(data)
+    data = _normalize_material_transparency(data)
+    data = _normalize_schema_version(data)
+    return data
+
+
 def _fallback_result(
     raw_response: Optional[str],
     extracted_json: Optional[dict],
@@ -340,8 +527,13 @@ def parse_product_render_intent_from_text(
             model=model,
         )
 
+    # H.6.4 — Normalisation déterministe avant Pydantic. `data` reste la
+    # donnée brute pour traçabilité (`extracted_json`) ; `normalized` est
+    # ce qui est effectivement validé.
+    normalized = _apply_normalizers(data)
+
     try:
-        intent = ProductRenderIntent(**data)
+        intent = ProductRenderIntent(**normalized)
     except Exception as exc:
         return _fallback_result(
             raw_response=text,
