@@ -225,6 +225,78 @@ def _template_fidelity_block(template_name: str | None) -> str:
     return _TEMPLATE_FIDELITY_PROMPTS.get(template_name, "")
 
 
+# ---------------------------------------------------------------------------
+# H.6.8.a — Assemblage du prompt LLM `script_gen`
+# ---------------------------------------------------------------------------
+# Extraction PURE de la logique d'assemblage prompt précédemment inlinée dans
+# `build_blender_script`. Comportement strictement identique, garanti par
+# `core/tests/test_blender_client_script_gen_prompt.py` (équivalence byte-to-byte
+# contre une reproduction inline du code legacy).
+#
+# Pourquoi : permettre à l'eval harness H.6.8.a de mesurer EXACTEMENT le prompt
+# qui tourne en runtime, sans dupliquer la logique d'assemblage (qui dériverait
+# silencieusement à chaque évolution du prompt système).
+#
+# Contraintes :
+# - Fonction PURE : pas d'I/O, pas d'appel LLM, pas de side-effect, pas de
+#   mutation d'arguments.
+# - Dépendances exclusivement module-level : `_BLENDER_SYSTEM_PROMPT`,
+#   `_build_creative_guidance`, `_template_fidelity_block`.
+# - Aucun changement comportemental sur `/execute` : le prompt assemblé est
+#   strictement identique à l'état pré-H.6.8.a.
+# ---------------------------------------------------------------------------
+
+def build_script_gen_prompt(
+    message: str,
+    intent: object,
+    template_scaffold: str | None,
+    template_name: str | None,
+) -> str:
+    """
+    Assemble le prompt LLM `script_gen` à partir des entrées du pipeline Blender.
+
+    Reproduit exactement l'assemblage historique de `build_blender_script` :
+    - si `template_scaffold is None` → prompt minimal (system prompt + demande
+      utilisateur). L'intent n'est PAS consulté dans ce chemin (rétrocompat
+      H.4.2 stricte).
+    - sinon → prompt enrichi avec scaffold + bloc fidélité (selon
+      `template_name`) + guidance créative (selon `intent`).
+
+    Args:
+        message: demande utilisateur brute.
+        intent: ArtisticIntent | dict | None (consulté UNIQUEMENT quand un
+            template_scaffold est sélectionné).
+        template_scaffold: contenu du scaffold bpy (str) ou None.
+        template_name: nom du template ("interior_space", "product_render",
+            ...) ou None.
+
+    Returns:
+        Le prompt LLM final, prêt à être passé à `generate_with_ollama`.
+    """
+    if template_scaffold is None:
+        return f"{_BLENDER_SYSTEM_PROMPT}\n\nDemande utilisateur : {message}"
+
+    guidance = _build_creative_guidance(intent)
+    guidance_block = f"{guidance}\n\n" if guidance else ""
+    fidelity = _template_fidelity_block(template_name)
+    fidelity_block = f"{fidelity}\n\n" if fidelity else ""
+
+    return (
+        f"{_BLENDER_SYSTEM_PROMPT}\n\n"
+        f"--- SCAFFOLD DE SCÈNE OBLIGATOIRE ---\n"
+        f"La demande correspond à un type de scène reconnu : {template_name}.\n"
+        f"Tu DOIS utiliser le scaffold suivant comme base de ton script.\n"
+        f"Tu peux adapter les dimensions, matériaux, objets secondaires et noms selon la demande.\n"
+        f"Tu NE DOIS PAS supprimer : la caméra active, la lumière Key_Light, le sol, le sujet principal, "
+        f"la sauvegarde via OUTPUT_BLEND_PATH.\n\n"
+        f"{template_scaffold}\n"
+        f"--- FIN SCAFFOLD ---\n\n"
+        f"{fidelity_block}"
+        f"{guidance_block}"
+        f"Demande utilisateur : {message}"
+    )
+
+
 def resolve_blender_exe() -> str | None:
     """
     Résout le chemin de l'exécutable Blender.
@@ -425,31 +497,16 @@ def build_blender_script(
     # Exécuté SOIT par défaut (template != product_render OU flag désactivé),
     # SOIT en fallback transparent quand l'extracteur retourne "fallback" ou plante.
     if raw_code is None:
-        if template_scaffold is not None:
-            # H.4.3 — Creative guidance (Option C) : injectée UNIQUEMENT lorsqu'un
-            # scaffold contrôlé est actif. Sur prompt libre (template_scaffold is
-            # None) le prompt reste strictement identique à l'état H.4.2.
-            guidance = _build_creative_guidance(intent)
-            guidance_block = f"{guidance}\n\n" if guidance else ""
-            # H.4.3-C — Consignes de fidélité scaffold spécifiques au template.
-            fidelity = _template_fidelity_block(selected_template_name)
-            fidelity_block = f"{fidelity}\n\n" if fidelity else ""
-            prompt = (
-                f"{_BLENDER_SYSTEM_PROMPT}\n\n"
-                f"--- SCAFFOLD DE SCÈNE OBLIGATOIRE ---\n"
-                f"La demande correspond à un type de scène reconnu : {selected_template_name}.\n"
-                f"Tu DOIS utiliser le scaffold suivant comme base de ton script.\n"
-                f"Tu peux adapter les dimensions, matériaux, objets secondaires et noms selon la demande.\n"
-                f"Tu NE DOIS PAS supprimer : la caméra active, la lumière Key_Light, le sol, le sujet principal, "
-                f"la sauvegarde via OUTPUT_BLEND_PATH.\n\n"
-                f"{template_scaffold}\n"
-                f"--- FIN SCAFFOLD ---\n\n"
-                f"{fidelity_block}"
-                f"{guidance_block}"
-                f"Demande utilisateur : {message}"
-            )
-        else:
-            prompt = f"{_BLENDER_SYSTEM_PROMPT}\n\nDemande utilisateur : {message}"
+        # H.6.8.a — Assemblage du prompt extrait dans `build_script_gen_prompt`
+        # (fonction pure, comportement strictement identique à l'inline pré-H.6.8.a,
+        # garanti par test d'équivalence byte-to-byte). L'extraction permet à
+        # l'eval harness `script_gen` de mesurer EXACTEMENT le prompt runtime.
+        prompt = build_script_gen_prompt(
+            message=message,
+            intent=intent,
+            template_scaffold=template_scaffold,
+            template_name=selected_template_name,
+        )
 
         _script_model = get_blender_llm_model()
         raw_response = generate_with_ollama(_script_model, prompt)
