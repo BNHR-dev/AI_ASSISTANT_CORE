@@ -23,10 +23,8 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES}
       - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES}
-      # NOTE (tuning différé, à valider séparément) : 7 est agressif pour une
-      # RTX 3060 12 Go -> envisager OLLAMA_NUM_PARALLEL=2. Valeur conservée tant
-      # que la décision n'est pas validée explicitement.
-      - OLLAMA_NUM_PARALLEL=7
+      # Baseline RTX 3060 12 Go : valeur conservative. 3-4 envisageable après bench.
+      - OLLAMA_NUM_PARALLEL=2
 
   open-webui:
     image: ghcr.io/open-webui/open-webui:v0.9.5
