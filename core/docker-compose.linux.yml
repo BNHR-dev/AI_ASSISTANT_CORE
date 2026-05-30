@@ -11,7 +11,7 @@
 services:
 
   ollama:
-    image: ollama/ollama:0.5.7
+    image: ollama/ollama:0.24.0
     container_name: ollama
     runtime: nvidia
     gpus: all
