@@ -34,8 +34,13 @@ def start_comfyui_process(bat_path: str | None = None) -> None:
     if not bat_file.exists():
         raise RuntimeError(f"ComfyUI launcher not found: {bat_file}")
 
+    if os.name == "nt":
+        launch_cmd = ["cmd", "/c", str(bat_file)]
+    else:
+        launch_cmd = ["bash", str(bat_file)]
+
     subprocess.Popen(
-        ["cmd", "/c", str(bat_file)],
+        launch_cmd,
         cwd=str(bat_file.parent),
         shell=False,
         stdout=subprocess.DEVNULL,

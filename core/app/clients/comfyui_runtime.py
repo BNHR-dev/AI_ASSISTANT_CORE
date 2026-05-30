@@ -42,8 +42,11 @@ def start_comfyui_process() -> subprocess.Popen:
 
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE  # type: ignore[attr-defined]
+        launch_cmd = ["cmd", "/c", str(bat_path)]
+    else:
+        launch_cmd = ["bash", str(bat_path)]
 
-    return subprocess.Popen(["cmd", "/c", str(bat_path)], **kwargs)
+    return subprocess.Popen(launch_cmd, **kwargs)
 
 
 def wait_for_comfyui_ready(timeout_seconds: int | None = None) -> None:
