@@ -26,6 +26,11 @@ from pydantic import BaseModel, Field
 class ArtisticIntent(BaseModel):
     """Brief structuré extrait heuristiquement depuis le prompt utilisateur."""
     user_intent: str = ""
+    # Message utilisateur intégral, non tronqué. user_intent reste une
+    # reformulation courte (1re phrase, 120 chars max) ; sans ce champ,
+    # intent.json ne permettait pas de retrouver l'intention complète
+    # (audit 2026-06-10, A8).
+    user_message: str = ""
     medium: str = "unknown"             # "3d_scene" | "product_render" | "animation" | "unknown"
     style: list[str] = Field(default_factory=list)
     mood: list[str] = Field(default_factory=list)
@@ -191,6 +196,7 @@ def parse_artistic_intent(message: str) -> ArtisticIntent:
     if not message or not message.strip():
         return ArtisticIntent(
             user_intent="",
+            user_message="",
             medium="unknown",
             style=[],
             mood=[],
@@ -223,6 +229,7 @@ def parse_artistic_intent(message: str) -> ArtisticIntent:
 
         return ArtisticIntent(
             user_intent=user_intent,
+            user_message=message.strip(),
             medium=medium,
             style=style,
             mood=mood,

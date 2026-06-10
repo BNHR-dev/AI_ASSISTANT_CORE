@@ -242,6 +242,10 @@ def execute_request(message: str, has_image: bool = False, mode: str = "auto") -
 
     plan = build_execution_plan(decision, message)
     state = create_execution_state(message, decision, plan)
+    # Le pipeline Blender (prepare_blender_script) lit ce request_id pour nommer
+    # outputs/blender/<request_id>/ — sans cette propagation, il génère un uuid
+    # distinct et la corrélation API ↔ artefacts est cassée (audit 2026-06-10, A1).
+    state.context["request_id"] = request_id
     state.add_trace(f"request_id → {request_id}")
     state.add_trace(f"executor → started_at:{started_at}")
 

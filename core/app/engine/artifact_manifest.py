@@ -54,11 +54,15 @@ def _manifest_status(blender_status: str) -> str:
 
 def _scene_report_section(result: BlenderResult) -> dict[str, Any]:
     """
-    Extrait les infos scene_report depuis BlenderResult.meta si disponibles.
-    Fallback : status=unavailable, violations=[].
+    Extrait les infos scene_report depuis BlenderResult.scene_report (champ
+    renseigné par run_blender_script), avec fallback sur meta["blender_scene_report"]
+    pour les appelants qui passeraient encore par meta.
+    Fallback final : status=unavailable, violations=[].
     """
-    meta = result.meta if isinstance(getattr(result, "meta", None), dict) else {}
-    report = meta.get("blender_scene_report") or {}
+    report = getattr(result, "scene_report", None)
+    if not isinstance(report, dict) or not report:
+        meta = result.meta if isinstance(getattr(result, "meta", None), dict) else {}
+        report = meta.get("blender_scene_report") or {}
     if not report:
         return {"status": "unavailable", "violations": []}
     return {
