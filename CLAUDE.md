@@ -24,12 +24,13 @@ Le système prend une demande, produit une décision structurée, construit un p
 
 ## Architecture
 
-La VM fait partie du produit final.
+Trajectoire actuelle : Linux/Fedora natif (migration clôturée le 2026-05-30).
 
-- le host Windows reste l’espace principal de travail
-- la VM est le runtime isolé principal
-- la VM est une brique architecture / sécurité du produit
-- elle n’est pas un simple environnement de dev temporaire
+- le host Fedora KDE est l'espace principal de travail ET le runtime principal
+- les services (Ollama, SearXNG, Open-WebUI) tournent en Docker via `docker-compose.linux.yml`, ports liés à 127.0.0.1
+- Blender s'exécute en headless directement sur le host (GPU NVIDIA RTX 3060 12 Go)
+- l'ancien contexte host Windows + VM Ubuntu est legacy/archivé (`infra/vm/`, `docker-compose.yml` Windows, scripts `.ps1`/`.bat`) — ne pas le traiter comme l'architecture courante
+- l'isolation de l'exécution du code généré reste un objectif produit (cf. audit 2026-06-10, finding C1) ; elle n'est plus portée par une VM aujourd'hui
 
 ## Source de vérité
 
@@ -54,8 +55,8 @@ Le pipeline Blender est expérimental mais fonctionnel. Il ne modifie pas les in
 
 ## Règles de travail
 
-- Distinguer clairement code, doc, runtime déclaré host/VM, sécurité déclarée et legacy
-- Ne pas prétendre vérifier l'état live de la VM, du firewall ou de systemd si ce n'est pas visible dans le repo
+- Distinguer clairement code, doc, runtime déclaré, sécurité déclarée et legacy (Windows/VM)
+- Ne pas prétendre vérifier l'état live du firewall, de systemd ou des services si ce n'est pas visible dans le repo ou via une commande exécutée
 - Signaler explicitement les ambiguïtés
 - Préférer les patchs courts et réversibles
 - Pour les tâches multi-fichiers ou ambiguës, commencer par un plan
