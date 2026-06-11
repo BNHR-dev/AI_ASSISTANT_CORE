@@ -29,6 +29,17 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from app.engine.hero_framing import (
+    CAMERA_SENSOR_MM,
+    HERO_DISTANCE_FACTOR_MAX,
+    HERO_DISTANCE_FACTOR_MIN,
+    HERO_FRAMING_REPORT_FILENAME,
+    HERO_MIN_CAMERA_DISTANCE,
+    HERO_OCCUPANCY_MAX,
+    HERO_OCCUPANCY_MIN,
+    HERO_OCCUPANCY_TOLERANCE,
+)
+
 
 # ---------------------------------------------------------------------------
 # Paramètres canoniques (synchronisés avec TEMPLATE_PRODUCT_RENDER)
@@ -39,16 +50,25 @@ from pathlib import Path
 # rendu sous forme de string Python depuis ce module.
 # ---------------------------------------------------------------------------
 
+# H.6.9 — hero_framing_v1 : énergies recalibrées (key 200→25 W, fill 60→10 W,
+# ratio key:fill 2.5:1). À 200 W la key surexposait le backdrop : un fond
+# neutral_gray (albédo 0.5) sortait à ~240/255 de luminance moyenne sur les
+# 3 smokes de l'audit 2026-06-10 (decor_dominates 3/3). Calibration validée
+# par smokes 2026-06-11 : à 80 W les backdrops clairs restaient cramés
+# (médiane fond 226-255) ; à 25 W la médiane fond périphérique tombe dans la
+# cible [80, 210] pour les albédos 0.2-0.7. Divergence VOLONTAIRE avec
+# TEMPLATE_PRODUCT_RENDER (blender_templates.py), qui garde 200/60 pour ne
+# pas perturber le scaffold prompt-only existant.
 CANONICAL_KEY_LIGHT = {
     "location": (0.8, -0.6, 1.2),
-    "energy": 200.0,
+    "energy": 25.0,
     "size": 1.2,
     "rotation_euler": (0.7, 0.3, 0.6),
 }
 
 CANONICAL_FILL_LIGHT = {
     "location": (-0.8, -0.4, 0.8),
-    "energy": 60.0,
+    "energy": 10.0,
     "size": 1.0,
     "rotation_euler": (0.9, -0.3, -0.4),
 }
@@ -69,6 +89,12 @@ CANONICAL_FILL_LIGHT = {
 # Hauteur visible théorique à 1.53m avec lens=50 et sensor 24mm : ~0.73m.
 # Un sujet contractuel de hauteur ~0.35m occupe donc ~48 % du frame → produit
 # entier lisible, socle visible mais non dominant.
+#
+# Correctif H.6.9 : le capteur effectif du rendu est 36 mm (défaut Blender,
+# sensor_fit AUTO, rendu carré), pas 24 mm — la hauteur visible réelle à
+# 1.53 m est ~1.10 m et l'occupation des sujets actuels ~15-28 %. Le contrôle
+# d'occupation borné est appliqué dans build_correction_script via les
+# constantes de app.engine.hero_framing (réf. : hero_distance_factor).
 CANONICAL_CAMERA = {
     "location": (0.85, -1.20, 0.60),
     "rotation_euler": (1.30, 0.0, 0.6),
@@ -306,6 +332,71 @@ def build_correction_script(
             '    if _cam.data is not None:',
             f'        _cam.data.lens = {cam["lens"]}',
             '    scene.camera = _cam',
+        ]
+
+        # H.6.9 hero_framing_v1 — contrôle d'occupation verticale projetée.
+        # Mesure le bbox monde réel de Product_Subject et ajuste la distance
+        # caméra UNIQUEMENT si l'occupation sort significativement des bornes.
+        # Formule de référence (pure, testée) : hero_framing.hero_distance_factor.
+        # Avant/après loggués dans hero_framing.json à côté du .blend.
+        hero_report_path = str(
+            Path(blend_path).with_name(HERO_FRAMING_REPORT_FILENAME)
+        )
+        occ_lo = HERO_OCCUPANCY_MIN - HERO_OCCUPANCY_TOLERANCE
+        occ_hi = HERO_OCCUPANCY_MAX + HERO_OCCUPANCY_TOLERANCE
+        lines += [
+            '# --- H.6.9 hero_framing_v1 : controle occupation verticale (borne) ---',
+            'import json as _hf_json',
+            'from mathutils import Vector as _HFVector',
+            '_hf = {"phase": "hero_framing_v1", "applied": False, "reason": None,',
+            '       "occupancy_before": None, "occupancy_after": None,',
+            '       "distance_before": None, "distance_after": None,',
+            '       "subject_height": None, "factor": None}',
+            '_hf_subj = bpy.data.objects.get("Product_Subject")',
+            '_hf_cam = bpy.data.objects.get("Camera")',
+            'if _hf_cam is None or _hf_cam.type != "CAMERA" or _hf_subj is None:',
+            '    _hf["reason"] = "camera_or_subject_missing"',
+            'else:',
+            '    _hf_corners = [_hf_subj.matrix_world @ _HFVector(_c) for _c in _hf_subj.bound_box]',
+            '    _hf_zmin = min(_v.z for _v in _hf_corners)',
+            '    _hf_zmax = max(_v.z for _v in _hf_corners)',
+            '    _hf_height = _hf_zmax - _hf_zmin',
+            '    _hf_target = _HFVector((',
+            '        sum(_v.x for _v in _hf_corners) / 8.0,',
+            '        sum(_v.y for _v in _hf_corners) / 8.0,',
+            '        (_hf_zmin + _hf_zmax) / 2.0,',
+            '    ))',
+            '    _hf_d0 = (_hf_cam.location - _hf_target).length',
+            '    _hf_lens = float(_hf_cam.data.lens) if _hf_cam.data is not None else 50.0',
+            f'    _hf_visible = 2.0 * _hf_d0 * ({CAMERA_SENSOR_MM} / 2.0) / _hf_lens if _hf_d0 > 0 and _hf_lens > 0 else 0.0',
+            '    _hf_occ0 = (_hf_height / _hf_visible) if _hf_visible > 0 else 0.0',
+            '    _hf_factor = 1.0',
+            f'    if _hf_occ0 > 0 and _hf_occ0 < {occ_lo}:',
+            f'        _hf_factor = max(_hf_occ0 / {HERO_OCCUPANCY_MIN}, {HERO_DISTANCE_FACTOR_MIN})',
+            f'    elif _hf_occ0 > {occ_hi}:',
+            f'        _hf_factor = min(_hf_occ0 / {HERO_OCCUPANCY_MAX}, {HERO_DISTANCE_FACTOR_MAX})',
+            '    _hf["occupancy_before"] = round(_hf_occ0, 4)',
+            '    _hf["distance_before"] = round(_hf_d0, 4)',
+            '    _hf["subject_height"] = round(_hf_height, 4)',
+            '    _hf["factor"] = round(_hf_factor, 4)',
+            '    if _hf_factor == 1.0:',
+            '        _hf["reason"] = "occupancy_within_bounds"',
+            '        _hf["occupancy_after"] = _hf["occupancy_before"]',
+            '        _hf["distance_after"] = _hf["distance_before"]',
+            '    else:',
+            f'        _hf_d1 = max(_hf_d0 * _hf_factor, {HERO_MIN_CAMERA_DISTANCE})',
+            '        _hf_dir = _hf_cam.location - _hf_target',
+            '        if _hf_dir.length > 0:',
+            '            _hf_cam.location = _hf_target + _hf_dir.normalized() * _hf_d1',
+            f'            _hf_visible1 = 2.0 * _hf_d1 * ({CAMERA_SENSOR_MM} / 2.0) / _hf_lens',
+            '            _hf["applied"] = True',
+            '            _hf["reason"] = "occupancy_out_of_bounds"',
+            '            _hf["occupancy_after"] = round(_hf_height / _hf_visible1, 4) if _hf_visible1 > 0 else None',
+            '            _hf["distance_after"] = round(_hf_d1, 4)',
+            '        else:',
+            '            _hf["reason"] = "degenerate_camera_position"',
+            f'with open(r"{hero_report_path}", "w", encoding="utf-8") as _hf_fh:',
+            '    _hf_json.dump(_hf, _hf_fh, indent=2)',
         ]
 
     # 5. Sauvegarde du .blend corrigé en place

@@ -796,10 +796,12 @@ class TestRuntimeContractIntegration:
             except Exception:
                 content = ""
 
-            # Le script d'inspection contient `open(<report_path>, "w"`
+            # Le script d'inspection contient `open(<report_path>, "w"`.
+            # H.6.9 : le script de CORRECTION écrit aussi un fichier
+            # (hero_framing.json) — on le distingue par son marqueur.
             import re
             m = re.search(r"open\((.+?),", content)
-            if m:
+            if m and "hero_framing_v1" not in content:
                 # subprocess d'inspection
                 report_path = m.group(1).strip().strip("'\"")
                 payload = initial_report if call_state["inspect_count"] == 0 else corrected_report
@@ -1052,10 +1054,12 @@ class TestRuntimeContractNormalizationH482:
                 content = Path(script_path).read_text(encoding="utf-8")
             except Exception:
                 content = ""
-            # Inspection : écrit le bpy_report dans le fichier référencé
+            # Inspection : écrit le bpy_report dans le fichier référencé.
+            # H.6.9 : le script de correction écrit aussi hero_framing.json
+            # — son marqueur l'exclut de l'heuristique d'inspection.
             import re as _re
             m = _re.search(r"open\((.+?),", content)
-            if m:
+            if m and "hero_framing_v1" not in content:
                 report_path = m.group(1).strip().strip("'\"")
                 Path(report_path).write_text(json.dumps(bpy_report), encoding="utf-8")
             # Correction : simule le re-rendu (taille différente)

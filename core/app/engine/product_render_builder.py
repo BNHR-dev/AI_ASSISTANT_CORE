@@ -35,6 +35,7 @@ from app.engine.blender_runtime_corrector import (
     CANONICAL_FILL_LIGHT,
     CANONICAL_KEY_LIGHT,
 )
+from app.engine.hero_framing import cap_backdrop_albedo
 from app.engine.product_render_ir import (
     V1_DEFAULTS,
     ProductRenderIntent,
@@ -240,7 +241,9 @@ def build_product_render_scene_script(intent: ProductRenderIntent) -> str:
 
 def _build_v0_script(intent: ProductRenderIntent) -> str:
     """
-    Chemin H.5.1 — préservé byte-équivalent à la version pré-H.5.4.
+    Chemin H.5.1 — préservé byte-équivalent à la version pré-H.5.4
+    (à l'exception des recalibrations d'exposition H.6.9 : énergies
+    canoniques importées du corrector + cap albédo backdrop).
 
     Le script :
     - importe bpy
@@ -257,7 +260,10 @@ def _build_v0_script(intent: ProductRenderIntent) -> str:
     Pure : pas d'I/O, pas d'appel LLM, pas d'import externe.
     """
     subject_color_rgba = resolve_color(intent.subject.color)
-    backdrop_color_rgba = resolve_color(intent.backdrop.color)
+    # H.6.9 — cap albédo : un backdrop clair dominait la luminance du frame
+    # (decor_dominates 3/3 sur l'audit 2026-06-10). Couleur IR préservée
+    # sous le cap, clampée au-dessus.
+    backdrop_color_rgba = cap_backdrop_albedo(resolve_color(intent.backdrop.color))
     subject_geom = SUBJECT_GEOMETRY[intent.subject.kind]
     subject_loc = _subject_location(intent.subject.kind)
     subject_material_params = MATERIAL_PROFILES[intent.subject.material]
@@ -567,7 +573,8 @@ def _build_v1_script(intent: ProductRenderIntent) -> str:
     framing = resolved["framing"]
 
     subject_color_rgba = resolve_color(intent.subject.color)
-    backdrop_color_rgba = resolve_color(intent.backdrop.color)
+    # H.6.9 — cap albédo backdrop (voir _build_v0_script).
+    backdrop_color_rgba = cap_backdrop_albedo(resolve_color(intent.backdrop.color))
 
     geom = _subject_geometry_v1(intent.subject.kind, shape)
     sx, sy, sz = geom["scale"]
