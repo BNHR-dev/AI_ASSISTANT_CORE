@@ -135,6 +135,35 @@ def _make_dominant_backdrop_image(size: tuple = (128, 128)) -> "Image.Image":
     return img
 
 
+def _make_blob_dominant_image(size: tuple = (128, 128)) -> "Image.Image":
+    """
+    H.6.10 — Pathologie decor_dominates encore valide sous la segmentation
+    V1 : la périphérie est sombre (médiane fond ~15) mais une nappe claire
+    (éclairage/décor) remplit ~85 % du frame. La segmentation relative
+    compte la nappe comme foreground → gate 3 ouvert ; bin dominant élevé ;
+    std élevé → V_DECOR_DOMINATES légitime (le « sujet » détecté est en
+    réalité une nappe de décor full-frame).
+    """
+    img = Image.new("L", size, 200)   # nappe claire dominante
+    w, h = size
+    # Périphérie sombre : exactement les zones échantillonnées par
+    # hero_framing.background_pixels (bande supérieure + colonnes latérales
+    # jusqu'à 70 % de la hauteur), pour rester < 25 % du frame et laisser
+    # la nappe claire au-dessus du gate foreground (0.75).
+    top_h = max(1, int(h * 0.12))
+    side_w = max(1, int(w * 0.10))
+    side_bottom = int(h * 0.70)
+    for x in range(w):
+        for y in range(top_h):
+            img.putpixel((x, y), 15)
+    for y in range(top_h, side_bottom):
+        for x in range(side_w):
+            img.putpixel((x, y), 15)
+        for x in range(w - side_w, w):
+            img.putpixel((x, y), 15)
+    return img
+
+
 def _make_minimalist_packshot_image(size: tuple = (128, 128)) -> "Image.Image":
     """
     H.4.5.1 — Packshot minimaliste valide : fond sombre uniforme EEVEE +
@@ -230,10 +259,14 @@ class TestCheckSubjectBboxDetected:
         result = check_subject_bbox_detected(img)
         assert result["status"] == "degraded"
 
-    def test_pixel_just_above_threshold_is_detected(self):
+    def test_uniform_image_has_no_subject(self):
+        """H.6.10 — segmentation relative au fond : une image entièrement
+        uniforme n'a PAS de sujet (V0 absolu disait l'inverse dès que la
+        valeur dépassait le seuil : c'était le cœur du finding B4)."""
         img = _make_uniform_image(value=THRESHOLD_FOREGROUND + 1)
         result = check_subject_bbox_detected(img)
-        assert result["status"] == "passed"
+        assert result["status"] == "degraded"
+        assert V_SUBJECT_OUT_OF_FRAME in result["violations"]
 
 
 # ---------------------------------------------------------------------------
@@ -313,9 +346,23 @@ class TestCheckSubjectCentering:
 
 class TestCheckDecorDominance:
 
-    def test_dominant_backdrop_is_degraded(self):
-        """Backdrop mid-gray dominant + sujet minuscule → triple gate triggered."""
+    def test_legacy_dominant_backdrop_no_longer_fools_gate3(self):
+        """
+        H.6.10 — La fixture historique (backdrop mid-gray + sujet minuscule)
+        ne déclenche PLUS decor_dominates : la segmentation relative isole
+        correctement le sujet (fg_ratio ≈ 0.001), le gate 3 ferme. La
+        pathologie réelle est désormais diagnostiquée par subject_too_small
+        (cf. TestRunVisualQAFalseNegativeFixture).
+        """
         img = _make_dominant_backdrop_image()
+        result = check_decor_dominance(img)
+        assert result["status"] == "passed"
+        assert result["foreground_area_ratio"] < THRESHOLD_FOREGROUND_DOMINANT
+
+    def test_blob_dominant_image_is_degraded(self):
+        """H.6.10 — nappe claire full-frame avec périphérie sombre : le
+        triple gate reste capable de détecter un décor dominant légitime."""
+        img = _make_blob_dominant_image()
         result = check_decor_dominance(img)
         assert result["status"] == "degraded"
         assert V_DECOR_DOMINATES in result["violations"]
@@ -369,7 +416,7 @@ class TestCheckDecorDominance:
         assert result["threshold_foreground_dominant"] == THRESHOLD_FOREGROUND_DOMINANT
 
     def test_degraded_result_has_details(self):
-        img = _make_dominant_backdrop_image()
+        img = _make_blob_dominant_image()
         result = check_decor_dominance(img)
         assert result.get("details") is not None
         assert "décor" in result["details"].lower() or "decor" in result["details"].lower()
@@ -479,14 +526,25 @@ class TestRunVisualQAFalseNegativeFixture:
     """
 
     def test_dominant_backdrop_fixture_degrades_visual_qa(self):
+        """H.6.10 — La pathologie « backdrop dominant + sujet minuscule »
+        reste détectée, mais avec le BON diagnostic : subject_too_small
+        (sujet correctement segmenté et mesuré minuscule), au lieu du
+        decor_dominates produit par le masque leurré."""
         with tempfile.TemporaryDirectory() as tmpdir:
             p = Path(tmpdir) / "preview.png"
             _save_png(_make_dominant_backdrop_image(), p)
             result = run_visual_qa(str(p))
         assert result["status"] == "degraded"
+        assert V_SUBJECT_TOO_SMALL in result["violations"]
+        assert result["checks"]["decor_dominance"]["status"] == "passed"
+
+    def test_blob_dominant_fixture_degrades_visual_qa(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = Path(tmpdir) / "preview.png"
+            _save_png(_make_blob_dominant_image(), p)
+            result = run_visual_qa(str(p))
+        assert result["status"] == "degraded"
         assert V_DECOR_DOMINATES in result["violations"]
-        decor = result["checks"]["decor_dominance"]
-        assert decor["status"] == "degraded"
 
     def test_minimalist_packshot_fixture_stays_passed_via_qa(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -693,9 +751,12 @@ class TestInspectBlendSceneVisualQA:
                 render_path=str(preview),
             )
 
+        # H.6.10 — même pathologie, diagnostic corrigé : subject_too_small
+        # (segmentation relative au fond), decor_dominance ne se déclenche
+        # plus à tort.
         assert report["status"] == "degraded"
-        assert V_DECOR_DOMINATES in report["violations"]
-        assert report["visual_qa"]["checks"]["decor_dominance"]["status"] == "degraded"
+        assert V_SUBJECT_TOO_SMALL in report["violations"]
+        assert report["visual_qa"]["checks"]["decor_dominance"]["status"] == "passed"
 
     def test_minimalist_packshot_preview_stays_passed(self, tmp_path):
         """H.4.5.1 — Packshot minimaliste valide ne doit pas être degraded à tort."""
