@@ -10,7 +10,7 @@ from pathlib import Path
 from app.clients.ollama_client import generate_with_ollama
 from app.engine.artifact_manifest import write_blender_manifest
 from app.engine.artistic_intent import parse_artistic_intent, write_intent_json
-from app.engine.blender_ast_guard import analyze_scene_py
+from app.engine.blender_ast_guard import analyze_scene_py, analyze_security_gate
 from app.engine.blender_model_config import get_blender_llm_model
 from app.engine.llm_trajectory_log import log_trajectory
 from app.engine.blender_types import BlenderRequest, BlenderResult
@@ -534,6 +534,19 @@ def build_blender_script(
     # ast_guard.violations=[] mais l'audit reste un filet de sécurité.
     ast_guard_report = analyze_scene_py(raw_code, selected_template_name)
 
+    # C1a — Gate de sécurité BLOQUANT (audit 2026-06-10, finding C1).
+    # Audité sur le code brut (avant injection des OUTPUT_*_PATH contrôlés).
+    # Contrairement à l'AST guard signal-only, un statut "blocked" empêche
+    # l'exécution Blender dans run_blender_script. Sur le chemin builder le
+    # gate est attendu "passed" par construction ; il protège surtout le
+    # chemin legacy LLM.
+    security_gate_report = analyze_security_gate(raw_code)
+    if security_gate_report["status"] == "blocked":
+        print(
+            f"[blender_client] security_gate=blocked "
+            f"violations={security_gate_report['violations']!r}"
+        )
+
     final_script = _inject_output_paths(raw_code, output_path, render_path)
 
     Path(script_path).write_text(final_script, encoding="utf-8")
@@ -550,6 +563,7 @@ def build_blender_script(
         creative_intent=intent.model_dump(),
         template_used=selected_template_name,
         ast_guard=ast_guard_report,
+        security_gate=security_gate_report,
         pipeline_path=pipeline_path,
         product_render_intent=product_render_intent_dict,
         product_render_ir_attempted=product_render_ir_attempted,
@@ -655,7 +669,10 @@ def _render_preview(exe: str, request: BlenderRequest) -> str | None:
     try:
         render_script_path.write_text(render_script, encoding="utf-8")
         proc = subprocess.run(
-            [exe, "--background", request.output_path, "--python", str(render_script_path)],
+            # C1b — --factory-startup + --disable-autoexec : le .blend rendu
+            # provient de code généré, ne pas exécuter ses scripts embarqués.
+            [exe, "--background", "--factory-startup", "--disable-autoexec",
+             request.output_path, "--python", str(render_script_path)],
             capture_output=True,
             text=True,
             timeout=request.timeout,
@@ -688,6 +705,27 @@ def run_blender_script(request: BlenderRequest) -> BlenderResult:
 
 def _run_blender_script_inner(request: BlenderRequest) -> BlenderResult:
     """Logique d'exécution Blender pure, sans écriture du manifest."""
+    # C1a — Gate de sécurité BLOQUANT : refus d'exécution AVANT tout
+    # subprocess. Le manifest est tout de même écrit par run_blender_script
+    # (traçabilité du refus, security_gate visible dans manifest.future).
+    gate = request.security_gate
+    if gate is not None and gate.get("status") == "blocked":
+        return BlenderResult(
+            status="blocked_security",
+            request_id=request.request_id,
+            script_path=request.script_path,
+            output_path=None,
+            render_path=None,
+            output_dir=request.output_dir,
+            returncode=None,
+            stdout=None,
+            stderr=None,
+            error=(
+                "Security gate blocked execution: "
+                f"{gate.get('violations', [])}"
+            ),
+        )
+
     exe = resolve_blender_exe()
     if exe is None:
         return BlenderResult(
@@ -705,7 +743,9 @@ def _run_blender_script_inner(request: BlenderRequest) -> BlenderResult:
 
     try:
         proc = subprocess.run(
-            [exe, "--background", "--python", request.script_path],
+            # C1b — --factory-startup : pas de prefs/addons utilisateur
+            # chargés dans le process qui exécute du code généré.
+            [exe, "--background", "--factory-startup", "--python", request.script_path],
             capture_output=True,
             text=True,
             timeout=request.timeout,

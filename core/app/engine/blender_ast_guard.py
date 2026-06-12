@@ -42,6 +42,34 @@ V_NO_DELETE_DEFAULT          = "no_delete_default"
 
 
 # ---------------------------------------------------------------------------
+# C1a — Gate de sécurité BLOQUANT (audit 2026-06-10, finding C1)
+# ---------------------------------------------------------------------------
+# Contrairement à analyze_scene_py (signal-only), les violations de ce
+# namespace BLOQUENT l'exécution Blender dans blender_client. Politique
+# volontairement courte : un script bpy légitime n'a JAMAIS besoin de ces
+# constructions. Limite documentée : pas de défense contre l'obfuscation
+# (getattr(__builtins__, ...), chaînes construites) — c'est le rôle d'une
+# sandbox système (C1c, phase ultérieure).
+
+V_SEC_BLOCKED_IMPORT_PREFIX = "security_blocked_import:"   # +<module racine>
+V_SEC_DYNAMIC_EXEC_PREFIX   = "security_dynamic_exec:"     # +<eval|exec|__import__|compile>
+V_SEC_OPEN_CALL             = "security_open_call"
+V_SEC_AST_UNPARSEABLE       = "security_ast_unparseable"
+
+# Modules racine interdits dans un script bpy généré. Un script de scène
+# n'a besoin ni d'I/O système, ni de réseau, ni de chargement dynamique.
+SECURITY_BLOCKED_IMPORTS: frozenset[str] = frozenset({
+    "os", "subprocess", "socket", "shutil", "ctypes",
+    "urllib", "http", "requests", "ftplib", "importlib",
+})
+
+# Builtins d'exécution dynamique interdits.
+SECURITY_BLOCKED_CALLS: frozenset[str] = frozenset({
+    "eval", "exec", "__import__", "compile",
+})
+
+
+# ---------------------------------------------------------------------------
 # Seuils V0 — modifiables sans toucher à la logique
 # ---------------------------------------------------------------------------
 
@@ -322,6 +350,99 @@ def _check_delete_default(raw_code: str) -> list[str]:
     if "bpy.ops.object.select_all" in raw_code and "bpy.ops.object.delete" in raw_code:
         return []
     return [V_NO_DELETE_DEFAULT]
+
+
+# ---------------------------------------------------------------------------
+# C1a — Gate de sécurité bloquant
+# ---------------------------------------------------------------------------
+
+def _security_check_imports(tree: ast.AST) -> list[str]:
+    """Détecte les imports (import X / from X import ...) dont le module
+    racine est dans SECURITY_BLOCKED_IMPORTS. Pure."""
+    violations: list[str] = []
+    seen: set[str] = set()
+    for node in ast.walk(tree):
+        roots: list[str] = []
+        if isinstance(node, ast.Import):
+            roots = [alias.name.split(".")[0] for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            roots = [node.module.split(".")[0]]
+        for root in roots:
+            if root in SECURITY_BLOCKED_IMPORTS and root not in seen:
+                seen.add(root)
+                violations.append(f"{V_SEC_BLOCKED_IMPORT_PREFIX}{root}")
+    return violations
+
+
+def _security_check_dynamic_exec(tree: ast.AST) -> list[str]:
+    """Détecte les appels eval/exec/__import__/compile. Pure."""
+    violations: list[str] = []
+    seen: set[str] = set()
+    for _node, chain in _iter_calls(tree):
+        if chain in SECURITY_BLOCKED_CALLS and chain not in seen:
+            seen.add(chain)
+            violations.append(f"{V_SEC_DYNAMIC_EXEC_PREFIX}{chain}")
+    return violations
+
+
+def _security_check_open(tree: ast.AST) -> list[str]:
+    """
+    Bloque TOUT appel open() sauf si le premier argument est une variable
+    du pipeline (OUTPUT_BLEND_PATH, OUTPUT_RENDER_PATH). Plus strict que le
+    check signal-only V_OPEN_NON_PIPELINE_FILE : un script de scène bpy
+    légitime n'ouvre jamais de fichier lui-même (la sauvegarde passe par
+    bpy.ops.wm.save_as_mainfile). Pure.
+    """
+    for node, chain in _iter_calls(tree):
+        if chain != "open":
+            continue
+        if node.args:
+            arg = node.args[0]
+            if isinstance(arg, ast.Name) and arg.id in _PIPELINE_OUTPUT_VARS:
+                continue
+        return [V_SEC_OPEN_CALL]
+    return []
+
+
+def analyze_security_gate(raw_code: str) -> dict:
+    """
+    C1a — Audit de sécurité BLOQUANT du scene.py avant exécution Blender.
+
+    Retourne :
+      - status     : "passed" | "blocked"
+      - violations : liste des violations security_* (vide si passed)
+
+    Politique :
+    - script vide / non-str → passed (rien à exécuter, le pipeline gère) ;
+    - AST non parseable → BLOCKED (on n'exécute pas ce qu'on ne peut pas
+      auditer ; Blender aurait de toute façon échoué en SyntaxError) ;
+    - import d'un module de SECURITY_BLOCKED_IMPORTS → blocked ;
+    - appel eval/exec/__import__/compile → blocked ;
+    - appel open() hors variables pipeline → blocked.
+
+    Ne lève jamais d'exception. Pure : pas d'I/O.
+    """
+    if not isinstance(raw_code, str) or not raw_code.strip():
+        return {"status": "passed", "violations": []}
+
+    try:
+        tree = ast.parse(raw_code)
+    except SyntaxError as exc:
+        return {
+            "status": "blocked",
+            "violations": [V_SEC_AST_UNPARSEABLE],
+            "details": str(exc),
+        }
+
+    violations: list[str] = []
+    violations.extend(_security_check_imports(tree))
+    violations.extend(_security_check_dynamic_exec(tree))
+    violations.extend(_security_check_open(tree))
+
+    return {
+        "status": "blocked" if violations else "passed",
+        "violations": violations,
+    }
 
 
 # ---------------------------------------------------------------------------

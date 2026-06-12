@@ -128,6 +128,9 @@ def build_blender_manifest(
             "product_render_ir_attempted": getattr(request, "product_render_ir_attempted", False),
             "product_render_extraction_status": getattr(request, "product_render_extraction_status", None),
             "product_render_extraction_reason": getattr(request, "product_render_extraction_reason", None),
+            # C1a — Gate de sécurité bloquant : rapport visible même (et
+            # surtout) quand l'exécution a été refusée (blocked_security).
+            "security_gate": getattr(request, "security_gate", None),
         },
     }
 

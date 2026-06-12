@@ -510,7 +510,11 @@ def apply_corrections(
 
     try:
         proc = subprocess.run(
-            [exe, "--background", blend_path, "--python", str(script_path)],
+            # C1b — --factory-startup + --disable-autoexec : le .blend
+            # corrigé provient de code généré, ne pas exécuter ses scripts
+            # embarqués ni charger les prefs/addons utilisateur.
+            [exe, "--background", "--factory-startup", "--disable-autoexec",
+             blend_path, "--python", str(script_path)],
             capture_output=True,
             text=True,
             timeout=timeout,

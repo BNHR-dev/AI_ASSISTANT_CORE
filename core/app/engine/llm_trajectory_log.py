@@ -15,6 +15,9 @@ Configuration (env vars) :
   autre valeur (ou absence) = activé.
 - AAC_TRAJECTORY_LOG_DIR     : répertoire de sortie. Défaut
   "outputs/blender/_trajectories".
+- AAC_TRAJECTORY_RETENTION_DAYS : rétention en jours (C3, audit 2026-06-10).
+  Les fichiers YYYY-MM-DD.jsonl plus vieux que N jours sont purgés
+  (best-effort) à chaque écriture. Défaut 30. "0" = purge désactivée.
 
 Garanties :
 - Ne lève JAMAIS d'exception (IO error, permission, disque plein → swallow).
@@ -30,7 +33,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -38,6 +41,8 @@ from typing import Any, Mapping, Optional
 TRAJECTORY_LOG_ENABLED_ENV = "AAC_TRAJECTORY_LOG_ENABLED"
 TRAJECTORY_LOG_DIR_ENV = "AAC_TRAJECTORY_LOG_DIR"
 DEFAULT_TRAJECTORY_LOG_DIR = "outputs/blender/_trajectories"
+TRAJECTORY_RETENTION_DAYS_ENV = "AAC_TRAJECTORY_RETENTION_DAYS"
+DEFAULT_TRAJECTORY_RETENTION_DAYS = 30
 
 # Valeurs reconnues comme "désactivé". Casse-insensible.
 _DISABLED_VALUES: frozenset[str] = frozenset({"0", "false", "no", "off"})
@@ -67,6 +72,42 @@ def _utc_now() -> datetime:
 
 def _current_log_path(base_dir: Path, now: datetime) -> Path:
     return base_dir / f"{now.strftime('%Y-%m-%d')}.jsonl"
+
+
+def get_trajectory_retention_days() -> int:
+    """Rétention en jours (≥ 0). 0 = purge désactivée. Valeur invalide → défaut."""
+    raw = os.environ.get(TRAJECTORY_RETENTION_DAYS_ENV)
+    if raw is None or raw.strip() == "":
+        return DEFAULT_TRAJECTORY_RETENTION_DAYS
+    try:
+        days = int(raw.strip())
+    except ValueError:
+        return DEFAULT_TRAJECTORY_RETENTION_DAYS
+    return max(days, 0)
+
+
+def _purge_old_trajectories(base_dir: Path, now: datetime) -> None:
+    """
+    C3 (audit 2026-06-10) — Purge best-effort des fichiers de trajectoires
+    plus vieux que la rétention. Les trajectoires contiennent les prompts
+    utilisateur complets : sans purge, elles s'accumulent indéfiniment.
+
+    La date fait foi via le NOM du fichier (YYYY-MM-DD.jsonl), pas le mtime :
+    déterministe, insensible aux copies/restaurations. Un nom non conforme
+    est ignoré (jamais supprimé). Ne lève jamais (appelée sous le try
+    enveloppant de log_trajectory).
+    """
+    retention_days = get_trajectory_retention_days()
+    if retention_days <= 0:
+        return
+    cutoff = now.date() - timedelta(days=retention_days)
+    for path in base_dir.glob("*.jsonl"):
+        try:
+            file_date = datetime.strptime(path.stem, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if file_date < cutoff:
+            path.unlink(missing_ok=True)
 
 
 def log_trajectory(
@@ -130,6 +171,8 @@ def log_trajectory(
         with path.open("a", encoding="utf-8") as f:
             f.write(line)
             f.write("\n")
+        # C3 — rétention : purge best-effort des jours expirés.
+        _purge_old_trajectories(base_dir, now)
     except Exception as exc:  # noqa: BLE001 — invariant non-bloquant
         # Diagnostic best-effort, sans relancer.
         try:

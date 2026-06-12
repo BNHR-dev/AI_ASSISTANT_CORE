@@ -266,7 +266,11 @@ def _run_inspection_subprocess(
         Path(inspect_script_path).write_text(inspect_script, encoding="utf-8")
 
         proc = subprocess.run(
-            [exe, "--background", str(blend_path), "--python", inspect_script_path],
+            # C1b — --factory-startup + --disable-autoexec : le .blend
+            # inspecté provient de code généré, ne pas exécuter ses scripts
+            # embarqués ni charger les prefs/addons utilisateur.
+            [exe, "--background", "--factory-startup", "--disable-autoexec",
+             str(blend_path), "--python", inspect_script_path],
             capture_output=True,
             text=True,
             timeout=timeout,

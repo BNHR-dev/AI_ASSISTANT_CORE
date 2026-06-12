@@ -28,11 +28,16 @@ class BlenderRequest:
     product_render_ir_attempted: bool = False
     product_render_extraction_status: str | None = None
     product_render_extraction_reason: str | None = None
+    # C1a — gate de sécurité BLOQUANT (audit 2026-06-10). Rapport de
+    # analyze_security_gate sur le code brut : {"status": "passed"|"blocked",
+    # "violations": [...]}. status="blocked" → run_blender_script refuse
+    # d'exécuter (BlenderResult.status="blocked_security").
+    security_gate: dict | None = None
 
 
 @dataclass
 class BlenderResult:
-    status: str           # success | error | blender_not_found | timeout | no_output
+    status: str           # success | error | blender_not_found | timeout | no_output | blocked_security
     request_id: str
     script_path: str | None
     output_path: str | None   # chemin vers le .blend produit si success

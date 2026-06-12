@@ -210,3 +210,49 @@ def test_json_dumps_failure_is_swallowed(
         extra={"weird": Unjsonable()},
     )
     # Pas d'assertion : la garantie est "n'a pas levé".
+
+
+# ---------------------------------------------------------------------------
+# C3 (audit 2026-06-10) — Rétention / purge
+# ---------------------------------------------------------------------------
+
+def test_default_retention_days(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(tlog.TRAJECTORY_RETENTION_DAYS_ENV, raising=False)
+    assert tlog.get_trajectory_retention_days() == tlog.DEFAULT_TRAJECTORY_RETENTION_DAYS
+
+
+@pytest.mark.parametrize("value,expected", [("7", 7), ("0", 0), ("-3", 0), ("abc", 30)])
+def test_retention_env_parsing(
+    monkeypatch: pytest.MonkeyPatch, value: str, expected: int
+) -> None:
+    monkeypatch.setenv(tlog.TRAJECTORY_RETENTION_DAYS_ENV, value)
+    assert tlog.get_trajectory_retention_days() == expected
+
+
+def test_purge_removes_expired_files_on_write(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv(tlog.TRAJECTORY_LOG_ENABLED_ENV, raising=False)
+    monkeypatch.setenv(tlog.TRAJECTORY_LOG_DIR_ENV, str(tmp_path))
+    monkeypatch.setenv(tlog.TRAJECTORY_RETENTION_DAYS_ENV, "30")
+    old = tmp_path / "2020-01-01.jsonl"
+    old.write_text("{}\n", encoding="utf-8")
+    recent = tmp_path / f"{tlog._utc_now().strftime('%Y-%m-%d')}.jsonl"
+    weird = tmp_path / "notes.jsonl"  # nom non conforme : jamais purgé
+    weird.write_text("keep\n", encoding="utf-8")
+    tlog.log_trajectory(stage="t", model="m", prompt="p", raw_response="r")
+    assert not old.exists()
+    assert recent.exists()
+    assert weird.exists()
+
+
+def test_purge_disabled_with_zero_retention(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv(tlog.TRAJECTORY_LOG_ENABLED_ENV, raising=False)
+    monkeypatch.setenv(tlog.TRAJECTORY_LOG_DIR_ENV, str(tmp_path))
+    monkeypatch.setenv(tlog.TRAJECTORY_RETENTION_DAYS_ENV, "0")
+    old = tmp_path / "2020-01-01.jsonl"
+    old.write_text("{}\n", encoding="utf-8")
+    tlog.log_trajectory(stage="t", model="m", prompt="p", raw_response="r")
+    assert old.exists()
