@@ -456,10 +456,17 @@ def _build_ideal_ir(case: EvalCase) -> dict[str, Any]:
         ]:
             if k_full in case.expected:
                 subject[k_short] = case.expected[k_full]
+    # semantic_fidelity_v1 — kind_fidelity est version-neutre.
+    if "subject.kind_fidelity" in case.expected:
+        subject["kind_fidelity"] = case.expected["subject.kind_fidelity"]
     ir["subject"] = subject
     ir["backdrop"] = {
         "color": case.expected.get("backdrop.color", "neutral_gray"),
     }
     if sv == "v1" and "framing" in case.expected:
         ir["framing"] = case.expected["framing"]
+    if sv == "v1" and "pedestal.color" in case.expected:
+        ir["pedestal"] = {"color": case.expected["pedestal.color"]}
+        if "pedestal.material" in case.expected:
+            ir["pedestal"]["material"] = case.expected["pedestal.material"]
     return ir

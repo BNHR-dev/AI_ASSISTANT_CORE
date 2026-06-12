@@ -61,10 +61,17 @@ ALLOWED_EXPECTED_KEYS: frozenset[str] = frozenset({
     "subject.transparency",
     "backdrop.color",
     "framing",
+    # semantic_fidelity_v1. `subject.label` est volontairement exclu :
+    # texte libre, l'exact-match du harness serait un faux signal.
+    "subject.kind_fidelity",
+    "pedestal.color",
+    "pedestal.material",
 })
 
 # Clés "couleur" qui doivent passer par _validate_color_token à l'import.
-_COLOR_KEYS: frozenset[str] = frozenset({"subject.color", "backdrop.color"})
+_COLOR_KEYS: frozenset[str] = frozenset(
+    {"subject.color", "backdrop.color", "pedestal.color"}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +119,7 @@ class EvalCase:
             v1_only = {
                 "subject.shape", "subject.cap",
                 "subject.transparency", "framing",
+                "pedestal.color", "pedestal.material",
             }
             forbidden = v1_only & self.expected.keys()
             if forbidden:
@@ -263,6 +271,28 @@ DEFAULT_CASES: tuple[EvalCase, ...] = (
             "subject.cap": "present",
             "backdrop.color": "beige",
         },
+    ),
+    # --- Ajout semantic_fidelity_v1 (append-only, corpus historique intact) ---
+    EvalCase(
+        id="sf1-watch-metallic-stone-pedestal",
+        prompt=(
+            "packshot cinématographique : chronomètre en métal poli "
+            "sur un socle en pierre"
+        ),
+        expected={
+            "schema_version": "v1",
+            "subject.kind": "watch",
+            "subject.material": "metallic",
+            "subject.kind_fidelity": "exact",
+            "pedestal.color": "warm_gray",
+            "pedestal.material": "matte",
+            "framing": "close_packshot",
+        },
+        notes=(
+            "Prompt du smoke 3 de l'audit 2026-06-10, qui dégradait en "
+            "kind=box silencieusement. Vérifie le kind watch, la fidélité "
+            "déclarée et l'extraction du socle."
+        ),
     ),
 )
 

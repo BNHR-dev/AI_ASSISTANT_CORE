@@ -39,6 +39,7 @@ from app.engine.product_render_ir import (
     NAMED_COLOR_PALETTE,
     ProductRenderIntent,
     ProductSubjectIR,
+    SUBJECT_LABEL_MAX_LEN,
     SubjectKind,
     SubjectMaterial,
     V1_DEFAULTS,
@@ -135,8 +136,9 @@ def build_extraction_generate_fn(seed: int) -> Callable[[str, str], str]:
 
 # Listes pour le prompt strict. Source de vérité = enums Pydantic.
 _KIND_VALUES: tuple[str, ...] = (
-    "bottle", "jar", "box", "tube", "cylinder", "sphere",
+    "bottle", "jar", "box", "tube", "cylinder", "sphere", "watch",
 )
+_KIND_FIDELITY_VALUES: tuple[str, ...] = ("exact", "approximate")
 _MATERIAL_VALUES: tuple[str, ...] = (
     "matte", "glossy", "glass", "metallic",
 )
@@ -212,10 +214,16 @@ Le JSON doit avoir EXACTEMENT cette forme (schema_version v1) :
     "material": "<one of: {materials}>",
     "shape": "<one of: {shapes}>",
     "cap": "<one of: {caps}>",
-    "transparency": "<one of: {transparencies}>"
+    "transparency": "<one of: {transparencies}>",
+    "label": "<description courte et fidèle du sujet demandé>",
+    "kind_fidelity": "<one of: {kind_fidelities}>"
   }},
   "backdrop": {{
     "color": "<named color OR #RRGGBB hex>"
+  }},
+  "pedestal": {{
+    "color": "<named color OR #RRGGBB hex>",
+    "material": "<one of: {materials}>"
   }},
   "framing": "<one of: {framings}>"
 }}
@@ -240,11 +248,28 @@ diffusant, `opaque` sinon.
 - `framing` = `close_packshot` si la demande mentionne packshot, rendu \
 produit serré, plan rapproché ; sinon `medium`.
 
+Champs de fidélité (TOUJOURS fournis, en v0 comme en v1) :
+- `subject.label` : recopie courte et fidèle de la description du sujet \
+telle que demandée, dans la langue de la demande (ex. "chronomètre métal \
+poli"). Maximum 120 caractères. N'invente rien, ne traduis pas.
+- `subject.kind_fidelity` = `exact` si la demande nomme directement un \
+objet de la liste kind (bouteille, pot, boîte, tube, cylindre, sphère, \
+montre/chronomètre). Sinon `approximate` : le kind choisi n'est qu'une \
+approximation de l'objet demandé.
+
+Socle (`pedestal`) :
+- Fournis la clé `pedestal` UNIQUEMENT si la demande décrit le socle, le \
+support ou la base du produit (couleur ou matière). Exemple : "sur socle \
+pierre" → pedestal.color=warm_gray, pedestal.material=matte. Sinon OMETS \
+complètement la clé `pedestal`.
+- `pedestal` est un champ V1.
+
 Choix entre v0 et v1 :
 - Utilise `schema_version="v0"` si la demande ne mentionne AUCUN des \
-champs V1 (silhouette, bouchon, transparence, cadrage). Dans ce cas, \
-OMETS complètement les clés `shape`, `cap`, `transparency`, `framing` \
-du JSON (ne les mets pas à null).
+champs V1 (silhouette, bouchon, transparence, cadrage, socle). Dans ce \
+cas, OMETS complètement les clés `shape`, `cap`, `transparency`, \
+`framing`, `pedestal` du JSON (ne les mets pas à null). `label` et \
+`kind_fidelity` restent fournis et ne comptent pas dans ce choix.
 - Utilise `schema_version="v1"` UNIQUEMENT si tu remplis effectivement \
 au moins un de ces champs V1.
 
@@ -269,6 +294,7 @@ apparaît dans la demande, sans inventer) :
 - "tube" → kind=tube
 - "sphère", "boule" → kind=sphere
 - "cylindre" → kind=cylinder
+- "montre", "chronomètre", "chrono" → kind=watch
 
 Choisis les valeurs qui correspondent le mieux à la demande utilisateur. \
 Si la demande est ambiguë, choisis des valeurs simples qui restent dans \
@@ -296,6 +322,7 @@ def build_extraction_prompt(user_message: str) -> str:
         caps=", ".join(_CAP_VALUES),
         transparencies=", ".join(_TRANSPARENCY_VALUES),
         framings=", ".join(_FRAMING_VALUES),
+        kind_fidelities=", ".join(_KIND_FIDELITY_VALUES),
         palette=", ".join(_PALETTE_NAMES),
         message=user_message or "",
     )
@@ -460,18 +487,13 @@ def _normalize_color_safety_default(data: dict) -> dict:
     Pure, idempotent.
     """
     new_data = dict(data)
-    subj = new_data.get("subject")
-    if isinstance(subj, dict) and "color" in subj:
-        if not _is_valid_color_token(subj["color"]):
-            new_subj = dict(subj)
-            new_subj["color"] = _INVALID_COLOR_SAFETY_DEFAULT
-            new_data["subject"] = new_subj
-    backdrop = new_data.get("backdrop")
-    if isinstance(backdrop, dict) and "color" in backdrop:
-        if not _is_valid_color_token(backdrop["color"]):
-            new_backdrop = dict(backdrop)
-            new_backdrop["color"] = _INVALID_COLOR_SAFETY_DEFAULT
-            new_data["backdrop"] = new_backdrop
+    for section in ("subject", "backdrop", "pedestal"):
+        block = new_data.get(section)
+        if isinstance(block, dict) and "color" in block:
+            if not _is_valid_color_token(block["color"]):
+                new_block = dict(block)
+                new_block["color"] = _INVALID_COLOR_SAFETY_DEFAULT
+                new_data[section] = new_block
     return new_data
 
 
@@ -492,16 +514,12 @@ def _normalize_colors(data: dict) -> dict:
     l'IR : subject.color et backdrop.color. N'altère pas le reste. Pure.
     """
     new_data = dict(data)
-    subj = new_data.get("subject")
-    if isinstance(subj, dict) and "color" in subj:
-        new_subj = dict(subj)
-        new_subj["color"] = _normalize_color_hex_to_palette(subj["color"])
-        new_data["subject"] = new_subj
-    backdrop = new_data.get("backdrop")
-    if isinstance(backdrop, dict) and "color" in backdrop:
-        new_backdrop = dict(backdrop)
-        new_backdrop["color"] = _normalize_color_hex_to_palette(backdrop["color"])
-        new_data["backdrop"] = new_backdrop
+    for section in ("subject", "backdrop", "pedestal"):
+        block = new_data.get(section)
+        if isinstance(block, dict) and "color" in block:
+            new_block = dict(block)
+            new_block["color"] = _normalize_color_hex_to_palette(block["color"])
+            new_data[section] = new_block
     return new_data
 
 
@@ -540,6 +558,65 @@ def _normalize_material_transparency(data: dict) -> dict:
         new_subj["transparency"] = material
     new_subj["material"] = "matte"
     return {**data, "subject": new_subj}
+
+
+def _normalize_semantic_fields(data: dict) -> dict:
+    """
+    semantic_fidelity_v1 — Assainit les champs de fidélité produits par le
+    LLM, pour qu'une valeur imparfaite ne fasse jamais tomber le cas en
+    fallback complet :
+
+    - `subject.label` : non-str ou vide après strip → clé supprimée (None
+      implicite = "information non disponible") ; trop long → tronqué à
+      SUBJECT_LABEL_MAX_LEN (cohérent avec le cap user_intent de intent.json).
+    - `subject.kind_fidelity` : valeur hors enum → clé supprimée.
+
+    Pure, idempotent.
+    """
+    subj = data.get("subject")
+    if not isinstance(subj, dict):
+        return data
+    new_subj = dict(subj)
+    if "label" in new_subj:
+        label = new_subj["label"]
+        if not isinstance(label, str) or not label.strip():
+            new_subj.pop("label")
+        else:
+            new_subj["label"] = label.strip()[:SUBJECT_LABEL_MAX_LEN]
+    if "kind_fidelity" in new_subj:
+        if new_subj["kind_fidelity"] not in _KIND_FIDELITY_VALUES:
+            new_subj.pop("kind_fidelity")
+    if new_subj == subj:
+        return data
+    return {**data, "subject": new_subj}
+
+
+def _normalize_pedestal(data: dict) -> dict:
+    """
+    semantic_fidelity_v1 — Assainit le bloc `pedestal` :
+
+    - pedestal non-dict (str, list, null...) → clé supprimée (socle canonique) ;
+    - pedestal sans `color` → clé supprimée (color est requis par PedestalIR) ;
+    - `material` hors enum SubjectMaterial (ex. "stone" halluciné) → clé
+      supprimée (Pydantic appliquera le défaut "matte").
+
+    La couleur elle-même est traitée par les normalizers couleur génériques
+    (hex→palette puis safety default), qui couvrent déjà la section pedestal.
+
+    Pure, idempotent.
+    """
+    if "pedestal" not in data:
+        return data
+    ped = data["pedestal"]
+    if not isinstance(ped, dict) or "color" not in ped:
+        new_data = dict(data)
+        new_data.pop("pedestal")
+        return new_data
+    if "material" in ped and ped["material"] not in _MATERIAL_VALUES:
+        new_ped = dict(ped)
+        new_ped.pop("material")
+        return {**data, "pedestal": new_ped}
+    return data
 
 
 def _normalize_schema_version(data: dict) -> dict:
@@ -585,18 +662,26 @@ def _normalize_schema_version(data: dict) -> dict:
     f = data.get("framing")
     if f is not None:
         v1_values["framing"] = f
+    # semantic_fidelity_v1 — un pedestal non-None est toujours informatif
+    # (pas de "valeur défaut" possible : le défaut est l'absence de la clé).
+    ped = data.get("pedestal")
+    if ped is not None:
+        v1_values["pedestal"] = ped
 
     # Cas A — V1 vide.
     case_a = (len(v1_values) == 0)
-    # Cas B — V1 dump complet à défaut (4/4 présents, tous au default).
+    # Cas B — V1 dump complet à défaut (les 4 champs scalaires présents,
+    # tous au default, et pas de pedestal).
     case_b = (
         len(v1_values) == 4
+        and "pedestal" not in v1_values
         and all(val == V1_DEFAULTS[name] for name, val in v1_values.items())
     )
     if not (case_a or case_b):
         return data
 
     # Downgrade + purge totale des clés V1 (qu'elles soient None ou default).
+    # Les métadonnées version-neutres (label, kind_fidelity) sont conservées.
     cleaned_subj = {
         k: v for k, v in subj.items()
         if k not in ("shape", "cap", "transparency")
@@ -605,6 +690,7 @@ def _normalize_schema_version(data: dict) -> dict:
     new_data["schema_version"] = "v0"
     new_data["subject"] = cleaned_subj
     new_data.pop("framing", None)
+    new_data.pop("pedestal", None)
     return new_data
 
 
@@ -613,20 +699,26 @@ def _apply_normalizers(data: dict) -> dict:
     Applique l'ensemble des normalizers dans un ordre stable. Pure.
 
     Ordre :
-    1. _normalize_colors                — fix hex CSS → palette nommée
-    2. _normalize_color_safety_default  — fix couleurs inventées hors palette/hex
-    3. _normalize_material_transparency — fix swap enum (opaque/translucent → transparency)
-    4. _normalize_schema_version        — fix sur-promotion v1 (vide ou dump complet à default)
+    1. _normalize_pedestal              — fix bloc pedestal malformé (semantic_fidelity_v1)
+    2. _normalize_colors                — fix hex CSS → palette nommée
+    3. _normalize_color_safety_default  — fix couleurs inventées hors palette/hex
+    4. _normalize_semantic_fields       — fix label/kind_fidelity malformés (semantic_fidelity_v1)
+    5. _normalize_material_transparency — fix swap enum (opaque/translucent → transparency)
+    6. _normalize_schema_version        — fix sur-promotion v1 (vide ou dump complet à default)
 
     Justifications de l'ordre :
-    - 1 avant 2 : un hex CSS commun (`#ffffff`) doit avoir une chance d'être
+    - 1 avant 2/3 : les normalizers couleur ne doivent voir qu'un pedestal
+      structurellement valide (dict avec color).
+    - 2 avant 3 : un hex CSS commun (`#ffffff`) doit avoir une chance d'être
       mappé sur son nom de palette AVANT que le safety default ne s'applique.
-    - 3 avant 4 : si on libère `transparency` à partir de `material`,
-      le cas devient un vrai V1 informatif et 4 ne déclenchera pas la
+    - 5 avant 6 : si on libère `transparency` à partir de `material`,
+      le cas devient un vrai V1 informatif et 6 ne déclenchera pas la
       coercition à v0.
     """
+    data = _normalize_pedestal(data)
     data = _normalize_colors(data)
     data = _normalize_color_safety_default(data)
+    data = _normalize_semantic_fields(data)
     data = _normalize_material_transparency(data)
     data = _normalize_schema_version(data)
     return data

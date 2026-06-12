@@ -140,6 +140,12 @@ def _flatten_intent(result: ProductRenderExtractionResult) -> dict[str, Any]:
         flat["subject.transparency"] = intent.subject.transparency
     if intent.framing is not None:
         flat["framing"] = intent.framing
+    # Champs semantic_fidelity_v1 : mêmes règles (non-None → présent).
+    if intent.subject.kind_fidelity is not None:
+        flat["subject.kind_fidelity"] = intent.subject.kind_fidelity
+    if intent.pedestal is not None:
+        flat["pedestal.color"] = intent.pedestal.color
+        flat["pedestal.material"] = intent.pedestal.material
     return flat
 
 
@@ -149,7 +155,9 @@ def _flatten_intent(result: ProductRenderExtractionResult) -> dict[str, Any]:
 
 # Clés dont la valeur doit être normalisée comme un token couleur avant
 # comparaison (lowercase, hex normalisé). Source de vérité : product_render_ir.
-_COLOR_FIELDS: frozenset[str] = frozenset({"subject.color", "backdrop.color"})
+_COLOR_FIELDS: frozenset[str] = frozenset(
+    {"subject.color", "backdrop.color", "pedestal.color"}
+)
 
 
 def _values_match(key: str, expected: Any, actual: Any) -> bool:

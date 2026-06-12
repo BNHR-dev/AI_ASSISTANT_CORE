@@ -160,6 +160,18 @@ SUBJECT_GEOMETRY: dict[str, dict] = {
         "primitive": "primitive_uv_sphere_add",
         "radius": 0.06,
     },
+    "watch": {
+        # semantic_fidelity_v1 — disque vertical face caméra (montre,
+        # chronomètre). Cylindre plat tourné de 90° sur X (face vers -Y,
+        # côté caméra) + 0.62 rad sur Z pour viser CANONICAL_CAMERA en
+        # (0.85, -1.20, 0.60). Une fois debout, l'étendue verticale est
+        # le diamètre → half_h = radius, d'où l'override explicite.
+        "primitive": "primitive_cylinder_add",
+        "radius": 0.05,
+        "depth": 0.025,
+        "rotation_euler": (1.5708, 0.0, 0.62),
+        "half_h": 0.05,
+    },
 }
 
 
@@ -172,7 +184,11 @@ def _subject_location(kind: str) -> tuple[float, float, float]:
     Pure : pas d'I/O.
     """
     geom = SUBJECT_GEOMETRY[kind]
-    if "depth" in geom:
+    if "half_h" in geom:
+        # Override explicite (kinds avec rotation : l'étendue verticale ne
+        # se déduit plus de depth/size — cf. "watch").
+        half_height = geom["half_h"]
+    elif "depth" in geom:
         half_height = geom["depth"] / 2.0
     elif "size" in geom:
         half_height = geom["size"] / 2.0
@@ -224,6 +240,24 @@ MATERIAL_PROFILES: dict[str, dict] = {
 # ---------------------------------------------------------------------------
 # Génération du script bpy — fonction publique
 # ---------------------------------------------------------------------------
+
+def _semantic_fidelity_header(intent: ProductRenderIntent) -> list[str]:
+    """
+    semantic_fidelity_v1 — lignes d'en-tête traçant la demande réelle de
+    l'utilisateur dans le script généré (et donc dans scene.py archivé).
+    Vide si l'extraction n'a pas fourni ces métadonnées (legacy / fallback).
+
+    Pure : pas d'I/O.
+    """
+    lines: list[str] = []
+    if intent.subject.label is not None:
+        lines.append(f"# subject.label = {intent.subject.label!r}")
+    if intent.subject.kind_fidelity is not None:
+        lines.append(
+            f"# subject.kind_fidelity = {intent.subject.kind_fidelity!r}"
+        )
+    return lines
+
 
 def build_product_render_scene_script(intent: ProductRenderIntent) -> str:
     """
@@ -280,6 +314,7 @@ def _build_v0_script(intent: ProductRenderIntent) -> str:
         f"# subject.color = {intent.subject.color!r}",
         f"# subject.material = {intent.subject.material!r}",
         f"# backdrop.color = {intent.backdrop.color!r}",
+        *_semantic_fidelity_header(intent),
         "",
         "# Cleanup canonique scène par défaut",
         "bpy.ops.object.select_all(action='SELECT')",
@@ -388,6 +423,11 @@ def _build_v0_script(intent: ProductRenderIntent) -> str:
         primitive_call,
         "product = bpy.context.object",
         "product.name = 'Product_Subject'",
+        *(
+            [f"product.rotation_euler = {subject_geom['rotation_euler']}"]
+            if "rotation_euler" in subject_geom
+            else []
+        ),
         "product_mat = _make_principled_material(",
         "    'Product_Material',",
         f"    {subject_color_rgba},",
@@ -483,13 +523,25 @@ def _subject_geometry_v1(kind: str, shape: str) -> dict:
       scale     : tuple (sx, sy, sz) éventuel à appliquer après l'add
     """
     base = SUBJECT_GEOMETRY[kind]
+    # semantic_fidelity_v1 — la silhouette disque-face-caméra est INTRINSÈQUE
+    # au kind "watch" (c'est ce qui le distingue de box/cylinder). Un shape
+    # V1 ne doit pas l'écraser : observé au smoke 2026-06-12, le LLM posait
+    # shape=rectangular sur un chronomètre → le watch redevenait une boîte.
+    if kind == "watch":
+        shape = "cylindrical"
     if shape == "cylindrical":
         if "depth" in base:
             return {
                 "primitive": base["primitive"],
                 "params": {"radius": base["radius"], "depth": base["depth"]},
-                "half_h": base["depth"] / 2.0,
+                # half_h override explicite (kinds avec rotation : "watch")
+                "half_h": base.get("half_h", base["depth"] / 2.0),
                 "scale": (1.0, 1.0, 1.0),
+                **(
+                    {"rotation_euler": base["rotation_euler"]}
+                    if "rotation_euler" in base
+                    else {}
+                ),
             }
         if "size" in base:
             return {
@@ -507,7 +559,11 @@ def _subject_geometry_v1(kind: str, shape: str) -> dict:
         }
 
     # Hauteur de référence : dépend du kind V0 (depth, size ou radius*2).
-    if "depth" in base:
+    if "half_h" in base:
+        # Kinds avec étendue verticale explicite (rotation : "watch").
+        ref_h = base["half_h"] * 2.0
+        ref_r = base["radius"]
+    elif "depth" in base:
         ref_h = base["depth"]
         ref_r = base["radius"]
     elif "size" in base:
@@ -616,6 +672,12 @@ def _build_v1_script(intent: ProductRenderIntent) -> str:
         f"# subject.transparency = {transparency!r}",
         f"# backdrop.color = {intent.backdrop.color!r}",
         f"# framing = {framing!r}",
+        *_semantic_fidelity_header(intent),
+        *(
+            [f"# pedestal = {intent.pedestal.model_dump()!r}"]
+            if intent.pedestal is not None
+            else []
+        ),
         "",
         "# Cleanup canonique scène par défaut",
         "bpy.ops.object.select_all(action='SELECT')",
@@ -676,18 +738,27 @@ def _build_v1_script(intent: ProductRenderIntent) -> str:
         "",
     ]
 
-    # Pedestal canonique
+    # Pedestal — canonique, OU paramétré par l'IR (semantic_fidelity_v1).
+    # Seuls couleur et profil matériau sont exposés ; la géométrie (rayon,
+    # hauteur, position) reste canonique pour préserver PEDESTAL_TOP_Z.
     pd = CANONICAL_PEDESTAL
-    pd_params = MATERIAL_PROFILES[pd["material_profile"]]
+    if intent.pedestal is not None:
+        pd_color_rgba = resolve_color(intent.pedestal.color)
+        pd_params = MATERIAL_PROFILES[intent.pedestal.material]
+        pd_comment = "# --- Pedestal (IR pedestal, semantic_fidelity_v1) ---"
+    else:
+        pd_color_rgba = pd["color_rgba"]
+        pd_params = MATERIAL_PROFILES[pd["material_profile"]]
+        pd_comment = "# --- Pedestal (canonique) ---"
     lines += [
-        "# --- Pedestal (canonique) ---",
+        pd_comment,
         f"bpy.ops.mesh.{pd['primitive']}(radius={pd['radius']}, "
         f"depth={pd['depth']}, location={pd['location']})",
         "pedestal = bpy.context.object",
         f"pedestal.name = {pd['name']!r}",
         "pedestal_mat = _make_principled_material(",
         "    'Pedestal_Material',",
-        f"    {pd['color_rgba']},",
+        f"    {pd_color_rgba},",
         f"    {pd_params['roughness']}, {pd_params['metallic']}, "
         f"{pd_params['transmission']}, {pd_params['ior']},",
         ")",
@@ -723,6 +794,11 @@ def _build_v1_script(intent: ProductRenderIntent) -> str:
         primitive_call,
         "product = bpy.context.object",
         "product.name = 'Product_Subject'",
+        *(
+            [f"product.rotation_euler = {geom['rotation_euler']}"]
+            if "rotation_euler" in geom
+            else []
+        ),
         f"product.scale = ({final_sx}, {final_sy}, {final_sz})",
         "product_mat = _make_principled_material(",
         "    'Product_Material',",

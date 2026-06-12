@@ -43,7 +43,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 # Set borné de formes que le LLM peut demander. Le builder mappe chaque
 # kind vers une primitive bpy + des dimensions canoniques.
-SubjectKind = Literal["bottle", "jar", "box", "tube", "cylinder", "sphere"]
+# semantic_fidelity_v1 : "watch" ajouté sur preuve (smoke audit 2026-06-10,
+# "chronomètre métal poli" dégradé en box). Disque vertical face caméra.
+SubjectKind = Literal["bottle", "jar", "box", "tube", "cylinder", "sphere", "watch"]
 
 # Set borné de profils matériaux. Le builder mappe chaque material vers
 # une configuration Principled BSDF déterministe (roughness, metallic, etc.).
@@ -68,6 +70,18 @@ SubjectCap = Literal["present", "absent"]
 # le builder force un matériau verre (transmission=1.0) en conservant la couleur
 # du subject (tint amber, etc.).
 SubjectTransparency = Literal["opaque", "translucent", "glass"]
+
+# semantic_fidelity_v1 — Fidélité du mapping kind. Rempli par l'extracteur :
+#   exact       → le kind correspond directement au mot de la demande
+#   approximate → le sujet demandé n'a pas de case dans l'enum ; le kind est
+#                 la primitive la plus proche. La dégradation devient visible
+#                 (manifest / scene_report) au lieu d'être silencieuse.
+# None = information non disponible (extraction antérieure, legacy).
+KindFidelity = Literal["exact", "approximate"]
+
+# Longueur max du label descriptif libre — alignée sur le cap user_intent
+# de intent.json (120 caractères, by design).
+SUBJECT_LABEL_MAX_LEN = 120
 
 # Profil de cadrage. medium = cadrage canonique H.4.8.x. close_packshot = sujet
 # agrandi (scale 1.4x) pour rapprocher le cadrage sans toucher au tuning
@@ -195,6 +209,61 @@ class ProductSubjectIR(BaseModel):
         default=None,
         description="V1 : profil de transparence (défaut builder = opaque).",
     )
+    # --- Champs semantic_fidelity_v1 ---
+    # Métadonnées de fidélité, VERSION-NEUTRES (autorisées en v0 ET v1) :
+    # elles ne changent pas la géométrie produite par le builder, elles
+    # tracent ce que l'utilisateur a réellement demandé.
+    label: Optional[str] = Field(
+        default=None,
+        max_length=SUBJECT_LABEL_MAX_LEN,
+        description=(
+            "semantic_fidelity_v1 : description courte et fidèle du sujet "
+            "tel que demandé (ex. 'chronomètre métal poli'). Texte libre, "
+            f"max {SUBJECT_LABEL_MAX_LEN} caractères."
+        ),
+    )
+    kind_fidelity: Optional[KindFidelity] = Field(
+        default=None,
+        description=(
+            "semantic_fidelity_v1 : exact si kind correspond directement à "
+            "la demande, approximate si kind est la primitive la plus proche."
+        ),
+    )
+
+    @field_validator("color")
+    @classmethod
+    def _validate_color(cls, v: str) -> str:
+        return _validate_color_token(v)
+
+    @field_validator("label")
+    @classmethod
+    def _normalize_label(cls, v: Optional[str]) -> Optional[str]:
+        """Strip ; chaîne vide → None (absence d'information explicite)."""
+        if v is None:
+            return None
+        stripped = v.strip()
+        return stripped or None
+
+
+class PedestalIR(BaseModel):
+    """
+    semantic_fidelity_v1 — Socle paramétrable (V1 uniquement).
+
+    Permet d'honorer les demandes type "sur socle pierre" au lieu de les
+    perdre silencieusement. Absent (None au niveau intent) → le builder
+    conserve le Pedestal canonique (gris foncé matte), comportement V0.
+    Seuls couleur et profil matériau sont exposés ; géométrie canonique.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    color: str = Field(
+        ..., description="Couleur du socle : palette nommée ou #RRGGBB."
+    )
+    material: SubjectMaterial = Field(
+        default="matte",
+        description="Profil matériau du socle (défaut matte).",
+    )
 
     @field_validator("color")
     @classmethod
@@ -244,16 +313,28 @@ class ProductRenderIntent(BaseModel):
         default=None,
         description="V1 : cadrage du rendu (défaut builder = medium).",
     )
+    # --- Champ semantic_fidelity_v1 (V1 uniquement) ---
+    pedestal: Optional[PedestalIR] = Field(
+        default=None,
+        description=(
+            "V1 : socle paramétrable (couleur + matériau). None = Pedestal "
+            "canonique (comportement V0)."
+        ),
+    )
 
     @model_validator(mode="after")
     def _enforce_v0_purity(self) -> "ProductRenderIntent":
-        """En v0, aucun champ V1 ne doit être fourni (compat byte-équivalente)."""
+        """En v0, aucun champ V1 ne doit être fourni (compat byte-équivalente).
+
+        Exceptions version-neutres : subject.label et subject.kind_fidelity
+        (métadonnées de traçabilité sans effet géométrique)."""
         if self.schema_version == "v0":
             forbidden_v1 = {
                 "subject.shape": self.subject.shape,
                 "subject.cap": self.subject.cap,
                 "subject.transparency": self.subject.transparency,
                 "framing": self.framing,
+                "pedestal": self.pedestal,
             }
             offenders = [k for k, v in forbidden_v1.items() if v is not None]
             if offenders:
