@@ -450,6 +450,9 @@ def run_visual_qa(render_path: str | None) -> dict:
             "checks": checks,
             # H.6.10 — traçabilité de la méthode de segmentation utilisée.
             "segmentation": _segmentation_method(img),
+            # framing_contract — taille image pour normaliser la bbox perceptuelle
+            # (comparaison projeté↔perçu en fractions, indépendante de la résolution).
+            "image_size": list(img.size),
         }
 
     except Exception as exc:

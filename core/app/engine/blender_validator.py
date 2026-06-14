@@ -19,6 +19,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.engine import framing_contract
 from app.engine.blender_templates import get_template_spec
 from app.engine.blender_qa_visual import _empty_checks, run_visual_qa
 from app.engine.blender_runtime_contract import evaluate_runtime_contract
@@ -120,6 +121,38 @@ _INSPECT_SCRIPT_TEMPLATE = textwrap.dedent("""\
     except Exception as e:
         report["_inspect_error"] = str(e)
 
+    # framing_contract (§9.2) — données brutes pour la projection géométrique.
+    # Isolé dans son propre try : ne doit jamais casser l'inspection structurelle.
+    try:
+        from mathutils import Vector
+        _cam = bpy.context.scene.camera
+        _subj = bpy.context.scene.objects.get("Product_Subject")
+        if _cam is not None and _subj is not None:
+            bpy.context.view_layer.update()  # matrix_world paresseux
+            _rd = bpy.context.scene.render
+            report["framing_raw"] = {{
+                "camera": {{
+                    "view_matrix": [list(r) for r in _cam.matrix_world.inverted()],
+                    "lens": _cam.data.lens,
+                    "sensor_width": _cam.data.sensor_width,
+                    "sensor_height": _cam.data.sensor_height,
+                    "sensor_fit": _cam.data.sensor_fit,
+                    "shift_x": _cam.data.shift_x,
+                    "shift_y": _cam.data.shift_y,
+                }},
+                "render": {{
+                    "res_x": _rd.resolution_x,
+                    "res_y": _rd.resolution_y,
+                    "pixel_x": _rd.pixel_aspect_x,
+                    "pixel_y": _rd.pixel_aspect_y,
+                }},
+                "subject_corners": [
+                    list(_subj.matrix_world @ Vector(c)) for c in _subj.bound_box
+                ],
+            }}
+    except Exception as e:
+        report["_framing_error"] = str(e)
+
     with open({report_path!r}, "w", encoding="utf-8") as f:
         json.dump(report, f)
 """)
@@ -188,6 +221,58 @@ def _empty_runtime_contract_block(template_name: str | None) -> dict:
         "before": {},
         "after": {},
     }
+
+
+def _build_framing_block(bpy_data: dict | None, visual_qa: dict | None) -> dict:
+    """
+    framing_contract V1 (§9.2, Décision 17) — autorité de cadrage géométrique.
+    Construit le bloc à partir des données brutes `framing_raw` du subprocess
+    bpy + de la bbox perceptuelle (visual_qa) pour le signal `framing_divergence`.
+    `skipped` si les données géométriques sont absentes (scène mockée, pas de
+    Product_Subject, etc.). Ne lève jamais.
+
+    Observabilité V1 : ce bloc N'ESCALADE PAS report["status"] (l'occupation
+    canonique est sous la cible — cf. §9.2/B1 ; le transfert d'autorité
+    décisionnelle viendra avec le recalibrage). framing_divergence = signal-only.
+    """
+    raw = (bpy_data or {}).get("framing_raw")
+    if not raw:
+        return {"status": "skipped", "violations": [], "method": framing_contract.METHOD_V1}
+    try:
+        cam = raw["camera"]
+        rnd = raw["render"]
+        corners = [tuple(c) for c in raw["subject_corners"]]
+        view_matrix = tuple(tuple(row) for row in cam["view_matrix"])
+        hw, hh = framing_contract.half_extents_at_unit_depth(
+            cam["lens"],
+            cam.get("sensor_width", 36.0),
+            cam.get("sensor_height", 24.0),
+            cam.get("sensor_fit", "AUTO"),
+            rnd["res_x"], rnd["res_y"],
+            rnd.get("pixel_x", 1.0), rnd.get("pixel_y", 1.0),
+        )
+        block = framing_contract.evaluate_framing(
+            view_matrix, {"half_w": hw, "half_h": hh}, corners
+        )
+        # Divergence projeté↔perçu en fractions [0,1] (indépendant de la résolution :
+        # le .blend peut être en 1920² alors que la preview est en 512²).
+        perceptual_frac = None
+        try:
+            vq = visual_qa or {}
+            size = vq.get("image_size")
+            bbox = vq.get("checks", {}).get("subject_bbox_detected", {}).get("bbox")
+            if size and bbox and size[0] and size[1]:
+                w, h = size[0], size[1]
+                perceptual_frac = [bbox[0] / w, bbox[1] / h, bbox[2] / w, bbox[3] / h]
+        except Exception:
+            perceptual_frac = None
+        block["framing_divergence"] = framing_contract.framing_divergence(
+            block.get("screen_bbox", [0, 0, 0, 0]), perceptual_frac
+        )
+        return block
+    except Exception as e:
+        return {"status": "skipped", "violations": [],
+                "method": framing_contract.METHOD_V1, "details": f"framing error: {e}"}
 
 
 def _preview_metadata(render_path: str | None) -> dict | None:
@@ -548,11 +633,14 @@ def inspect_blend_scene(
         "object_names":      list(final_bpy.get("object_names", []) or []),
         "visual_qa":         final_visual_qa,
         "runtime_contract":  runtime_contract_block,
+        "framing_contract":  _build_framing_block(final_bpy, final_visual_qa),
     }
 
     # Agrégation des violations finales :
     # structural (sur l'état final) + semantic scaffold + visual_qa final + runtime_contract final.
-    # NOTE : ast_guard reste signal-only (H.4.7) — ses violations NE SONT PAS ajoutées ici.
+    # NOTE : ast_guard ET framing_contract restent signal-only — leurs violations
+    # NE SONT PAS ajoutées ici (Décision 17 : V1 en observabilité, autorité
+    # décisionnelle de cadrage transférée après recalibrage de l'occupation).
     violations = _determine_violations(report, blend_exists, scene_py_exists)
     violations.extend(semantic_violations)
     violations.extend(final_visual_qa.get("violations", []) or [])

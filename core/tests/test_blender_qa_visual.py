@@ -53,6 +53,7 @@ from app.engine.blender_qa_visual import (
     run_visual_qa,
 )
 from app.engine.blender_validator import inspect_blend_scene
+from app.engine import framing_contract
 
 
 pytestmark = pytest.mark.skipif(
@@ -907,3 +908,71 @@ class TestInspectBlendSceneVisualQA:
             f"(violations={report['violations']})"
         )
         assert V_DECOR_DOMINATES not in report["violations"]
+
+
+# ---------------------------------------------------------------------------
+# framing_contract (§9.2, Décision 17) — intégration dans inspect_blend_scene
+# ---------------------------------------------------------------------------
+
+def _framing_raw(half_y: float) -> dict:
+    """Données brutes de cadrage : caméra à (0,0,2) regardant −Z, sujet centré
+    de demi-hauteur half_y (occupation pilotée par half_y)."""
+    vm = framing_contract.view_matrix_from_pose((0.0, 0.0, 2.0), (0.0, 0.0, 0.0))
+    corners = [[dx, dy, dz]
+               for dx in (-0.05, 0.05) for dy in (-half_y, half_y) for dz in (-0.05, 0.05)]
+    return {
+        "camera": {"view_matrix": [list(r) for r in vm], "lens": 50.0,
+                   "sensor_width": 36.0, "sensor_height": 24.0, "sensor_fit": "AUTO",
+                   "shift_x": 0.0, "shift_y": 0.0},
+        "render": {"res_x": 512, "res_y": 512, "pixel_x": 1.0, "pixel_y": 1.0},
+        "subject_corners": corners,
+    }
+
+
+class TestFramingContractIntegration:
+
+    def _run(self, tmp_path, bpy_report):
+        blend = tmp_path / "scene.blend"
+        blend.write_bytes(b"")
+        (tmp_path / "scene.py").write_text("import bpy", encoding="utf-8")
+        preview = tmp_path / "preview.png"
+        _save_png(_make_good_image(), preview)
+        with patch("subprocess.run", side_effect=_make_proc_success(tmp_path, bpy_report)):
+            return inspect_blend_scene(
+                exe="/fake/blender", output_path=str(blend),
+                output_dir=str(tmp_path), timeout=30, render_path=str(preview),
+            )
+
+    def test_skipped_without_framing_raw(self, tmp_path):
+        report = self._run(tmp_path, _fake_bpy_report_ok())
+        assert "framing_contract" in report
+        assert report["framing_contract"]["status"] == "skipped"
+
+    def test_computed_when_well_framed(self, tmp_path):
+        bpy_report = _fake_bpy_report_ok()
+        bpy_report["framing_raw"] = _framing_raw(0.288)   # occupation ≈ 0.4
+        report = self._run(tmp_path, bpy_report)
+        block = report["framing_contract"]
+        assert block["status"] == "passed"
+        assert block["method"] == "projected_ndc_v1"
+        assert "screen_bbox" in block
+        assert "framing_divergence" in block
+
+    def test_signal_only_does_not_escalate_status(self, tmp_path):
+        bpy_report = _fake_bpy_report_ok()
+        bpy_report["framing_raw"] = _framing_raw(0.02)    # sujet trop petit
+        report = self._run(tmp_path, bpy_report)
+        block = report["framing_contract"]
+        assert block["status"] == "degraded"
+        assert framing_contract.V_FRAMING_OCCUPANCY_OUT in block["violations"]
+        # Invariant signal-only : aucune violation framing_* dans le rapport global
+        assert not any(str(v).startswith("framing_") for v in report["violations"])
+        # Le status global reste passed (preview bonne) malgré le framing degraded
+        assert report["status"] == "passed"
+
+    def test_divergence_is_signal_only_block(self, tmp_path):
+        bpy_report = _fake_bpy_report_ok()
+        bpy_report["framing_raw"] = _framing_raw(0.288)
+        report = self._run(tmp_path, bpy_report)
+        div = report["framing_contract"]["framing_divergence"]
+        assert "diverged" in div and "iou" in div
