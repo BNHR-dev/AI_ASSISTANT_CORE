@@ -173,6 +173,34 @@ def background_pixels(img) -> list[int]:
     return pixels
 
 
+def background_columns(img) -> list[list[int]]:
+    """
+    Variante PAR COLONNE de background_pixels (bbox_gradient_v1) : retourne, pour
+    chaque colonne x, la liste des pixels de fond périphériques de cette colonne
+    — bande supérieure pour tout x, plus la portion de colonne latérale pour les
+    bords gauche/droit. Même géométrie de bandes que background_pixels (source
+    unique), pour estimer une référence de fond *locale* robuste aux dégradés
+    latéraux du backdrop. Pure.
+    """
+    w, h = img.size
+    top_h = max(1, int(h * BACKGROUND_TOP_BAND_RATIO))
+    side_w = max(1, int(w * BACKGROUND_SIDE_BAND_RATIO))
+    side_bottom = max(top_h, int(h * BACKGROUND_SIDE_BAND_BOTTOM))
+
+    # Bande supérieure (row-major) : la colonne x est le slice top[x::w].
+    top = img.crop((0, 0, w, top_h)).tobytes()
+    cols: list[list[int]] = [list(top[x::w]) for x in range(w)]
+
+    # Colonnes latérales : étendent verticalement les seules colonnes de bord.
+    if side_bottom > top_h:
+        left = img.crop((0, top_h, side_w, side_bottom)).tobytes()
+        right = img.crop((w - side_w, top_h, w, side_bottom)).tobytes()
+        for xi in range(side_w):
+            cols[xi].extend(left[xi::side_w])
+            cols[w - side_w + xi].extend(right[xi::side_w])
+    return cols
+
+
 def background_luminance_stats(render_path: str | None) -> dict:
     """
     Statistiques de luminance du fond sur preview.png, par zones

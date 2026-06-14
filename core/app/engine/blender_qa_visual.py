@@ -27,7 +27,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from app.engine.hero_framing import background_pixels
+from app.engine.hero_framing import background_columns, background_pixels
 
 # ---------------------------------------------------------------------------
 # Violations visuelles — H.4.5
@@ -59,6 +59,14 @@ THRESHOLD_FOREGROUND     = 30    # V0 (fallback) : pixels > 30/255 considérés 
 FOREGROUND_DELTA         = 25
 SEGMENTATION_METHOD_V1   = "background_relative_v1"
 SEGMENTATION_METHOD_V0   = "absolute_threshold_v0_fallback"
+
+# bbox_gradient_v1 — référence de fond LOCALE par colonne. Sur un backdrop en
+# dégradé latéral, la médiane scalaire globale (V1) compte le bord sombre du
+# frame comme sujet → bbox collée au bord. Une référence par colonne donne à
+# chaque colonne sa propre base de fond. Seule la *référence* devient locale :
+# le delta de segmentation (FOREGROUND_DELTA) est INCHANGÉ.
+SEGMENTATION_METHOD_V2   = "background_per_column_v2"
+COLUMN_SMOOTH_RATIO      = 0.05   # demi-fenêtre de lissage horizontal (frac. largeur)
 
 # H.4.5.1 — détection décor dominant via histogramme + triple gate
 THRESHOLD_DECOR_DOMINANCE     = 0.45  # bin dominant > 45 % des pixels → bande luminance massive
@@ -94,14 +102,62 @@ def _background_median(img) -> int | None:
     return pixels[len(pixels) // 2]
 
 
+def _background_column_reference(img) -> list[int] | None:
+    """
+    Référence de fond PAR COLONNE (bbox_gradient_v1). Pour chaque colonne :
+    médiane des pixels de fond périphériques de la colonne, puis lissage
+    horizontal (médiane glissante) pour absorber le bruit de la bande haute.
+    Retourne une liste de longueur = largeur de l'image, ou None si non
+    calculable. Pure.
+    """
+    try:
+        cols = background_columns(img)
+    except Exception:
+        return None
+    w = img.size[0]
+    if not cols or len(cols) != w:
+        return None
+    raw: list[int] = []
+    for c in cols:
+        if not c:
+            return None
+        cc = sorted(c)
+        raw.append(cc[len(cc) // 2])
+    win = max(1, int(w * COLUMN_SMOOTH_RATIO))
+    smoothed: list[int] = []
+    for x in range(w):
+        window = sorted(raw[max(0, x - win):min(w, x + win + 1)])
+        smoothed.append(window[len(window) // 2])
+    return smoothed
+
+
+def _mask_from_column_reference(img, col_ref: list[int]):
+    """
+    Masque sujet/fond à partir d'une référence de fond par colonne :
+    pixel 'sujet' (255) si |p − col_ref[x]| > FOREGROUND_DELTA, sinon 0.
+    Construit en espace PIL (ImageChops), sans boucle pixel Python.
+    """
+    from PIL import Image, ImageChops
+    w, h = img.size
+    ref_img = Image.frombytes("L", (w, 1), bytes(col_ref)).resize((w, h), Image.NEAREST)
+    diff = ImageChops.difference(img, ref_img)
+    return diff.point(lambda d: 255 if d > FOREGROUND_DELTA else 0)
+
+
 def _foreground_mask(img):
     """
-    Centralise la segmentation sujet/fond (H.6.10 — visual_contract_v1).
+    Centralise la segmentation sujet/fond.
 
-    V1 : pixels s'écartant de la médiane du fond de plus de FOREGROUND_DELTA
-    → 255 (sujet), sinon 0. Robuste fond clair ET fond sombre.
-    Fallback V0 (médiane impossible) : seuil absolu THRESHOLD_FOREGROUND.
+    V2 (bbox_gradient_v1) : référence de fond LOCALE par colonne — robuste aux
+      backdrops en dégradé latéral (le bord sombre n'est plus compté comme sujet).
+    V1 (H.6.10) : repli médiane de fond globale si la référence par colonne est
+      indisponible. Fond clair ET fond sombre.
+    V0 : repli seuil absolu THRESHOLD_FOREGROUND si aucune médiane de fond.
+    Le delta (FOREGROUND_DELTA) est commun à V1 et V2.
     """
+    col_ref = _background_column_reference(img)
+    if col_ref is not None:
+        return _mask_from_column_reference(img, col_ref)
     bg_median = _background_median(img)
     if bg_median is None:
         return img.point(lambda p: 255 if p > THRESHOLD_FOREGROUND else 0)
@@ -112,11 +168,11 @@ def _foreground_mask(img):
 
 def _segmentation_method(img) -> str:
     """Nom de la méthode de segmentation effectivement applicable. Pure."""
-    return (
-        SEGMENTATION_METHOD_V1
-        if _background_median(img) is not None
-        else SEGMENTATION_METHOD_V0
-    )
+    if _background_column_reference(img) is not None:
+        return SEGMENTATION_METHOD_V2
+    if _background_median(img) is not None:
+        return SEGMENTATION_METHOD_V1
+    return SEGMENTATION_METHOD_V0
 
 
 def _empty_checks() -> dict:

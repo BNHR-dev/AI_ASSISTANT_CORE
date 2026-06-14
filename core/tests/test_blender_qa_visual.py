@@ -29,6 +29,8 @@ except ImportError:
     _PIL_AVAILABLE = False
 
 from app.engine.blender_qa_visual import (
+    FOREGROUND_DELTA,
+    SEGMENTATION_METHOD_V2,
     THRESHOLD_DECOR_DOMINANCE,
     THRESHOLD_FOREGROUND,
     THRESHOLD_FOREGROUND_DOMINANT,
@@ -40,6 +42,9 @@ from app.engine.blender_qa_visual import (
     V_SUBJECT_OUT_OF_FRAME,
     V_SUBJECT_TOO_SMALL,
     V_SUBJECT_OFFCENTER,
+    _background_column_reference,
+    _background_median,
+    _foreground_mask,
     check_decor_dominance,
     check_luminance_contrast,
     check_subject_bbox_detected,
@@ -181,6 +186,39 @@ def _make_minimalist_packshot_image(size: tuple = (128, 128)) -> "Image.Image":
     for x in range(cx - r, cx + r):
         for y in range(cy - r, cy + r):
             img.putpixel((x, y), 180)
+    return img
+
+
+def _make_gradient_backdrop_image(size: tuple = (128, 128)) -> "Image.Image":
+    """
+    bbox_gradient_v1 — backdrop en dégradé LATÉRAL reproduisant le résidu
+    H.6.10 (smokes 80358b99 / c4076a23) : plateau central clair (~135) qui
+    retombe à ~65 sur de fines bandes de bord (vignette d'éclairage), + sujet
+    net centré. La médiane de fond GLOBALE est tirée par le centre clair (~135),
+    si bien que le bord sombre s'en écarte de ≫ FOREGROUND_DELTA et est compté
+    comme sujet (bbox collée au bord). La référence PAR COLONNE donne à chaque
+    bord sa propre base sombre → bbox recentrée.
+    """
+    w, h = size
+    img = Image.new("L", size)
+    px = img.load()
+    edge = max(1, int(w * 0.15))      # largeur des bandes de bord en dégradé
+    plateau, dark = 135, 65
+    for x in range(w):
+        if x < edge:
+            val = dark + (plateau - dark) * x // edge
+        elif x > w - 1 - edge:
+            val = dark + (plateau - dark) * (w - 1 - x) // edge
+        else:
+            val = plateau
+        for y in range(h):
+            px[x, y] = int(val)
+    # Sujet net centré, nettement détaché du fond local (≈ tiers central).
+    r = w // 6
+    cx, cy = w // 2, h // 2
+    for x in range(cx - r, cx + r):
+        for y in range(cy - r, cy + r):
+            px[x, y] = 230
     return img
 
 
@@ -420,6 +458,92 @@ class TestCheckDecorDominance:
         result = check_decor_dominance(img)
         assert result.get("details") is not None
         assert "décor" in result["details"].lower() or "decor" in result["details"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Tests bbox_gradient_v1 — référence de fond par colonne (backdrop dégradé)
+# ---------------------------------------------------------------------------
+
+class TestBboxGradientV1:
+    """Résidu H.6.10 : bbox imprécise sur backdrop en dégradé latéral.
+    Cas de référence réels : 80358b99 / c4076a23 (cf. cadrage 09)."""
+
+    def test_column_reference_captures_lateral_gradient(self):
+        """La référence par colonne est plus sombre aux bords qu'au centre."""
+        img = _make_gradient_backdrop_image()
+        w = img.size[0]
+        ref = _background_column_reference(img)
+        assert ref is not None
+        assert len(ref) == w
+        assert ref[0] < ref[w // 2]
+        assert ref[-1] < ref[w // 2]
+
+    def test_global_median_glues_to_edge_but_per_column_does_not(self):
+        """Preuve du correctif : la médiane GLOBALE colle la bbox au bord
+        sombre ; la référence PAR COLONNE la recentre."""
+        img = _make_gradient_backdrop_image()
+        w, _ = img.size
+
+        # Ancienne segmentation (médiane de fond globale) : bbox collée à gauche.
+        gmed = _background_median(img)
+        global_mask = img.point(
+            lambda p: 255 if abs(p - gmed) > FOREGROUND_DELTA else 0
+        )
+        gbbox = global_mask.getbbox()
+        assert gbbox[0] == 0, "la médiane globale doit coller la bbox au bord (bug V1)"
+
+        # Nouvelle segmentation (par colonne) : bbox décollée du bord.
+        pbbox = _foreground_mask(img).getbbox()
+        assert pbbox[0] >= w // 5, f"bbox toujours collée au bord : {pbbox}"
+
+    def test_gradient_bbox_is_centered_not_glued(self):
+        img = _make_gradient_backdrop_image()
+        w, h = img.size
+        bbox = check_subject_bbox_detected(img)["bbox"]
+        assert bbox is not None
+        left, top, right, bottom = bbox
+        # Le sujet réel est dans le tiers central — la bbox ne touche pas le bord.
+        assert left >= w // 5
+        assert right <= w - w // 5
+
+    def test_gradient_area_ratio_reflects_subject_not_full_width(self):
+        """area_ratio doit refléter le sujet (≈ centre), pas la pleine largeur."""
+        img = _make_gradient_backdrop_image()
+        area = check_subject_area_ratio(img)["subject_area_ratio"]
+        assert area >= THRESHOLD_SUBJECT_AREA   # sujet bien détecté
+        assert area < 0.25                       # plus de bbox pleine largeur
+
+    def test_gradient_centering_passes(self):
+        img = _make_gradient_backdrop_image()
+        assert check_subject_centering(img)["status"] == "passed"
+
+    def test_gradient_decor_dominance_not_regressed(self):
+        """Le gate decor reste passed (le bord sombre n'est plus full-frame)."""
+        img = _make_gradient_backdrop_image()
+        assert check_decor_dominance(img)["status"] == "passed"
+
+    def test_run_visual_qa_reports_per_column_method(self):
+        img = _make_gradient_backdrop_image()
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "preview.png"
+            _save_png(img, p)
+            result = run_visual_qa(str(p))
+        assert result["segmentation"] == SEGMENTATION_METHOD_V2
+
+    def test_flat_background_unchanged_and_uses_v2(self):
+        """Non-régression : sur fond plat, la bbox du sujet centré est
+        inchangée et la méthode reportée est bien la v2."""
+        img = _make_good_image()
+        bbox = check_subject_bbox_detected(img)["bbox"]
+        assert bbox is not None
+        # Sujet 80×80 centré sur 128×128 → bbox ≈ [24,24,104,104].
+        left, top, right, bottom = bbox
+        assert 20 <= left <= 28 and 20 <= top <= 28
+        assert 104 <= right <= 108 and 104 <= bottom <= 108
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "preview.png"
+            _save_png(img, p)
+            assert run_visual_qa(str(p))["segmentation"] == SEGMENTATION_METHOD_V2
 
 
 # ---------------------------------------------------------------------------

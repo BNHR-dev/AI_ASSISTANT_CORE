@@ -30,6 +30,7 @@ from app.engine.hero_framing import (
     HERO_OCCUPANCY_MAX,
     HERO_OCCUPANCY_MIN,
     HERO_OCCUPANCY_TOLERANCE,
+    background_columns,
     background_luminance_stats,
     background_pixels,
     cap_backdrop_albedo,
@@ -215,6 +216,30 @@ class TestBackgroundLuminance:
         stats = background_luminance_stats("/nonexistent/preview.png")
         assert stats["status"] == "skipped"
         assert stats["median"] is None
+
+    def test_background_columns_geometry(self):
+        # bbox_gradient_v1 : une liste de fond par colonne, longueur = largeur.
+        # Toute colonne a au moins ses pixels de bande haute ; les colonnes de
+        # bord (latérales) en ont davantage que les colonnes centrales.
+        from PIL import Image
+        img = Image.new("L", (64, 64), color=120)
+        cols = background_columns(img)
+        assert len(cols) == 64
+        assert all(c for c in cols)            # aucune colonne vide
+        assert len(cols[0]) > len(cols[32])    # colonne de bord plus échantillonnée
+
+    def test_background_columns_track_lateral_gradient(self):
+        # Dégradé latéral : la médiane par colonne suit la luminance de la colonne.
+        from PIL import Image
+        w = 64
+        img = Image.new("L", (w, 64))
+        px = img.load()
+        for x in range(w):
+            for y in range(64):
+                px[x, y] = 40 + x          # sombre à gauche, clair à droite
+        cols = background_columns(img)
+        med = lambda c: sorted(c)[len(c) // 2]
+        assert med(cols[0]) < med(cols[w - 1])
 
 
 # ---------------------------------------------------------------------------
