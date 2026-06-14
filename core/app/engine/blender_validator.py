@@ -15,11 +15,12 @@ import re
 import subprocess
 import tempfile
 import textwrap
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
 from app.engine.blender_templates import get_template_spec
-from app.engine.blender_qa_visual import run_visual_qa
+from app.engine.blender_qa_visual import _empty_checks, run_visual_qa
 from app.engine.blender_runtime_contract import evaluate_runtime_contract
 from app.engine.blender_runtime_corrector import apply_corrections, plan_corrections
 
@@ -212,6 +213,31 @@ def _preview_metadata(render_path: str | None) -> dict | None:
         return None
 
 
+def _preview_is_usable(path: "str | Path | None") -> bool:
+    """
+    preview_writer_dedup — une preview est exploitable seulement si elle existe,
+    est un fichier et n'est pas vide. Source unique du contrat de validité,
+    importée aussi par blender_client (BlenderResult.render_path).
+    Best-effort : une erreur filesystem => non exploitable.
+    """
+    if not path:
+        return False
+    preview_path = Path(path)
+    try:
+        return preview_path.is_file() and preview_path.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def _skipped_visual_qa() -> dict:
+    """
+    preview_writer_dedup — structure "skipped" du contrat run_visual_qa, SANS
+    lancer l'analyse. Utilisée pour l'état initial : aucune preview eager n'est
+    rendue, donc la QA initiale est skipped par construction (zéro vrai appel).
+    """
+    return {"status": "skipped", "violations": [], "checks": _empty_checks()}
+
+
 def _snapshot_state(bpy_data: dict, visual_qa: dict, preview_meta: dict | None = None) -> dict:
     """
     Capture l'état de la scène pour before/after dans runtime_contract.
@@ -308,6 +334,7 @@ def inspect_blend_scene(
     template_name: str | None = None,
     render_path: str | None = None,
     ast_guard: dict | None = None,
+    base_preview_renderer: Callable[[], str | None] | None = None,
 ) -> dict:
     """
     Inspecte un .blend produit par le pipeline Blender.
@@ -330,6 +357,13 @@ def inspect_blend_scene(
     ast_guard     : rapport AST guard V0 (H.4.7). Signal-only : pas propagé
                     dans report["violations"]. Toujours présent dans le
                     rapport retourné, fallback "skipped" si None.
+    base_preview_renderer : preview_writer_dedup — renderer de base injecté
+                    (DI, évite l'import circulaire validator -> client). Appelé
+                    en FILET DE SÉCURITÉ uniquement si, après la phase de
+                    correction, aucune preview n'existe à render_path (scène
+                    legacy, product_render malformé, ou correction non
+                    appliquée). Pour product_render corrigé, le corrector reste
+                    le seul writer et ce renderer n'est PAS appelé.
 
     H.4.8 — Runtime correction loop product_render :
     Après inspection initiale, si template_name == "product_render" et que
@@ -355,13 +389,12 @@ def inspect_blend_scene(
         output_dir_path, template_name
     )
 
-    # H.4.5 — QA visuelle V0 initiale (sera potentiellement recalculée après correction H.4.8)
-    initial_visual_qa = run_visual_qa(render_path)
-
-    # H.4.8.2 — capture la métadata du preview AVANT toute correction.
-    # Le re-rendu du corrector écrit par-dessus le fichier ; sans cette
-    # capture, before et after auraient les mêmes preview_size/mtime.
-    initial_preview_meta = _preview_metadata(render_path)
+    # H.4.5 / preview_writer_dedup — Plus aucun rendu eager : aucune preview
+    # n'existe à ce stade. L'état initial est "skipped" CONSTRUIT directement
+    # (pas de vrai appel run_visual_qa) et aucune preview_meta. Le SEUL vrai
+    # appel QA a lieu plus bas, sur la preview finale réellement produite.
+    initial_visual_qa = _skipped_visual_qa()
+    initial_preview_meta = None
 
     # H.4.7 — AST guard V0 : toujours présent dans le rapport, fallback skipped si None.
     # Signal-only : ses violations ne sont JAMAIS propagées dans report["violations"].
@@ -459,8 +492,8 @@ def inspect_blend_scene(
             )
             if second_error is None and second_bpy is not None:
                 final_bpy = second_bpy
-                # Recalcul visual_qa sur preview.png re-rendu
-                final_visual_qa = run_visual_qa(render_path)
+                # (QA visuelle recalculée UNE seule fois plus bas, sur la
+                # preview finale réellement produite — pas ici.)
                 final_runtime = evaluate_runtime_contract(
                     list(final_bpy.get("object_names", []) or []),
                     template_name,
@@ -468,6 +501,28 @@ def inspect_blend_scene(
             # Si la ré-inspection plante, on garde l'état initial pour
             # éviter de mentir : runtime_contract.final_violations reflètera
             # alors l'état initial. correction_status="applied" reste vrai.
+
+    # preview_writer_dedup — FILET DE SÉCURITÉ : si aucun writer n'a produit une
+    # preview EXPLOITABLE (absente, non-fichier, vide, ou inaccessible), rendre
+    # la preview de base via le renderer injecté. Cas couverts : legacy,
+    # product_render malformé, correction non appliquée / en échec, ou corrector
+    # produisant un fichier vide. Pour un product_render corrigé avec une preview
+    # exploitable, le corrector reste le SEUL writer → ce bloc est sauté.
+    if (
+        render_path
+        and base_preview_renderer is not None
+        and not _preview_is_usable(render_path)
+    ):
+        try:
+            base_preview_renderer()
+        except Exception:
+            pass
+
+    # preview_writer_dedup — UNIQUE vrai appel QA, sur la preview finale réellement
+    # livrée (après corrector et/ou fallback). Si rien d'exploitable, l'état reste
+    # "skipped" construit plus haut (zéro appel).
+    if _preview_is_usable(render_path):
+        final_visual_qa = run_visual_qa(render_path)
 
     # Construction du bloc runtime_contract (always present)
     runtime_contract_block = {

@@ -1032,12 +1032,13 @@ class TestRuntimeContractNormalizationH482:
         assert rc["correction_status"] == "skipped"
         assert rc["corrections_applied"] == []
 
-    def test_normalization_preview_metadata_distinguishes_before_after(self, tmp_path):
-        """before.preview_mtime_iso doit différer de after.preview_mtime_iso
-        après un re-rendu (rerender_preview a touché le fichier)."""
+    def test_normalization_preview_only_exists_after_correction(self, tmp_path):
+        """preview_writer_dedup — plus de rendu eager : aucune preview n'existe
+        AVANT correction. Pour un product_render corrigé, le corrector est le
+        SEUL writer → `before` n'a pas de preview_meta, `after` en a une."""
         blend = self._make_blend(tmp_path)
         preview = tmp_path / "preview.png"
-        preview.write_bytes(b"INITIAL_PREVIEW_BYTES")
+        # NB : on ne pré-crée PAS la preview (contrairement à l'ancien flux).
 
         bpy_report = _fake_bpy_report(
             object_count=6,
@@ -1090,16 +1091,141 @@ class TestRuntimeContractNormalizationH482:
         rc = report["runtime_contract"]
         before = rc["before"]
         after = rc["after"]
-        # Les deux doivent avoir les méta preview
-        assert "preview_size_bytes" in before
+        # before : aucune preview rendue en amont → pas de méta preview.
+        assert "preview_size_bytes" not in before
+        assert "preview_mtime_iso" not in before
+        # after : le corrector a produit la preview → méta présente.
         assert "preview_size_bytes" in after
-        assert "preview_mtime_iso" in before
         assert "preview_mtime_iso" in after
-        # Taille ou mtime doivent différer (re-rendu effectif)
-        size_differs = before["preview_size_bytes"] != after["preview_size_bytes"]
-        mtime_differs = before["preview_mtime_iso"] != after["preview_mtime_iso"]
-        assert size_differs or mtime_differs, (
-            f"before et after preview indistinguables : "
-            f"before_size={before['preview_size_bytes']} after_size={after['preview_size_bytes']} "
-            f"before_mtime={before['preview_mtime_iso']} after_mtime={after['preview_mtime_iso']}"
+        assert preview.exists()
+
+
+
+# ---------------------------------------------------------------------------
+# preview_writer_dedup — matrice « un SEUL writer » + un SEUL vrai appel QA.
+# Compte explicitement : corrector (apply_corrections), renderer de base, QA réelle.
+# ---------------------------------------------------------------------------
+
+_PRODUCT_NAMES = ["Backdrop_Plane", "Pedestal", "Product_Subject",
+                  "Camera", "Key_Light", "Fill_Light"]
+_MALFORMED_NAMES = ["Backdrop_Plane", "Pedestal", "Camera"]  # Product_Subject absent
+
+
+def _dedup_blend(tmp_path):
+    blend = tmp_path / "scene.blend"
+    blend.write_bytes(b"FAKE")
+    return str(blend)
+
+
+def _dedup_base_renderer(preview: Path, counter: dict, content: bytes = b"BASEPNG"):
+    def _render():
+        counter["n"] += 1
+        preview.write_bytes(content)
+        return str(preview)
+    return _render
+
+
+def _run_dedup(tmp_path, *, template, object_names, apply_mock=None,
+               base_content=b"BASEPNG"):
+    """Pilote inspect_blend_scene avec QA mockée (comptage) et corrector mockable."""
+    blend = _dedup_blend(tmp_path)
+    preview = tmp_path / "preview.png"
+    bpy_report = _fake_bpy_report(
+        object_count=len(object_names),
+        light_count=sum(1 for n in object_names if "Light" in n),
+        object_names=object_names,
+    )
+    base_calls = {"n": 0}
+    qa_mock = MagicMock(return_value={"status": "passed", "violations": [], "checks": {}})
+
+    patches = [
+        patch("app.engine.blender_validator.subprocess.run",
+              side_effect=_make_proc_success(tmp_path, bpy_report)),
+        patch("app.engine.blender_validator.run_visual_qa", qa_mock),
+    ]
+    if apply_mock is not None:
+        patches.append(patch("app.engine.blender_validator.apply_corrections", apply_mock))
+
+    import contextlib
+    with contextlib.ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
+        report = inspect_blend_scene(
+            "blender", blend, str(tmp_path), 60,
+            template_name=template, render_path=str(preview),
+            base_preview_renderer=_dedup_base_renderer(preview, base_calls, base_content),
         )
+    return report, preview, base_calls, qa_mock
+
+
+def test_dedup_A_product_render_corrector_sole_writer(tmp_path):
+    """A. product_render valide, corrector réussi : corrector=1, base=0, QA=1."""
+    apply_mock = MagicMock(side_effect=lambda **kw: (
+        Path(kw["render_path"]).write_bytes(b"CORRECTED"),
+        {"status": "applied",
+         "corrections_applied": ["normalize_lighting", "normalize_camera", "rerender_preview"],
+         "reason": None, "stderr": None})[1])
+    report, preview, base_calls, qa_mock = _run_dedup(
+        tmp_path, template="product_render", object_names=_PRODUCT_NAMES,
+        apply_mock=apply_mock)
+    assert apply_mock.call_count == 1          # corrector = 1
+    assert base_calls["n"] == 0                # base = 0
+    assert qa_mock.call_count == 1             # QA réelle = 1
+    assert preview.read_bytes() == b"CORRECTED"
+    assert report["runtime_contract"]["correction_status"] == "applied"
+    assert report["runtime_contract"]["before"]["visual_qa_status"] == "skipped"
+
+
+def test_dedup_B_legacy_uses_base_renderer(tmp_path):
+    """B. legacy : corrector=0, base=1, QA=1."""
+    apply_mock = MagicMock()  # ne doit jamais être appelé
+    report, preview, base_calls, qa_mock = _run_dedup(
+        tmp_path, template=None, object_names=["Cube", "Camera", "Key_Light"],
+        apply_mock=apply_mock)
+    assert apply_mock.call_count == 0          # corrector = 0
+    assert base_calls["n"] == 1                # base = 1
+    assert qa_mock.call_count == 1             # QA réelle = 1
+    assert preview.exists()
+
+
+def test_dedup_C_malformed_product_render_uses_base(tmp_path):
+    """C. product_render malformé (Product_Subject absent) : corrector non
+    applicable → corrector=0, base=1, QA=1. Distinct du corrector qui échoue."""
+    apply_mock = MagicMock()  # plan non applicable → jamais appelé
+    report, preview, base_calls, qa_mock = _run_dedup(
+        tmp_path, template="product_render", object_names=_MALFORMED_NAMES,
+        apply_mock=apply_mock)
+    assert apply_mock.call_count == 0          # corrector = 0 (non applicable)
+    assert base_calls["n"] == 1                # base = 1
+    assert qa_mock.call_count == 1             # QA réelle = 1
+    assert preview.exists()
+
+
+def test_dedup_D_correction_fails_falls_back(tmp_path):
+    """D. product_render applicable mais correction échouée : corrector=1
+    tentative, base=1, QA=1."""
+    apply_mock = MagicMock(return_value={
+        "status": "error", "corrections_applied": [], "reason": "timeout", "stderr": None})
+    report, preview, base_calls, qa_mock = _run_dedup(
+        tmp_path, template="product_render", object_names=_PRODUCT_NAMES,
+        apply_mock=apply_mock)
+    assert apply_mock.call_count == 1          # corrector = 1 tentative
+    assert base_calls["n"] == 1                # base = 1 (fallback)
+    assert qa_mock.call_count == 1             # QA réelle = 1
+    assert preview.read_bytes() == b"BASEPNG"
+
+
+def test_dedup_E_corrector_empty_file_falls_back(tmp_path):
+    """E. corrector produit un fichier VIDE → inexploitable → base=1 (non vide)."""
+    apply_mock = MagicMock(side_effect=lambda **kw: (
+        Path(kw["render_path"]).write_bytes(b""),   # fichier vide
+        {"status": "applied",
+         "corrections_applied": ["normalize_lighting", "normalize_camera", "rerender_preview"],
+         "reason": None, "stderr": None})[1])
+    report, preview, base_calls, qa_mock = _run_dedup(
+        tmp_path, template="product_render", object_names=_PRODUCT_NAMES,
+        apply_mock=apply_mock)
+    assert apply_mock.call_count == 1          # corrector = 1 (a produit un vide)
+    assert base_calls["n"] == 1                # base = 1 (preview vide inexploitable)
+    assert qa_mock.call_count == 1             # QA réelle = 1 (sur la base non vide)
+    assert preview.read_bytes() == b"BASEPNG"

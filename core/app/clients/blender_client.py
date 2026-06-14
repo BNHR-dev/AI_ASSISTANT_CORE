@@ -21,7 +21,7 @@ from app.engine.blender_templates import (
     select_template_from_intent,
     get_template_name_from_intent,
 )
-from app.engine.blender_validator import inspect_blend_scene
+from app.engine.blender_validator import _preview_is_usable, inspect_blend_scene
 # H.5.3 — Branchement Product Render IR Extractor + Builder (product_render uniquement).
 # Le chemin H.4.x scaffold prompt-only reste actif comme fallback.
 from app.engine.product_render_builder import build_product_render_scene_script
@@ -791,22 +791,26 @@ def _run_blender_script_inner(request: BlenderRequest) -> BlenderResult:
             error="Blender completed but no .blend file was produced.",
         )
 
-    # PNG preview : second subprocess best-effort depuis le .blend produit.
-    # Un crash ou une erreur du rendu ne fait pas échouer le pipeline.
-    render_path = _render_preview(exe, request)
-
-    # Validation structurelle best-effort : inspecte le .blend et produit scene_report.json.
-    # Timeout borné à min(request.timeout, 30) pour rester léger.
+    # PNG preview : un SEUL writer par scène (preview_writer_dedup).
+    # On ne rend PLUS la preview en amont : inspect_blend_scene orchestre la
+    # production. Pour product_render corrigé, le runtime corrector est le seul
+    # writer ; sinon (legacy, product_render malformé, ou correction échouée),
+    # inspect_blend_scene appelle ce renderer de base en filet de sécurité.
+    # Injection de dépendance : évite l'import circulaire validator -> client.
     scene_report = inspect_blend_scene(
         exe,
         request.output_path,
         request.output_dir,
         request.timeout,
         template_name=request.template_used,
-        render_path=render_path,   # H.4.5 — QA visuelle V0
+        render_path=request.render_path,   # H.4.5 — QA visuelle V0
         ast_guard=request.ast_guard,  # H.4.7 — AST guard V0 (signal-only)
+        base_preview_renderer=lambda: _render_preview(exe, request),
     )
     scene_report_path = scene_report.get("scene_report_path") if scene_report else None
+    # render_path final = la preview réellement produite (corrector ou base),
+    # seulement si EXPLOITABLE (fichier non vide) — même contrat que le validator.
+    render_path = request.render_path if _preview_is_usable(request.render_path) else None
 
     return BlenderResult(
         status="success",

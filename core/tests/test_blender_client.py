@@ -365,7 +365,8 @@ def test_inject_output_paths_no_render_in_finally():
 
 
 def test_run_blender_script_success_with_render(tmp_path):
-    """BlenderResult.render_path est peuplé si _render_preview retourne le chemin PNG."""
+    """preview_writer_dedup — BlenderResult.render_path est peuplé si un writer a
+    réellement produit preview.png (le renderer de base, en fallback legacy ici)."""
     output_path = str(tmp_path / "scene.blend")
     render_path = str(tmp_path / "preview.png")
     request = _make_request(output_path=output_path, render_path=render_path)
@@ -373,10 +374,15 @@ def test_run_blender_script_success_with_render(tmp_path):
 
     mock_proc_ok = MagicMock(returncode=0, stdout="Saved\n", stderr="")
 
+    def fake_render(*_a, **_k):
+        # Le writer produit réellement le fichier preview sur disque.
+        Path(render_path).write_bytes(b"PNG")
+        return render_path
+
     with (
         patch("app.clients.blender_client.resolve_blender_exe", return_value="/usr/bin/blender"),
         patch("subprocess.run", return_value=mock_proc_ok),
-        patch("app.clients.blender_client._render_preview", return_value=render_path),
+        patch("app.clients.blender_client._render_preview", side_effect=fake_render),
     ):
         result = run_blender_script(request)
 
