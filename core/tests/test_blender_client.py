@@ -577,17 +577,19 @@ def test_render_preview_script_sets_resolution_512(tmp_path):
 def test_render_preview_script_has_world_background(tmp_path):
     """Le script doit configurer un fond world neutre (non noir) pour la preview."""
     script = _capture_render_script(tmp_path)
-    assert "bpy.context.scene.world" in script
+    assert "_pf_scene.world" in script
     assert "use_nodes = True" in script
     assert 'nodes.get("Background")' in script
 
 
 def test_render_preview_script_world_background_not_black(tmp_path):
-    """La couleur de fond ne doit pas être (0,0,0) — utiliser un gris sombre exploitable."""
+    """La couleur de fond ne doit pas être (0,0,0). Depuis H.6.11 le fond plat est
+    remplacé par un gradient directionnel borné (0.03→0.12) — toujours gris sombre
+    exploitable, jamais noir."""
     script = _capture_render_script(tmp_path)
-    # Le fond est (0.05, 0.05, 0.05, 1.0) — pas (0, 0, 0)
     assert "(0.0, 0.0, 0.0, 1.0)" not in script
-    assert "0.05" in script
+    # H.6.11 : gradient borné, extrémité basse non nulle (gris sombre exploitable)
+    assert "(0.03, 0.03, 0.03, 1.0)" in script
 
 
 def test_render_preview_script_has_clip_start(tmp_path):
@@ -1052,3 +1054,84 @@ def test_pipeline_path_constants_are_stable_strings():
     )
     assert PIPELINE_PATH_BUILDER == "product_render_ir_builder"
     assert PIPELINE_PATH_LEGACY == "legacy_llm_bpy_scaffold"
+
+
+# ---------------------------------------------------------------------------
+# H.6.11 — preview_fidelity_v1 : lisibilité verre/métal dans la preview EEVEE
+# Tous les réglages sont transitoires dans le subprocess preview ; scene.blend
+# n'est jamais réécrit. APIs validées contre Blender 5.1.1 (EEVEE Next).
+# ---------------------------------------------------------------------------
+
+def test_render_preview_script_compiles(tmp_path):
+    """Garde-fou H.6.11 : la chaîne Python générée doit être syntaxiquement valide.
+    Les assertions textuelles verrouillent le contrat mais ne détectent pas un
+    script invalide ; compile(mode='exec') attrape ça."""
+    script = _capture_render_script(tmp_path)
+    compile(script, "render_preview.py", "exec")
+
+
+def test_render_preview_enables_scene_raytracing(tmp_path):
+    """Le ray tracing scène (requis verre+métal en EEVEE Next) est activé sous garde hasattr."""
+    script = _capture_render_script(tmp_path)
+    assert 'hasattr(_pf_scene.eevee, "use_raytracing")' in script
+    assert "_pf_scene.eevee.use_raytracing = True" in script
+
+
+def test_render_preview_refraction_reads_transmission_weight(tmp_path):
+    """La détection lit l'input exact 5.1.1 'Transmission Weight', repli 'Transmission'."""
+    script = _capture_render_script(tmp_path)
+    assert '"Transmission Weight"' in script
+    assert '"Transmission"' in script
+
+
+def test_render_preview_refraction_gated_by_transmission_threshold(tmp_path):
+    """La réfraction n'est activée que sur matériaux à transmission > 0 (verre/translucent)."""
+    script = _capture_render_script(tmp_path)
+    assert "bpy.data.materials" in script
+    assert "default_value > 0.0" in script
+
+
+def test_render_preview_uses_raytrace_refraction_primary(tmp_path):
+    """Flag primaire confirmé par introspection = use_raytrace_refraction (EEVEE Next)."""
+    script = _capture_render_script(tmp_path)
+    assert "use_raytrace_refraction = True" in script
+
+
+def test_render_preview_screen_refraction_is_conditional_fallback(tmp_path):
+    """use_screen_refraction n'est qu'un repli défensif (elif hasattr), jamais écrit en plus."""
+    script = _capture_render_script(tmp_path)
+    assert 'elif hasattr(_pf_mat, "use_screen_refraction")' in script
+    # le primaire est sous if, le repli sous elif : jamais les deux inconditionnellement
+    assert script.count("use_raytrace_refraction = True") == 1
+
+
+def test_render_preview_uses_directional_world_gradient(tmp_path):
+    """Environnement procédural directionnel world-space (Geometry.Incoming),
+    pas un effet écran/caméra-dépendant, et plus le fond plat (0.05,...)."""
+    script = _capture_render_script(tmp_path)
+    assert "ShaderNodeNewGeometry" in script
+    assert '"Incoming"' in script
+    assert "(0.05, 0.05, 0.05, 1.0)" not in script
+
+
+def test_render_preview_world_gradient_is_bounded_and_neutral(tmp_path):
+    """Le gradient reste discret/neutre et borné (0.03→0.12) pour préserver l'exposition H.6.9."""
+    script = _capture_render_script(tmp_path)
+    assert "(0.03, 0.03, 0.03, 1.0)" in script
+    assert "(0.12, 0.12, 0.12, 1.0)" in script
+
+
+def test_render_preview_does_not_save_blend(tmp_path):
+    """Invariant : le script preview ne sauvegarde JAMAIS scene.blend."""
+    script = _capture_render_script(tmp_path)
+    assert "save_as_mainfile" not in script
+    assert "wm.save" not in script
+
+
+def test_render_preview_does_not_touch_protected_settings(tmp_path):
+    """H.6.11 ne touche ni Fast GI, ni les lumières/exposition, ni l'échantillonnage."""
+    script = _capture_render_script(tmp_path)
+    assert "use_fast_gi" not in script
+    assert "taa_render_samples" not in script
+    # pas de modification des énergies de lumière (exposition H.6.9 préservée)
+    assert "energy" not in script

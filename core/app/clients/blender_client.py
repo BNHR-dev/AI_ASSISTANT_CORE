@@ -12,6 +12,7 @@ from app.engine.artifact_manifest import write_blender_manifest
 from app.engine.artistic_intent import parse_artistic_intent, write_intent_json
 from app.engine.blender_ast_guard import analyze_scene_py, analyze_security_gate
 from app.engine.blender_model_config import get_blender_llm_model
+from app.engine.blender_preview_fidelity import preview_fidelity_script_block
 from app.engine.llm_trajectory_log import log_trajectory
 from app.engine.blender_types import BlenderRequest, BlenderResult
 from app.engine.blender_templates import (
@@ -582,6 +583,9 @@ def _render_preview(exe: str, request: BlenderRequest) -> str | None:
     (fallback : origine) via mathutils, pour éviter un rendu vide/gris.
     """
     render_script_path = Path(request.output_dir) / "render_preview.py"
+    # H.6.11 — politique de fidélité matière partagée (source unique) avec le
+    # re-rendu du runtime corrector, qui est le dernier writer pour product_render.
+    _fidelity_block = preview_fidelity_script_block()
     render_script = (
         f'import bpy\n'
         f'from mathutils import Vector\n'
@@ -600,17 +604,6 @@ def _render_preview(exe: str, request: BlenderRequest) -> str | None:
         f'bpy.context.scene.render.resolution_x = 512\n'
         f'bpy.context.scene.render.resolution_y = 512\n'
         f'bpy.context.scene.render.resolution_percentage = 100\n'
-        f'\n'
-        f'# -- Fond world neutre (gris sombre) pour éviter le fond noir par défaut --\n'
-        f'world = bpy.context.scene.world\n'
-        f'if world is None:\n'
-        f'    world = bpy.data.worlds.new("World")\n'
-        f'    bpy.context.scene.world = world\n'
-        f'world.use_nodes = True\n'
-        f'bg_node = world.node_tree.nodes.get("Background")\n'
-        f'if bg_node:\n'
-        f'    bg_node.inputs[0].default_value = (0.05, 0.05, 0.05, 1.0)\n'
-        f'    bg_node.inputs[1].default_value = 1.0\n'
         f'\n'
         f'# -- Caméra active : créer si absente --\n'
         f'cam_obj = bpy.context.scene.camera\n'
@@ -660,6 +653,8 @@ def _render_preview(exe: str, request: BlenderRequest) -> str | None:
         f'# -- Lumière SUN best-effort si aucune lumière dans la scène --\n'
         f'if not any(o.type == "LIGHT" for o in bpy.context.scene.objects):\n'
         f'    bpy.ops.object.light_add(type="SUN", location=(4, 4, 6))\n'
+        f'\n'
+        f'{_fidelity_block}\n'
         f'\n'
         f'# -- Rendu PNG --\n'
         f'bpy.context.scene.render.image_settings.file_format = "PNG"\n'

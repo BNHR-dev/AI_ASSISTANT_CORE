@@ -29,6 +29,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from app.engine.blender_preview_fidelity import preview_fidelity_script_lines
 from app.engine.hero_framing import (
     CAMERA_SENSOR_MM,
     HERO_DISTANCE_FACTOR_MAX,
@@ -101,10 +102,11 @@ CANONICAL_CAMERA = {
     "lens": 50,
 }
 
-# Re-rendu canonique (aligné sur _render_preview de blender_client.py)
+# Re-rendu canonique (résolution alignée sur _render_preview de blender_client.py).
+# H.6.11 : l'ancien fond plat CORRECTION_WORLD_BG_RGBA est remplacé par la
+# politique de fidélité partagée (blender_preview_fidelity), source unique.
 CORRECTION_RENDER_RESOLUTION_X = 512
 CORRECTION_RENDER_RESOLUTION_Y = 512
-CORRECTION_WORLD_BG_RGBA = (0.05, 0.05, 0.05, 1.0)
 
 # Nom de l'objet sujet qui sert de gate pour appliquer la correction
 REQUIRED_SUBJECT_NAME = "Product_Subject"
@@ -402,10 +404,10 @@ def build_correction_script(
     # 5. Sauvegarde du .blend corrigé en place
     lines.append(f'bpy.ops.wm.save_as_mainfile(filepath=r"{blend_path}")')
 
-    # 6. Re-rendu preview.png (EEVEE, 512x512, fond gris sombre — aligné
-    #    sur _render_preview de blender_client.py).
+    # 6. Re-rendu preview.png (EEVEE, 512x512) — la politique de fidélité matière
+    #    H.6.11 (env directionnel + ray tracing + réfraction) est appliquée via le
+    #    bloc partagé, aligné à l'identique avec _render_preview de blender_client.py.
     if has_rerender:
-        bg = CORRECTION_WORLD_BG_RGBA
         lines += [
             f'scene.render.resolution_x = {CORRECTION_RENDER_RESOLUTION_X}',
             f'scene.render.resolution_y = {CORRECTION_RENDER_RESOLUTION_Y}',
@@ -418,15 +420,14 @@ def build_correction_script(
             '    if _eng in _avail:',
             '        scene.render.engine = _eng',
             '        break',
-            '_world = scene.world',
-            'if _world is None:',
-            '    _world = bpy.data.worlds.new("World")',
-            '    scene.world = _world',
-            '_world.use_nodes = True',
-            '_bg = _world.node_tree.nodes.get("Background")',
-            'if _bg is not None:',
-            f'    _bg.inputs[0].default_value = {bg}',
-            '    _bg.inputs[1].default_value = 1.0',
+        ]
+        # H.6.11 — politique de fidélité matière PARTAGÉE avec _render_preview
+        # (blender_preview_fidelity, source unique). Remplace l'ancien fond plat :
+        # ray tracing + environnement directionnel borné + réfraction transmissive.
+        # N'altère NI caméra, NI lumières, NI exposition (déjà fixées ci-dessus),
+        # NI Fast GI/ombres/résolution. Modif en mémoire : pas de save_as_mainfile.
+        lines += preview_fidelity_script_lines()
+        lines += [
             'bpy.ops.render.render(write_still=True)',
         ]
 
