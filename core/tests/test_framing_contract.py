@@ -183,6 +183,32 @@ class TestCanonicalFixtures:
         assert fc.V_FRAMING_OCCUPANCY_OUT in res["violations"]
 
 
+class TestOccupancyBand:
+    def test_in_band_strict(self):
+        assert fc.in_occupancy_band(fc.OCCUPANCY_MIN) is True
+        assert fc.in_occupancy_band(0.40) is True
+        assert fc.in_occupancy_band(fc.OCCUPANCY_MAX) is True
+
+    def test_out_of_band_strict(self):
+        # La conformité contrat ne connaît PAS la tolérance du correcteur :
+        # 0.235 (montre ramenée, clampée) reste hors contrat.
+        assert fc.in_occupancy_band(0.235) is False
+        assert fc.in_occupancy_band(0.60) is False
+
+    def test_occupancy_from_scene_matches_evaluate(self):
+        # Source de géométrie unique : occupancy_from_scene == evaluate_framing.
+        vm = fc.view_matrix_from_pose(
+            CANONICAL_CAMERA["location"], CANONICAL_CAMERA["rotation_euler"]
+        )
+        hw, hh = fc.half_extents_at_unit_depth(CANONICAL_CAMERA["lens"])
+        proj = {"half_w": hw, "half_h": hh}
+        corners = _canonical_subject_corners("bottle")
+        scalar = fc.occupancy_from_scene(vm, proj, corners)
+        block = fc.evaluate_framing(vm, proj, corners)
+        # block["occupancy"] est arrondi à 4 décimales ; même géométrie source.
+        assert round(scalar, 4) == block["occupancy"]
+
+
 # ---------------------------------------------------------------------------
 # ORACLE — validation croisée contre world_to_camera_view (skip si Blender absent)
 # ---------------------------------------------------------------------------

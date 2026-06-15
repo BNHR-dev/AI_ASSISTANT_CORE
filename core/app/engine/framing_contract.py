@@ -164,6 +164,36 @@ def screen_bbox(view_matrix, half_w: float, half_h: float, corners_world):
     return (min(us), min(vs), max(us), max(vs), min(zs), n_behind)
 
 
+def occupancy_from_scene(view_matrix, proj: dict, corners_world) -> float:
+    """
+    Occupation NDC verticale du sujet (v1 − v0 de la bbox écran projetée).
+
+    **Métrique unique** (V1.1a, Décision 17) : c'est exactement l'`occupancy`
+    de `evaluate_framing` — toutes deux dérivent de `screen_bbox` (source de
+    géométrie unique). Exposée comme scalaire autoportant pour être consommée
+    à l'identique par la mesure, le contrôle `hero_framing` et (V1.1b)
+    l'arbitrage de statut, sans réimplémenter la projection. Pure ; 0.0 si vide.
+    `proj` = dict avec clés 'half_w'/'half_h'.
+    """
+    if not corners_world:
+        return 0.0
+    _, v0, _, v1, _, _ = screen_bbox(
+        view_matrix, proj["half_w"], proj["half_h"], corners_world
+    )
+    return v1 - v0
+
+
+def in_occupancy_band(occupancy: float) -> bool:
+    """
+    Conformité **stricte** de l'occupation au contrat [OCCUPANCY_MIN,
+    OCCUPANCY_MAX]. Référence décisionnelle (V1.1b) : la tolérance de
+    convergence du correcteur `hero_framing` ne l'assouplit JAMAIS — un sujet
+    ramené à 0.235 par un correcteur clampé n'est pas dans le contrat, même si
+    le correcteur considère sa cible « atteinte » à sa propre tolérance. Pure.
+    """
+    return OCCUPANCY_MIN <= occupancy <= OCCUPANCY_MAX
+
+
 # ---------------------------------------------------------------------------
 # Évaluation des invariants V1
 # ---------------------------------------------------------------------------

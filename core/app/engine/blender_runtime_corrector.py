@@ -31,15 +31,14 @@ from pathlib import Path
 
 from app.engine.blender_preview_fidelity import preview_fidelity_script_lines
 from app.engine.hero_framing import (
-    CAMERA_SENSOR_MM,
-    HERO_DISTANCE_FACTOR_MAX,
-    HERO_DISTANCE_FACTOR_MIN,
     HERO_FRAMING_REPORT_FILENAME,
-    HERO_MIN_CAMERA_DISTANCE,
-    HERO_OCCUPANCY_MAX,
-    HERO_OCCUPANCY_MIN,
-    HERO_OCCUPANCY_TOLERANCE,
 )
+
+# Répertoire des modules purs `framing_contract` / `hero_framing`, injecté dans
+# le script bpy généré pour qu'il IMPORTE la même source que les tests (zéro
+# réimplémentation de la métrique/politique). Les deux modules sont stdlib-only
+# à l'import → chargeables dans le python embarqué de Blender.
+_ENGINE_DIR = str(Path(__file__).resolve().parent)
 
 
 # ---------------------------------------------------------------------------
@@ -336,67 +335,84 @@ def build_correction_script(
             '    scene.camera = _cam',
         ]
 
-        # H.6.9 hero_framing_v1 — contrôle d'occupation verticale projetée.
-        # Mesure le bbox monde réel de Product_Subject et ajuste la distance
-        # caméra UNIQUEMENT si l'occupation sort significativement des bornes.
-        # Formule de référence (pure, testée) : hero_framing.hero_distance_factor.
-        # Avant/après loggués dans hero_framing.json à côté du .blend.
+        # V1.1a hero_framing — contrôle d'occupation NDC unifiée.
+        # Le script N'INLINE PLUS la formule : il importe les modules purs
+        # framing_contract (mesure NDC) et hero_framing (politique) par chemin,
+        # donc exécute exactement la source que les tests exercent (anti-
+        # duplication). Mesure → déclenchement → déplacement → RE-MESURE NDC,
+        # tout sur la même occupation. Avant/après loggués dans hero_framing.json.
         hero_report_path = str(
             Path(blend_path).with_name(HERO_FRAMING_REPORT_FILENAME)
         )
-        occ_lo = HERO_OCCUPANCY_MIN - HERO_OCCUPANCY_TOLERANCE
-        occ_hi = HERO_OCCUPANCY_MAX + HERO_OCCUPANCY_TOLERANCE
         lines += [
-            '# --- H.6.9 hero_framing_v1 : controle occupation verticale (borne) ---',
+            '# --- V1.1a hero_framing : occupation NDC unifiee (framing_contract) ---',
             'import json as _hf_json',
+            'import sys as _hf_sys',
+            f'_hf_sys.path.insert(0, r"{_ENGINE_DIR}")',
+            'import framing_contract as _hf_fc',
+            'import hero_framing as _hf_pol',
             'from mathutils import Vector as _HFVector',
-            '_hf = {"phase": "hero_framing_v1", "applied": False, "reason": None,',
+            '_hf = {"phase": "hero_framing_v1_1a", "applied": False, "reason": None,',
             '       "occupancy_before": None, "occupancy_after": None,',
+            '       "target_occupancy": None, "occupancy_residual": None,',
+            '       "clamped": False, "target_reached": None,',
+            '       "in_contract_band_after": None,',
             '       "distance_before": None, "distance_after": None,',
-            '       "subject_height": None, "factor": None}',
+            '       "subject_height": None, "factor_requested": None, "factor": None}',
             '_hf_subj = bpy.data.objects.get("Product_Subject")',
             '_hf_cam = bpy.data.objects.get("Camera")',
             'if _hf_cam is None or _hf_cam.type != "CAMERA" or _hf_subj is None:',
             '    _hf["reason"] = "camera_or_subject_missing"',
             'else:',
-            '    _hf_corners = [_hf_subj.matrix_world @ _HFVector(_c) for _c in _hf_subj.bound_box]',
-            '    _hf_zmin = min(_v.z for _v in _hf_corners)',
-            '    _hf_zmax = max(_v.z for _v in _hf_corners)',
-            '    _hf_height = _hf_zmax - _hf_zmin',
-            '    _hf_target = _HFVector((',
-            '        sum(_v.x for _v in _hf_corners) / 8.0,',
-            '        sum(_v.y for _v in _hf_corners) / 8.0,',
-            '        (_hf_zmin + _hf_zmax) / 2.0,',
-            '    ))',
-            '    _hf_d0 = (_hf_cam.location - _hf_target).length',
-            '    _hf_lens = float(_hf_cam.data.lens) if _hf_cam.data is not None else 50.0',
-            f'    _hf_visible = 2.0 * _hf_d0 * ({CAMERA_SENSOR_MM} / 2.0) / _hf_lens if _hf_d0 > 0 and _hf_lens > 0 else 0.0',
-            '    _hf_occ0 = (_hf_height / _hf_visible) if _hf_visible > 0 else 0.0',
-            '    _hf_factor = 1.0',
-            f'    if _hf_occ0 > 0 and _hf_occ0 < {occ_lo}:',
-            f'        _hf_factor = max(_hf_occ0 / {HERO_OCCUPANCY_MIN}, {HERO_DISTANCE_FACTOR_MIN})',
-            f'    elif _hf_occ0 > {occ_hi}:',
-            f'        _hf_factor = min(_hf_occ0 / {HERO_OCCUPANCY_MAX}, {HERO_DISTANCE_FACTOR_MAX})',
+            '    _hf_cd = _hf_cam.data',
+            '    def _hf_measure():',
+            '        _c = [_hf_subj.matrix_world @ _HFVector(_v) for _v in _hf_subj.bound_box]',
+            '        _vm = tuple(tuple(_r) for _r in _hf_cam.matrix_world.inverted())',
+            '        _hw, _hh = _hf_fc.half_extents_at_unit_depth(',
+            '            _hf_cd.lens, _hf_cd.sensor_width, _hf_cd.sensor_height, _hf_cd.sensor_fit,',
+            '            scene.render.resolution_x, scene.render.resolution_y,',
+            '            scene.render.pixel_aspect_x, scene.render.pixel_aspect_y)',
+            '        _occ = _hf_fc.occupancy_from_scene(_vm, {"half_w": _hw, "half_h": _hh},',
+            '                                           [tuple(_v[:]) for _v in _c])',
+            '        _zmin = min(_v.z for _v in _c); _zmax = max(_v.z for _v in _c)',
+            '        _ctr = _HFVector((sum(_v.x for _v in _c) / 8.0,',
+            '                          sum(_v.y for _v in _c) / 8.0, (_zmin + _zmax) / 2.0))',
+            '        return _occ, _ctr, (_zmax - _zmin)',
+            '    _hf_occ0, _hf_ctr, _hf_height = _hf_measure()',
+            '    _hf_d0 = (_hf_cam.location - _hf_ctr).length',
+            '    _hf_factor = _hf_pol.hero_distance_factor(_hf_occ0)',
             '    _hf["occupancy_before"] = round(_hf_occ0, 4)',
             '    _hf["distance_before"] = round(_hf_d0, 4)',
             '    _hf["subject_height"] = round(_hf_height, 4)',
+            '    _hf["factor_requested"] = round(_hf_pol.requested_factor(_hf_occ0), 4)',
             '    _hf["factor"] = round(_hf_factor, 4)',
-            '    if _hf_factor == 1.0:',
+            '    _hf["clamped"] = bool(_hf_pol.is_clamped(_hf_occ0))',
+            '    _hf_occ1 = None',
+            '    if _hf_factor == 1.0 or _hf_pol.target_occupancy_for(_hf_occ0) is None:',
+            '        _hf_occ1 = _hf_occ0',
             '        _hf["reason"] = "occupancy_within_bounds"',
-            '        _hf["occupancy_after"] = _hf["occupancy_before"]',
             '        _hf["distance_after"] = _hf["distance_before"]',
             '    else:',
-            f'        _hf_d1 = max(_hf_d0 * _hf_factor, {HERO_MIN_CAMERA_DISTANCE})',
-            '        _hf_dir = _hf_cam.location - _hf_target',
+            '        _hf_d1 = _hf_pol.clamp_distance(_hf_d0 * _hf_factor)',
+            '        _hf_dir = _hf_cam.location - _hf_ctr',
             '        if _hf_dir.length > 0:',
-            '            _hf_cam.location = _hf_target + _hf_dir.normalized() * _hf_d1',
-            f'            _hf_visible1 = 2.0 * _hf_d1 * ({CAMERA_SENSOR_MM} / 2.0) / _hf_lens',
+            '            _hf_cam.location = _hf_ctr + _hf_dir.normalized() * _hf_d1',
+            '            bpy.context.view_layer.update()',
+            '            _hf_occ1, _, _ = _hf_measure()',
             '            _hf["applied"] = True',
             '            _hf["reason"] = "occupancy_out_of_bounds"',
-            '            _hf["occupancy_after"] = round(_hf_height / _hf_visible1, 4) if _hf_visible1 > 0 else None',
             '            _hf["distance_after"] = round(_hf_d1, 4)',
             '        else:',
             '            _hf["reason"] = "degenerate_camera_position"',
+            '    if _hf_occ1 is not None:',
+            '        _hf["occupancy_after"] = round(_hf_occ1, 4)',
+            '        _hf["in_contract_band_after"] = bool(_hf_fc.in_occupancy_band(_hf_occ1))',
+            '        _hf_out = _hf_pol.correction_outcome(_hf_occ0, _hf_occ1)',
+            '        _hf["target_occupancy"] = (round(_hf_out["target_occupancy"], 4)',
+            '                                   if _hf_out["target_occupancy"] is not None else None)',
+            '        _hf["occupancy_residual"] = (round(_hf_out["occupancy_residual"], 4)',
+            '                                     if _hf_out["occupancy_residual"] is not None else None)',
+            '        _hf["target_reached"] = _hf_out["target_reached"]',
             f'with open(r"{hero_report_path}", "w", encoding="utf-8") as _hf_fh:',
             '    _hf_json.dump(_hf, _hf_fh, indent=2)',
         ]
