@@ -21,7 +21,25 @@ from pathlib import Path
 
 from app.engine import framing_contract
 from app.engine.blender_templates import get_template_spec
-from app.engine.blender_qa_visual import _empty_checks, run_visual_qa
+from app.engine.blender_qa_visual import (
+    V_SUBJECT_OFFCENTER,
+    V_SUBJECT_OUT_OF_FRAME,
+    V_SUBJECT_TOO_SMALL,
+    _empty_checks,
+    run_visual_qa,
+)
+
+# Décision 17 / V1.1b — Transfert d'autorité de cadrage.
+# Les checks PIXEL de cadrage deviennent signal-only : l'arbitre du cadrage
+# spatial est `framing_contract` (projection géométrique). Ces violations
+# restent émises dans le bloc visual_qa (diagnostic perceptuel) mais
+# N'ESCALADENT PLUS le status. Les checks pixel de RENDU (low_contrast,
+# decor_dominates) et visual_qa_error gardent leur pouvoir décisionnel.
+FRAMING_PIXEL_SIGNAL_ONLY = frozenset({
+    V_SUBJECT_TOO_SMALL,
+    V_SUBJECT_OUT_OF_FRAME,
+    V_SUBJECT_OFFCENTER,
+})
 from app.engine.blender_runtime_contract import evaluate_runtime_contract
 from app.engine.blender_runtime_corrector import apply_corrections, plan_corrections
 
@@ -231,9 +249,10 @@ def _build_framing_block(bpy_data: dict | None, visual_qa: dict | None) -> dict:
     `skipped` si les données géométriques sont absentes (scène mockée, pas de
     Product_Subject, etc.). Ne lève jamais.
 
-    Observabilité V1 : ce bloc N'ESCALADE PAS report["status"] (l'occupation
-    canonique est sous la cible — cf. §9.2/B1 ; le transfert d'autorité
-    décisionnelle viendra avec le recalibrage). framing_divergence = signal-only.
+    V1.1b — AUTORITÉ DÉCISIONNELLE : les violations `framing_*` de ce bloc
+    escaladent désormais report["status"] (transfert effectué après le
+    recalibrage hero V1.1a). `skipped` → violations=[] → pas d'escalade.
+    framing_divergence reste signal-only (réconciliation projeté↔perçu).
     """
     raw = (bpy_data or {}).get("framing_raw")
     if not raw:
@@ -637,14 +656,26 @@ def inspect_blend_scene(
     }
 
     # Agrégation des violations finales :
-    # structural (sur l'état final) + semantic scaffold + visual_qa final + runtime_contract final.
-    # NOTE : ast_guard ET framing_contract restent signal-only — leurs violations
-    # NE SONT PAS ajoutées ici (Décision 17 : V1 en observabilité, autorité
-    # décisionnelle de cadrage transférée après recalibrage de l'occupation).
+    # structural (état final) + semantic scaffold + visual_qa final + runtime + framing_contract.
+    # Décision 17 / V1.1b — AUTORITÉ DE CADRAGE TRANSFÉRÉE :
+    #   - `framing_contract` (projection géométrique) est désormais DÉCISIONNEL :
+    #     ses violations `framing_*` escaladent le status ;
+    #   - les checks PIXEL de cadrage (FRAMING_PIXEL_SIGNAL_ONLY) deviennent
+    #     signal-only : filtrés ici, ils restent dans le bloc visual_qa comme
+    #     diagnostic perceptuel mais n'escaladent plus ;
+    #   - les checks pixel de RENDU (low_contrast, decor_dominates) + visual_qa_error
+    #     restent décisionnels ; ast_guard reste signal-only.
+    # Le contrat n'arbitre que s'il a un verdict : `skipped` (pas de géométrie)
+    # → violations=[] → aucune escalade (le cadrage n'est alors pas enforced,
+    # la mesure pixel ayant été jugée non fiable, cf. Décision 17).
     violations = _determine_violations(report, blend_exists, scene_py_exists)
     violations.extend(semantic_violations)
-    violations.extend(final_visual_qa.get("violations", []) or [])
+    violations.extend(
+        v for v in (final_visual_qa.get("violations", []) or [])
+        if v not in FRAMING_PIXEL_SIGNAL_ONLY
+    )
     violations.extend(final_runtime.get("violations", []) or [])  # H.4.8
+    violations.extend(report["framing_contract"].get("violations", []) or [])
     report["violations"] = violations
     report["status"] = _determine_status(violations)
 
