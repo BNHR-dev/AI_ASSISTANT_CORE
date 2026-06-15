@@ -29,16 +29,22 @@ from app.engine.hero_framing import (
     HERO_MIN_CAMERA_DISTANCE,
     HERO_OCCUPANCY_MAX,
     HERO_OCCUPANCY_MIN,
+    HERO_OCCUPANCY_TARGET,
     HERO_OCCUPANCY_TOLERANCE,
     background_columns,
     background_luminance_stats,
     background_pixels,
     cap_backdrop_albedo,
+    correction_outcome,
     hero_adjusted_distance,
     hero_distance_factor,
-    projected_occupancy,
-    visible_height_at,
+    is_clamped,
+    occupancy_residual,
+    requested_factor,
+    target_occupancy_for,
+    target_reached,
 )
+from app.engine.framing_contract import in_occupancy_band
 from app.engine.product_render_builder import build_product_render_scene_script
 from app.engine.product_render_ir import (
     BackdropIR,
@@ -56,71 +62,133 @@ def _make_ir(backdrop_color: str = "neutral_gray") -> ProductRenderIntent:
 
 
 # ---------------------------------------------------------------------------
-# Projection géométrique
+# Politique de cible (V1.1a) — métrique NDC consommée en entrée
 # ---------------------------------------------------------------------------
+# Ces fonctions ne CALCULENT plus d'occupation (modèle vertical supprimé) :
+# elles reçoivent un scalaire d'occupation NDC (framing_contract) et
+# n'appliquent que la politique "retour à la borne violée".
 
-class TestProjection:
-    def test_visible_height_smoke_geometry(self):
-        # Caméra canonique (~1.55 m du sujet, lens 50, sensor 36) :
-        # hauteur visible ~1.1 m — la base du calibrage H.6.9.
-        assert visible_height_at(1.546, 50) == pytest.approx(1.113, abs=0.01)
+class TestTargetPolicy:
+    def test_target_strictly_inside_band(self):
+        assert HERO_OCCUPANCY_MIN < HERO_OCCUPANCY_TARGET < HERO_OCCUPANCY_MAX
 
-    def test_occupancy_audit_smoke_1(self):
-        # Smoke 1 audit : flacon rectangulaire h=0.308 m à ~1.53 m → ~28 %,
-        # dans les bornes (proportions validées humainement → no-op caméra).
-        occ = projected_occupancy(0.308, 1.53, 50)
-        assert occ == pytest.approx(0.28, abs=0.01)
-        assert hero_distance_factor(occ) == 1.0
+    def test_in_band_is_strict_noop(self):
+        for occ in (HERO_OCCUPANCY_MIN, 0.40, HERO_OCCUPANCY_MAX):
+            assert target_occupancy_for(occ) is None
+            assert hero_distance_factor(occ) == 1.0
+            assert is_clamped(occ) is False
 
-    def test_occupancy_degenerate_inputs(self):
-        assert projected_occupancy(0.3, 0.0, 50) == 0.0
-        assert projected_occupancy(0.0, 1.5, 50) == 0.0
-        assert visible_height_at(1.5, 0.0) == 0.0
+    def test_under_band_targets_fixed_center(self):
+        occ = 0.20
+        assert target_occupancy_for(occ) == HERO_OCCUPANCY_TARGET
+        assert requested_factor(occ) == pytest.approx(occ / HERO_OCCUPANCY_TARGET)
+
+    def test_over_band_targets_fixed_center(self):
+        occ = 0.80
+        assert target_occupancy_for(occ) == HERO_OCCUPANCY_TARGET
+        assert requested_factor(occ) == pytest.approx(occ / HERO_OCCUPANCY_TARGET)
+
+    def test_jar_borderline_targets_center(self):
+        # Baseline réelle : jar NDC 0.238 < 0.25 → corrige vers la cible fixe.
+        assert target_occupancy_for(0.238) == HERO_OCCUPANCY_TARGET
+        assert hero_distance_factor(0.238) < 1.0
+
+    def test_degenerate_is_noop(self):
+        assert target_occupancy_for(0.0) is None
+        assert target_occupancy_for(-1.0) is None
+        assert hero_distance_factor(0.0) == 1.0
 
 
 # ---------------------------------------------------------------------------
-# Facteur de distance — bornage et minimalité
+# Facteur de distance — bornage, clamp, minimalité
 # ---------------------------------------------------------------------------
 
 class TestDistanceFactor:
-    def test_within_bounds_is_noop(self):
-        for occ in (HERO_OCCUPANCY_MIN, 0.40, HERO_OCCUPANCY_MAX):
-            assert hero_distance_factor(occ) == 1.0
+    def test_watch_baseline_at_clamp_floor(self):
+        # Montre baseline NDC 0.1646 : demandé 0.1646/0.30 ≈ 0.549 < FACTOR_MIN
+        # (0.55) → clampé au plancher. C'est le sujet qui dimensionne FACTOR_MIN.
+        occ = 0.1646
+        assert requested_factor(occ) == pytest.approx(occ / HERO_OCCUPANCY_TARGET)
+        assert hero_distance_factor(occ) == HERO_DISTANCE_FACTOR_MIN
+        assert is_clamped(occ) is True
 
-    def test_tolerance_band_is_noop(self):
-        # Juste sous/au-dessus des bornes mais dans la tolérance → no-op
-        # (l'ajustement ne se déclenche que sur violation significative).
-        assert hero_distance_factor(HERO_OCCUPANCY_MIN - HERO_OCCUPANCY_TOLERANCE + 0.001) == 1.0
-        assert hero_distance_factor(HERO_OCCUPANCY_MAX + HERO_OCCUPANCY_TOLERANCE - 0.001) == 1.0
+    def test_under_band_unclamped_within_factor_bounds(self):
+        # jar 0.238 → 0.238/0.30 ≈ 0.793 ∈ [FACTOR_MIN, FACTOR_MAX] → pas clampé.
+        occ = 0.238
+        assert hero_distance_factor(occ) == pytest.approx(requested_factor(occ))
+        assert is_clamped(occ) is False
 
-    def test_small_subject_moves_camera_closer(self):
-        occ = 0.15  # smoke 3 audit (chronomètre h=0.168 m)
-        factor = hero_distance_factor(occ)
-        assert factor < 1.0
-        assert factor >= HERO_DISTANCE_FACTOR_MIN
-        # L'occupation résultante ne dépasse jamais la borne basse :
-        # on ramène À la borne, pas au-delà (mouvement minimal).
-        assert occ / factor <= HERO_OCCUPANCY_MIN + 1e-9
-
-    def test_large_subject_moves_camera_back_bounded(self):
+    def test_large_subject_moves_back_bounded(self):
         factor = hero_distance_factor(0.90)
         assert factor > 1.0
         assert factor <= HERO_DISTANCE_FACTOR_MAX
-        # Cas extrême : clamp au facteur max, jamais plus.
         assert hero_distance_factor(5.0) == HERO_DISTANCE_FACTOR_MAX
+        assert is_clamped(5.0) is True
 
     def test_extreme_small_subject_clamped(self):
         assert hero_distance_factor(0.01) == HERO_DISTANCE_FACTOR_MIN
 
-    def test_degenerate_occupancy_is_noop(self):
-        assert hero_distance_factor(0.0) == 1.0
-        assert hero_distance_factor(-1.0) == 1.0
-
     def test_adjusted_distance_min_clamp(self):
         # Même avec un facteur < 1, jamais sous la distance minimale.
         assert hero_adjusted_distance(0.5, 0.01) == HERO_MIN_CAMERA_DISTANCE
-        # Dans les bornes → distance inchangée.
+        # Dans la bande → distance inchangée.
         assert hero_adjusted_distance(1.55, 0.40) == 1.55
+
+
+# ---------------------------------------------------------------------------
+# Qualification du résultat — résidu / cible atteinte (tolérance explicite)
+# ---------------------------------------------------------------------------
+
+class TestResultQualification:
+    def test_target_reached_uses_explicit_tolerance(self):
+        assert target_reached(HERO_OCCUPANCY_MIN, HERO_OCCUPANCY_MIN) is True
+        # Strictement dans la tolérance → atteint ; nettement au-delà → non.
+        assert target_reached(
+            HERO_OCCUPANCY_MIN + HERO_OCCUPANCY_TOLERANCE / 2, HERO_OCCUPANCY_MIN
+        ) is True
+        assert target_reached(
+            HERO_OCCUPANCY_MIN + 2 * HERO_OCCUPANCY_TOLERANCE, HERO_OCCUPANCY_MIN
+        ) is False
+
+    def test_residual_is_signed(self):
+        assert occupancy_residual(0.23, 0.25) == pytest.approx(-0.02)
+        assert occupancy_residual(0.27, 0.25) == pytest.approx(0.02)
+
+
+# ---------------------------------------------------------------------------
+# Sémantique de rapport (V1.1a) : champs de cible vs conformité contrat
+# ---------------------------------------------------------------------------
+# `target_reached` = convergence vers la cible à la tolérance du correcteur.
+# `in_contract_band_after` = conformité STRICTE au contrat [MIN, MAX].
+# La tolérance du correcteur ne doit jamais assouplir le contrat décisionnel.
+
+class TestReportSemantics:
+    def test_noop_keeps_target_fields_none(self):
+        # Sujet en bande → pas de cible corrective : les trois champs restent
+        # None (PAS target_reached=True : il n'y a rien à atteindre).
+        out = correction_outcome(0.40, 0.40)
+        assert out["target_occupancy"] is None
+        assert out["occupancy_residual"] is None
+        assert out["target_reached"] is None
+
+    def test_under_framed_reaches_target_and_conforms(self):
+        # jar : 0.238 → ~0.30. Cible fixe atteinte ET dans le contrat strict.
+        out = correction_outcome(0.238, 0.30)
+        assert out["target_occupancy"] == HERO_OCCUPANCY_TARGET
+        assert out["target_reached"] is True
+        assert in_occupancy_band(0.30) is True
+
+    def test_oversized_subject_factor_max_exposed(self):
+        # Sujet synthétique > 0.55 : FACTOR_MAX borne le recul, la cible 0.30
+        # n'est PAS atteinte et le sujet reste hors contrat — le rapport doit
+        # l'exposer sans ambiguïté (clampé, cible non atteinte, hors bande).
+        occ = 0.90
+        assert is_clamped(occ) is True
+        assert hero_distance_factor(occ) == HERO_DISTANCE_FACTOR_MAX
+        occ_after = occ / HERO_DISTANCE_FACTOR_MAX        # ≈ 0.643, modèle 1/d
+        out = correction_outcome(occ, occ_after)
+        assert out["target_reached"] is False
+        assert in_occupancy_band(occ_after) is False
 
 
 # ---------------------------------------------------------------------------
@@ -254,20 +322,28 @@ class TestCorrectionScriptHeroBlock:
              CORRECTION_RERENDER_PREVIEW],
         )
 
-    def test_hero_block_present_with_camera_normalization(self):
+    def test_hero_block_imports_pure_modules_not_inlined(self):
         script = self._normalization_script()
-        assert "hero_framing_v1" in script
         assert 'bpy.data.objects.get("Product_Subject")' in script
         assert "bound_box" in script
-        # Constantes synchronisées avec le module pur.
-        assert str(HERO_OCCUPANCY_MIN) in script
-        assert str(HERO_DISTANCE_FACTOR_MIN) in script
-        assert str(HERO_MIN_CAMERA_DISTANCE) in script
+        # Anti-duplication : le script IMPORTE les modules purs par chemin
+        # (même source que les tests), il ne réimplémente pas la formule.
+        assert "_hf_sys.path.insert" in script
+        assert "import framing_contract" in script
+        assert "import hero_framing" in script
+        assert "occupancy_from_scene" in script
+        assert "target_occupancy_for" in script
+        # Re-mesure NDC réelle après déplacement (plus d'occupancy analytique).
+        assert "view_layer.update" in script
 
     def test_hero_report_written_next_to_blend(self):
         script = self._normalization_script()
         assert HERO_FRAMING_REPORT_FILENAME in script
         assert "/tmp/hero_framing.json" in script
+        # Schéma de champs générique, stable pour le commit 2.
+        for field in ("target_occupancy", "occupancy_residual",
+                      "clamped", "target_reached", "factor_requested"):
+            assert field in script
 
     def test_hero_block_absent_without_camera_correction(self):
         # add_key_light seul (sans reframe/normalize caméra) ne déclenche
@@ -276,14 +352,15 @@ class TestCorrectionScriptHeroBlock:
             "/tmp/scene.blend", "/tmp/preview.png",
             [CORRECTION_ADD_KEY_LIGHT],
         )
-        assert "hero_framing_v1" not in script
+        assert "occupancy_from_scene" not in script
+        assert "import hero_framing" not in script
 
     def test_canonical_camera_still_applied_first(self):
         # Le contrôle hero ajuste APRÈS la pose canonique : les deux blocs
         # doivent coexister, canonique d'abord.
         script = self._normalization_script()
         canonical_idx = script.index(str(CANONICAL_CAMERA["location"]))
-        hero_idx = script.index("hero_framing_v1")
+        hero_idx = script.index("occupancy_from_scene")
         assert canonical_idx < hero_idx
 
     def test_generated_script_compiles(self):

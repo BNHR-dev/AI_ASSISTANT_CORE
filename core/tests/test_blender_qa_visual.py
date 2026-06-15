@@ -788,8 +788,11 @@ class TestInspectBlendSceneVisualQA:
         assert V_LOW_CONTRAST in report["violations"]
         assert report["visual_qa"]["status"] == "degraded"
 
-    def test_corner_subject_preview_degrades_status(self, tmp_path):
-        """Une preview avec sujet minuscule en coin doit dégrader le status."""
+    def test_pixel_framing_is_signal_only(self, tmp_path):
+        """V1.1b — sujet minuscule en coin : les checks PIXEL de cadrage
+        (too_small / offcenter) restent émis dans visual_qa (diagnostic
+        perceptuel) mais N'ESCALADENT PLUS le status. L'autorité de cadrage est
+        framing_contract (ici skipped, faute de géométrie → cadrage non enforced)."""
         blend = tmp_path / "scene.blend"
         blend.write_bytes(b"")
         scene_py = tmp_path / "scene.py"
@@ -798,7 +801,7 @@ class TestInspectBlendSceneVisualQA:
         preview = tmp_path / "preview.png"
         _save_png(_make_small_subject_image(), preview)
 
-        bpy_report = _fake_bpy_report_ok()
+        bpy_report = _fake_bpy_report_ok()   # pas de framing_raw → contrat skipped
         with patch("subprocess.run", side_effect=_make_proc_success(tmp_path, bpy_report)):
             report = inspect_blend_scene(
                 exe="/fake/blender",
@@ -808,8 +811,13 @@ class TestInspectBlendSceneVisualQA:
                 render_path=str(preview),
             )
 
-        assert report["status"] == "degraded"
-        assert any(v in report["violations"] for v in (V_SUBJECT_TOO_SMALL, V_SUBJECT_OFFCENTER))
+        # Les violations pixel de cadrage sont dans le bloc visual_qa (signal)…
+        vq_violations = report["visual_qa"]["violations"]
+        assert any(v in vq_violations for v in (V_SUBJECT_TOO_SMALL, V_SUBJECT_OFFCENTER))
+        # …mais filtrées du rapport global décisionnel → status non dégradé par elles.
+        assert not any(v in report["violations"] for v in (
+            V_SUBJECT_TOO_SMALL, V_SUBJECT_OUT_OF_FRAME, V_SUBJECT_OFFCENTER))
+        assert report["status"] == "passed"
 
     def test_visual_qa_present_in_early_failure_path(self, tmp_path):
         """Même si le .blend est absent, visual_qa est présent dans le rapport (skipped)."""
@@ -857,7 +865,9 @@ class TestInspectBlendSceneVisualQA:
             assert check_key in data["visual_qa"]["checks"]
 
     def test_dominant_backdrop_preview_degrades_global_status(self, tmp_path):
-        """H.4.5.1 — Preview avec backdrop dominant doit faire passer scene_report en degraded."""
+        """H.4.5.1 / V1.1b — backdrop dominant (sujet trop petit). Le diagnostic
+        PIXEL (subject_too_small, H.6.10) est désormais signal-only ; l'autorité
+        de cadrage framing_contract dégrade le status sur la géométrie projetée."""
         blend = tmp_path / "scene.blend"
         blend.write_bytes(b"")
         scene_py = tmp_path / "scene.py"
@@ -867,6 +877,7 @@ class TestInspectBlendSceneVisualQA:
         _save_png(_make_dominant_backdrop_image(), preview)
 
         bpy_report = _fake_bpy_report_ok()
+        bpy_report["framing_raw"] = _framing_raw(0.02)   # occupation projetée trop faible
         with patch("subprocess.run", side_effect=_make_proc_success(tmp_path, bpy_report)):
             report = inspect_blend_scene(
                 exe="/fake/blender",
@@ -876,12 +887,13 @@ class TestInspectBlendSceneVisualQA:
                 render_path=str(preview),
             )
 
-        # H.6.10 — même pathologie, diagnostic corrigé : subject_too_small
-        # (segmentation relative au fond), decor_dominance ne se déclenche
-        # plus à tort.
+        # Autorité = contrat projeté : framing_occupancy_out dégrade le status.
         assert report["status"] == "degraded"
-        assert V_SUBJECT_TOO_SMALL in report["violations"]
+        assert framing_contract.V_FRAMING_OCCUPANCY_OUT in report["violations"]
+        # decor_dominance ne se déclenche pas à tort (H.6.10) ; le diagnostic
+        # pixel subject_too_small reste signal-only (hors rapport global).
         assert report["visual_qa"]["checks"]["decor_dominance"]["status"] == "passed"
+        assert V_SUBJECT_TOO_SMALL not in report["violations"]
 
     def test_minimalist_packshot_preview_stays_passed(self, tmp_path):
         """H.4.5.1 — Packshot minimaliste valide ne doit pas être degraded à tort."""
@@ -958,17 +970,19 @@ class TestFramingContractIntegration:
         assert "screen_bbox" in block
         assert "framing_divergence" in block
 
-    def test_signal_only_does_not_escalate_status(self, tmp_path):
+    def test_framing_contract_escalates_status(self, tmp_path):
+        # V1.1b — AUTORITÉ DE CADRAGE TRANSFÉRÉE : une violation framing_* du
+        # contrat projeté escalade désormais le status global (≠ V1 signal-only).
         bpy_report = _fake_bpy_report_ok()
         bpy_report["framing_raw"] = _framing_raw(0.02)    # sujet trop petit
         report = self._run(tmp_path, bpy_report)
         block = report["framing_contract"]
         assert block["status"] == "degraded"
         assert framing_contract.V_FRAMING_OCCUPANCY_OUT in block["violations"]
-        # Invariant signal-only : aucune violation framing_* dans le rapport global
-        assert not any(str(v).startswith("framing_") for v in report["violations"])
-        # Le status global reste passed (preview bonne) malgré le framing degraded
-        assert report["status"] == "passed"
+        # La violation framing_* est dans le rapport global décisionnel…
+        assert framing_contract.V_FRAMING_OCCUPANCY_OUT in report["violations"]
+        # …et dégrade le status, malgré une preview correcte (autorité géométrique).
+        assert report["status"] == "degraded"
 
     def test_divergence_is_signal_only_block(self, tmp_path):
         bpy_report = _fake_bpy_report_ok()

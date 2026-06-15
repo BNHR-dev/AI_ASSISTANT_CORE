@@ -24,22 +24,28 @@ import math
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Bornes d'occupation verticale projetée (invariant de contrôle H.6.9)
+# Bande de contrôle + cible d'occupation NDC (V1.1a/b)
 # ---------------------------------------------------------------------------
-# Les proportions actuelles des sujets sont validées humainement
-# (2026-06-10) : l'ajustement caméra ne se déclenche que si l'occupation
-# sort SIGNIFICATIVEMENT des bornes (tolérance), et ramène au plus près
-# de la borne violée — jamais vers un cadrage "optimisé".
+# Bande de déclenchement : occupation NDC dans [MIN, MAX] → no-op STRICT.
+# Hors bande, le correcteur vise une CIBLE FIXE au cœur de la bande
+# (HERO_OCCUPANCY_TARGET), et non plus la borne violée : à occupation
+# hétérogène, ramener à la borne laissait les petits sujets sur le fil.
 
 HERO_OCCUPANCY_MIN = 0.25
 HERO_OCCUPANCY_MAX = 0.55
-HERO_OCCUPANCY_TOLERANCE = 0.02  # déclenche seulement sous 0.23 / au-dessus 0.57
+HERO_OCCUPANCY_TOLERANCE = 0.02  # tolérance de convergence (target_reached)
+
+# Cible de cadrage (commit 2, expérimentale) : viser ~0.30, tolérance
+# acceptable [0.28, 0.32]. NE PAS calibrer pour obtenir 0.3000 pile.
+# Invariant : OCCUPANCY_MIN < HERO_OCCUPANCY_TARGET < OCCUPANCY_MAX.
+HERO_OCCUPANCY_TARGET = 0.30
 
 # Facteur multiplicatif appliqué à la distance caméra→sujet.
-# < 1 rapproche, > 1 recule. Bornes serrées : une passe corrige au plus
-# ±30/40 % de distance ; si l'invariant reste violé après clamp, c'est
-# rapporté dans hero_framing.json, pas forcé.
-HERO_DISTANCE_FACTOR_MIN = 0.70
+# < 1 rapproche, > 1 recule. FACTOR_MIN dérivé de la baseline réelle de la
+# montre (occ 0.165 / cible 0.30 ≈ 0.55) : permet au plus petit sujet
+# d'atteindre la cible. Si l'invariant reste violé après clamp, c'est
+# rapporté dans hero_framing.json, jamais forcé.
+HERO_DISTANCE_FACTOR_MIN = 0.55
 HERO_DISTANCE_FACTOR_MAX = 1.40
 
 # Distance minimale caméra→centre sujet, pour éviter zoom extrême et
@@ -82,59 +88,122 @@ HERO_FRAMING_REPORT_FILENAME = "hero_framing.json"
 
 
 # ---------------------------------------------------------------------------
-# Projection géométrique — fonctions pures
+# Politique de correction de cadrage — fonctions PURES (V1.1a)
 # ---------------------------------------------------------------------------
+# Unification de la métrique (Décision 17) : l'occupation est désormais
+# mesurée UNE seule fois par framing_contract.occupancy_from_scene (NDC,
+# projection des 8 coins). Ce module ne CALCULE plus d'occupation — il
+# consomme un scalaire NDC en entrée et ne porte que la *politique* :
+# bande de déclenchement, cible, clamp, arithmétique de distance et
+# qualification du résultat (résidu, clamp, cible atteinte).
+#
+# Commit 1 (V1.1a) : politique "retour à la borne violée" — la cible est
+# DYNAMIQUE (MIN si sous-cadré, MAX si sur-cadré). Le commit 2 remplacera
+# `target_occupancy_for` par la cible fixe HERO_OCCUPANCY_TARGET (~0.30)
+# et recalibrera le clamp : le schéma des champs rapportés reste identique.
 
-def visible_height_at(distance: float, lens_mm: float,
-                      sensor_mm: float = CAMERA_SENSOR_MM) -> float:
+
+def target_occupancy_for(occupancy: float) -> float | None:
     """
-    Hauteur monde visible dans le frame à `distance` mètres, pour une
-    caméra perspective de focale `lens_mm` et capteur `sensor_mm`.
-    Modèle pinhole simplifié : 2 * d * (sensor/2) / lens.
+    Occupation NDC cible pour la politique courante, ou None si no-op.
+
+    - occupation dans [MIN, MAX] (ou dégénérée) → None (no-op STRICT) ;
+    - hors bande (sous-cadré OU sur-cadré) → cible fixe HERO_OCCUPANCY_TARGET.
+
+    Cible fixe (commit 2) : tout sujet hors bande converge vers le même cœur
+    de bande, indépendamment du côté violé.
     """
-    if distance <= 0 or lens_mm <= 0:
-        return 0.0
-    return 2.0 * distance * (sensor_mm / 2.0) / lens_mm
+    if occupancy <= 0:
+        return None
+    if HERO_OCCUPANCY_MIN <= occupancy <= HERO_OCCUPANCY_MAX:
+        return None
+    return HERO_OCCUPANCY_TARGET
 
 
-def projected_occupancy(subject_height: float, distance: float, lens_mm: float,
-                        sensor_mm: float = CAMERA_SENSOR_MM) -> float:
+def requested_factor(occupancy: float) -> float:
     """
-    Occupation verticale projetée du sujet dans le frame (0..1+).
-    0.0 si les entrées sont dégénérées.
+    Facteur de distance caméra AVANT clamp (occ / cible). 1.0 si no-op.
+    occ ∝ 1/distance (1ʳᵉ approximation) : le résultat réel est RE-MESURÉ en
+    NDC après déplacement, jamais supposé exact.
     """
-    visible = visible_height_at(distance, lens_mm, sensor_mm)
-    if visible <= 0 or subject_height <= 0:
-        return 0.0
-    return subject_height / visible
+    target = target_occupancy_for(occupancy)
+    if target is None or target <= 0:
+        return 1.0
+    return occupancy / target
+
+
+def clamp_factor(factor: float) -> float:
+    """Borne le facteur dans [FACTOR_MIN, FACTOR_MAX]. 1.0 (no-op) préservé."""
+    if factor == 1.0:
+        return 1.0
+    return max(HERO_DISTANCE_FACTOR_MIN, min(factor, HERO_DISTANCE_FACTOR_MAX))
 
 
 def hero_distance_factor(occupancy: float) -> float:
-    """
-    Facteur de distance caméra pour ramener l'occupation dans les bornes.
+    """Facteur de distance caméra FINAL (clampé) pour la politique courante."""
+    return clamp_factor(requested_factor(occupancy))
 
-    - occupation dans [MIN - TOL, MAX + TOL] (ou dégénérée) → 1.0 (no-op) ;
-    - trop petite → rapproche au plus près de MIN, borné FACTOR_MIN ;
-    - trop grande → recule au plus près de MAX, borné FACTOR_MAX.
 
-    Ramène à la borne violée, pas à un milieu de bande : le mouvement
-    caméra reste minimal par construction.
-    """
-    if occupancy <= 0:
-        return 1.0
-    if occupancy < HERO_OCCUPANCY_MIN - HERO_OCCUPANCY_TOLERANCE:
-        return max(occupancy / HERO_OCCUPANCY_MIN, HERO_DISTANCE_FACTOR_MIN)
-    if occupancy > HERO_OCCUPANCY_MAX + HERO_OCCUPANCY_TOLERANCE:
-        return min(occupancy / HERO_OCCUPANCY_MAX, HERO_DISTANCE_FACTOR_MAX)
-    return 1.0
+def is_clamped(occupancy: float) -> bool:
+    """Vrai si le clamp [FACTOR_MIN, FACTOR_MAX] a modifié le facteur demandé."""
+    return requested_factor(occupancy) != hero_distance_factor(occupancy)
+
+
+def clamp_distance(distance: float) -> float:
+    """Distance bornée par HERO_MIN_CAMERA_DISTANCE (anti zoom extrême/clipping)."""
+    return max(distance, HERO_MIN_CAMERA_DISTANCE)
 
 
 def hero_adjusted_distance(distance: float, occupancy: float) -> float:
     """
     Distance caméra→sujet ajustée, bornée par HERO_MIN_CAMERA_DISTANCE.
-    Identique à `distance` si l'occupation est dans les bornes.
+    Identique à `distance` si l'occupation est dans la bande (no-op).
     """
-    return max(distance * hero_distance_factor(occupancy), HERO_MIN_CAMERA_DISTANCE)
+    return clamp_distance(distance * hero_distance_factor(occupancy))
+
+
+def occupancy_residual(occupancy_after: float, target: float) -> float:
+    """Écart signé occupation obtenue − cible (après re-mesure NDC)."""
+    return occupancy_after - target
+
+
+def target_reached(occupancy_after: float, target: float,
+                   tolerance: float = HERO_OCCUPANCY_TOLERANCE) -> bool:
+    """
+    Cible atteinte si |occ_après − cible| ≤ tolérance. Tolérance EXPLICITE
+    (pas d'égalité flottante). Indépendant de `clamped` : une correction peut
+    être clampée tout en finissant dans la tolérance, ou inversement.
+    """
+    return abs(occupancy_after - target) <= tolerance
+
+
+def correction_outcome(occupancy_before: float,
+                       occupancy_after: float | None) -> dict:
+    """
+    Champs de qualification **liés à la cible** du correcteur (purs, sans bpy
+    ni framing_contract). Source unique de cette sémantique pour le runtime
+    et les tests.
+
+    - **no-op** (occupation dans la bande → pas de cible corrective) : les
+      trois champs restent `None`. `target_reached=None`, PAS `True` : aucune
+      cible n'existe, donc rien à « atteindre ».
+    - **corrigé** : `occupancy_residual` (signé) et `target_reached` (tolérance
+      du correcteur) sont renseignés.
+
+    NB : la conformité STRICTE au contrat (`in_contract_band_after`) est volon-
+    tairement HORS de ce dict — elle relève de framing_contract.in_occupancy_band,
+    jamais de la tolérance du correcteur (séparation des autorités, V1.1b).
+    """
+    target = target_occupancy_for(occupancy_before)
+    out = {
+        "target_occupancy": target,
+        "occupancy_residual": None,
+        "target_reached": None,
+    }
+    if occupancy_after is not None and target is not None:
+        out["occupancy_residual"] = occupancy_after - target
+        out["target_reached"] = target_reached(occupancy_after, target)
+    return out
 
 
 # ---------------------------------------------------------------------------
