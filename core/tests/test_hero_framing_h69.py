@@ -29,6 +29,7 @@ from app.engine.hero_framing import (
     HERO_MIN_CAMERA_DISTANCE,
     HERO_OCCUPANCY_MAX,
     HERO_OCCUPANCY_MIN,
+    HERO_OCCUPANCY_TARGET,
     HERO_OCCUPANCY_TOLERANCE,
     background_columns,
     background_luminance_stats,
@@ -68,27 +69,28 @@ def _make_ir(backdrop_color: str = "neutral_gray") -> ProductRenderIntent:
 # n'appliquent que la politique "retour à la borne violée".
 
 class TestTargetPolicy:
+    def test_target_strictly_inside_band(self):
+        assert HERO_OCCUPANCY_MIN < HERO_OCCUPANCY_TARGET < HERO_OCCUPANCY_MAX
+
     def test_in_band_is_strict_noop(self):
         for occ in (HERO_OCCUPANCY_MIN, 0.40, HERO_OCCUPANCY_MAX):
             assert target_occupancy_for(occ) is None
             assert hero_distance_factor(occ) == 1.0
             assert is_clamped(occ) is False
 
-    def test_under_band_targets_min(self):
+    def test_under_band_targets_fixed_center(self):
         occ = 0.20
-        assert target_occupancy_for(occ) == HERO_OCCUPANCY_MIN
-        assert requested_factor(occ) == pytest.approx(occ / HERO_OCCUPANCY_MIN)
+        assert target_occupancy_for(occ) == HERO_OCCUPANCY_TARGET
+        assert requested_factor(occ) == pytest.approx(occ / HERO_OCCUPANCY_TARGET)
 
-    def test_over_band_targets_max(self):
+    def test_over_band_targets_fixed_center(self):
         occ = 0.80
-        assert target_occupancy_for(occ) == HERO_OCCUPANCY_MAX
-        assert requested_factor(occ) == pytest.approx(occ / HERO_OCCUPANCY_MAX)
+        assert target_occupancy_for(occ) == HERO_OCCUPANCY_TARGET
+        assert requested_factor(occ) == pytest.approx(occ / HERO_OCCUPANCY_TARGET)
 
-    def test_jar_borderline_triggers_no_more_dead_zone(self):
-        # Baseline réelle : jar NDC 0.238 < 0.25 → corrige vers MIN. Le commit 1
-        # supprime la dead-zone de tolérance AU DÉCLENCHEMENT (la tolérance ne
-        # sert plus qu'à qualifier target_reached).
-        assert target_occupancy_for(0.238) == HERO_OCCUPANCY_MIN
+    def test_jar_borderline_targets_center(self):
+        # Baseline réelle : jar NDC 0.238 < 0.25 → corrige vers la cible fixe.
+        assert target_occupancy_for(0.238) == HERO_OCCUPANCY_TARGET
         assert hero_distance_factor(0.238) < 1.0
 
     def test_degenerate_is_noop(self):
@@ -102,16 +104,16 @@ class TestTargetPolicy:
 # ---------------------------------------------------------------------------
 
 class TestDistanceFactor:
-    def test_small_subject_moves_closer_clamped(self):
-        # Montre baseline NDC 0.165 : demandé 0.165/0.25 = 0.66 < FACTOR_MIN
-        # → clampé à FACTOR_MIN, cible non pleinement atteignable.
-        occ = 0.165
-        assert requested_factor(occ) == pytest.approx(occ / HERO_OCCUPANCY_MIN)
+    def test_watch_baseline_at_clamp_floor(self):
+        # Montre baseline NDC 0.1646 : demandé 0.1646/0.30 ≈ 0.549 < FACTOR_MIN
+        # (0.55) → clampé au plancher. C'est le sujet qui dimensionne FACTOR_MIN.
+        occ = 0.1646
+        assert requested_factor(occ) == pytest.approx(occ / HERO_OCCUPANCY_TARGET)
         assert hero_distance_factor(occ) == HERO_DISTANCE_FACTOR_MIN
         assert is_clamped(occ) is True
 
     def test_under_band_unclamped_within_factor_bounds(self):
-        # jar 0.238 → 0.952 ∈ [FACTOR_MIN, FACTOR_MAX] → pas clampé.
+        # jar 0.238 → 0.238/0.30 ≈ 0.793 ∈ [FACTOR_MIN, FACTOR_MAX] → pas clampé.
         occ = 0.238
         assert hero_distance_factor(occ) == pytest.approx(requested_factor(occ))
         assert is_clamped(occ) is False
@@ -169,19 +171,24 @@ class TestReportSemantics:
         assert out["occupancy_residual"] is None
         assert out["target_reached"] is None
 
-    def test_jar_reaches_target_and_conforms_contract(self):
-        # jar : 0.238 → 0.250. Cible atteinte ET dans le contrat strict.
-        out = correction_outcome(0.238, 0.250)
-        assert out["target_occupancy"] == HERO_OCCUPANCY_MIN
+    def test_under_framed_reaches_target_and_conforms(self):
+        # jar : 0.238 → ~0.30. Cible fixe atteinte ET dans le contrat strict.
+        out = correction_outcome(0.238, 0.30)
+        assert out["target_occupancy"] == HERO_OCCUPANCY_TARGET
         assert out["target_reached"] is True
-        assert in_occupancy_band(0.250) is True
+        assert in_occupancy_band(0.30) is True
 
-    def test_watch_reaches_tolerance_but_violates_contract(self):
-        # watch : 0.165 → 0.235 (clampé). À la tolérance 0.02 la cible 0.25 est
-        # « atteinte », MAIS 0.235 < OCCUPANCY_MIN → hors contrat strict.
-        out = correction_outcome(0.165, 0.235)
-        assert out["target_reached"] is True
-        assert in_occupancy_band(0.235) is False
+    def test_oversized_subject_factor_max_exposed(self):
+        # Sujet synthétique > 0.55 : FACTOR_MAX borne le recul, la cible 0.30
+        # n'est PAS atteinte et le sujet reste hors contrat — le rapport doit
+        # l'exposer sans ambiguïté (clampé, cible non atteinte, hors bande).
+        occ = 0.90
+        assert is_clamped(occ) is True
+        assert hero_distance_factor(occ) == HERO_DISTANCE_FACTOR_MAX
+        occ_after = occ / HERO_DISTANCE_FACTOR_MAX        # ≈ 0.643, modèle 1/d
+        out = correction_outcome(occ, occ_after)
+        assert out["target_reached"] is False
+        assert in_occupancy_band(occ_after) is False
 
 
 # ---------------------------------------------------------------------------

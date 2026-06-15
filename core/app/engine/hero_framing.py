@@ -24,22 +24,28 @@ import math
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Bornes d'occupation verticale projetée (invariant de contrôle H.6.9)
+# Bande de contrôle + cible d'occupation NDC (V1.1a/b)
 # ---------------------------------------------------------------------------
-# Les proportions actuelles des sujets sont validées humainement
-# (2026-06-10) : l'ajustement caméra ne se déclenche que si l'occupation
-# sort SIGNIFICATIVEMENT des bornes (tolérance), et ramène au plus près
-# de la borne violée — jamais vers un cadrage "optimisé".
+# Bande de déclenchement : occupation NDC dans [MIN, MAX] → no-op STRICT.
+# Hors bande, le correcteur vise une CIBLE FIXE au cœur de la bande
+# (HERO_OCCUPANCY_TARGET), et non plus la borne violée : à occupation
+# hétérogène, ramener à la borne laissait les petits sujets sur le fil.
 
 HERO_OCCUPANCY_MIN = 0.25
 HERO_OCCUPANCY_MAX = 0.55
-HERO_OCCUPANCY_TOLERANCE = 0.02  # déclenche seulement sous 0.23 / au-dessus 0.57
+HERO_OCCUPANCY_TOLERANCE = 0.02  # tolérance de convergence (target_reached)
+
+# Cible de cadrage (commit 2, expérimentale) : viser ~0.30, tolérance
+# acceptable [0.28, 0.32]. NE PAS calibrer pour obtenir 0.3000 pile.
+# Invariant : OCCUPANCY_MIN < HERO_OCCUPANCY_TARGET < OCCUPANCY_MAX.
+HERO_OCCUPANCY_TARGET = 0.30
 
 # Facteur multiplicatif appliqué à la distance caméra→sujet.
-# < 1 rapproche, > 1 recule. Bornes serrées : une passe corrige au plus
-# ±30/40 % de distance ; si l'invariant reste violé après clamp, c'est
-# rapporté dans hero_framing.json, pas forcé.
-HERO_DISTANCE_FACTOR_MIN = 0.70
+# < 1 rapproche, > 1 recule. FACTOR_MIN dérivé de la baseline réelle de la
+# montre (occ 0.165 / cible 0.30 ≈ 0.55) : permet au plus petit sujet
+# d'atteindre la cible. Si l'invariant reste violé après clamp, c'est
+# rapporté dans hero_framing.json, jamais forcé.
+HERO_DISTANCE_FACTOR_MIN = 0.55
 HERO_DISTANCE_FACTOR_MAX = 1.40
 
 # Distance minimale caméra→centre sujet, pour éviter zoom extrême et
@@ -102,17 +108,16 @@ def target_occupancy_for(occupancy: float) -> float | None:
     Occupation NDC cible pour la politique courante, ou None si no-op.
 
     - occupation dans [MIN, MAX] (ou dégénérée) → None (no-op STRICT) ;
-    - sous-cadré (< MIN) → MIN ;  - sur-cadré (> MAX) → MAX.
+    - hors bande (sous-cadré OU sur-cadré) → cible fixe HERO_OCCUPANCY_TARGET.
 
-    Commit 2 : ce corps deviendra `return HERO_OCCUPANCY_TARGET` (hors bande).
+    Cible fixe (commit 2) : tout sujet hors bande converge vers le même cœur
+    de bande, indépendamment du côté violé.
     """
     if occupancy <= 0:
         return None
-    if occupancy < HERO_OCCUPANCY_MIN:
-        return HERO_OCCUPANCY_MIN
-    if occupancy > HERO_OCCUPANCY_MAX:
-        return HERO_OCCUPANCY_MAX
-    return None
+    if HERO_OCCUPANCY_MIN <= occupancy <= HERO_OCCUPANCY_MAX:
+        return None
+    return HERO_OCCUPANCY_TARGET
 
 
 def requested_factor(occupancy: float) -> float:
