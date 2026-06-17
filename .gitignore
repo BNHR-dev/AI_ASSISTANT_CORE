@@ -53,8 +53,12 @@ Thumbs.db
 
 # keep safe example files tracked
 !core/.env.example
-!infra/vm/env_examples/
-!infra/vm/env_examples/.env.vm.example
+
+# --- legacy VM/Windows infra : kept locally, not published ---
+/infra/README.md
+/infra/host/
+/infra/vm/
+/core/scripts/deploy_vm/
 
 core/archive_notes/test_localsystem.txt
 core/tests/test_visual_pipeline (2).py
