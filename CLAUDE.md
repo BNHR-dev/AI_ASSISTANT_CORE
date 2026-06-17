@@ -12,6 +12,12 @@ Le noyau du produit est :
 
 Le système prend une demande, produit une décision structurée, construit un plan d’exécution, exécute ce plan étape par étape, puis retourne une sortie utile et traçable.
 
+## Sécurité — règle absolue (clés privées)
+
+- **NE JAMAIS lire de clé SSH privée (ni aucune clé privée) sur cette machine.** Les fichiers de clés privées sous `~/.ssh/` (`id_ed25519`, `id_rsa`, etc. — tout sauf les `*.pub`) sont strictement hors limites. Les clés publiques (`*.pub`), `config`, `known_hosts` restent lisibles.
+- Invariant **non négociable**, **appliqué mécaniquement** par un hook `PreToolUse` global (`~/.claude/hooks/block-ssh-private-keys.sh`, déclaré dans `~/.claude/settings.json`) qui bloque tout appel `Read`/`Bash`/`Grep` ciblant une clé privée.
+- Raison : la clé privée prouve l'identité et l'autorité de l'auteur ; sa confidentialité ne doit jamais dépendre d'un outil tiers.
+
 ## Invariants
 
 - Ne pas repartir de zéro
