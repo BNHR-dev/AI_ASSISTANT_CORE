@@ -84,20 +84,28 @@ Le runtime canonique est **single-host** : tout tourne sur la même machine et c
 ### Services en conteneur (`docker-compose.linux.yml`, ports bornés à `127.0.0.1`)
 - Ollama — LLM local (`127.0.0.1:${OLLAMA_PORT} -> 11434`)
 - SearXNG — recherche web (`127.0.0.1:8081 -> 8080`)
-- OpenWebUI (optionnel) — UI opérateur, **hors runtime canonique** (voir « Décision OpenWebUI » dans `docs/RUNBOOK_POST_VM.md`)
+- OpenWebUI (optionnel) — UI opérateur, **hors runtime canonique** (non requis pour le cœur du produit)
 
 ### Hors conteneur (sur le host)
 - ComfyUI — service supposé déjà joignable en `127.0.0.1:8188`
 - Blender — exécuté **headless directement sur le host** (GPU NVIDIA)
 
-Ports, binds et URL canoniques : voir la section **Invariants runtime (référence canonique)** dans `docs/RUNBOOK_POST_VM.md`. Ce README ne les redéfinit pas pour éviter toute dérive.
+**Invariants runtime — ports canoniques (tous sur `127.0.0.1`) :**
+
+| Service | Port hôte |
+|---|---|
+| Backend AI_ASSISTANT_CORE (FastAPI) | `8000` |
+| Ollama | `12000` → conteneur `11434` |
+| SearXNG | `8081` → conteneur `8080` |
+| ComfyUI | `8188` |
+| OpenWebUI (optionnel) | `8088` |
 
 > **Isolation.** Le sandboxing de l'exécution du code généré reste un **objectif produit** (audit 2026-06-10, finding C1) ; il n'est plus porté par une VM aujourd'hui et ne doit pas être présenté comme une isolation déjà en place.
 >
 > **Roadmap.** Direction visée : isoler l'exécution du code généré dans une **VM d'isolation dédiée** (Linux, sur le host), pour les pipelines de studios d'animation 3D manipulant des assets confidentiels. Distincte de l'ancienne topologie Hyper-V archivée.
 
 ### Setup (Linux / Windows)
-- **Linux (Fedora — chemin validé)** : `cp core/.env.example core/.env`, puis `docker compose -f core/docker-compose.linux.yml up -d` (Ollama / SearXNG / OpenWebUI ; GPU natif via `nvidia-container-toolkit`). Lancer ensuite le backend FastAPI sur `127.0.0.1:8000` (voir `docs/RUNBOOK_POST_VM.md`).
+- **Linux (Fedora — chemin validé)** : `cp core/.env.example core/.env`, puis `docker compose -f core/docker-compose.linux.yml up -d` (Ollama / SearXNG / OpenWebUI ; GPU natif via `nvidia-container-toolkit`). Lancer ensuite le backend FastAPI sur `127.0.0.1:8000` (mise en place détaillée : `docs/SETUP_LINUX.md`).
 - **Windows (Docker Desktop)** : mêmes endpoints `localhost` via `docker compose -f core/docker-compose.yml up -d` ; GPU passé par le **backend WSL2** ; pour ComfyUI, un launcher `.bat` au lieu du `.sh`.
 
 ## API exposée
@@ -161,15 +169,14 @@ core/
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── ROADMAP.md
-│   ├── RUNBOOK_POST_VM.md
-│   └── 01..21_*_AI_ASSISTANT_CORE.txt   ← pack de contexte canonique
+│   └── SETUP_LINUX.md
 ├── scripts/
 ├── tests/
 ├── openai_compat.py
 └── README.md   ← présent uniquement à la racine (convention GitHub)
 ```
 
-Les docs détaillées vivent sous `docs/`. Le README à la racine sert d'entrée et pointe vers `docs/` pour l'architecture, la roadmap et le runbook.
+Les docs détaillées vivent sous `docs/`. Le README à la racine sert d'entrée et pointe vers `docs/` pour l'architecture, la roadmap et le setup.
 
 ## Tests et validation
 

@@ -117,14 +117,14 @@ Tout le runtime canonique tourne sur une seule machine et communique en `localho
 #### En conteneur (`docker-compose.linux.yml`, ports bornés à `127.0.0.1`)
 - Ollama — LLM local (`127.0.0.1:${OLLAMA_PORT} -> 11434`)
 - SearXNG — recherche web (`127.0.0.1:8081 -> 8080`)
-- OpenWebUI (optionnel) — UI opérateur, **hors runtime canonique** — voir « Décision OpenWebUI » dans `docs/RUNBOOK_POST_VM.md`
+- OpenWebUI (optionnel) — UI opérateur, **hors runtime canonique** (non requis pour le cœur du produit)
 
 ### Frontière de sécurité produit
 - déploiement single-host : pas de frontière d'isolation réseau dédiée aujourd'hui
 - l'isolation de l'exécution du code généré reste un **objectif produit** (audit 2026-06-10, C1), non livré — à ne pas surreprésenter comme acquis
 - **roadmap** : isoler l'exécution du code généré dans une **VM d'isolation dédiée** (Linux, sur le host), motivée par la confidentialité des assets studio — distincte de l'ancienne topologie Hyper-V archivée
 
-Ports, binds et URL canoniques : voir la section **Invariants runtime (référence canonique)** dans `docs/RUNBOOK_POST_VM.md`. Cette architecture ne les redéfinit pas pour éviter toute dérive.
+Les ports/binds canoniques sont ceux listés ci-dessus ; tous les services écoutent sur `127.0.0.1` (backend `8000`, Ollama `12000`, SearXNG `8081`, ComfyUI `8188`, OpenWebUI optionnel `8088`).
 
 ## Sous-système Blender (pipeline expérimental)
 

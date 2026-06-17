@@ -47,6 +47,10 @@ Thumbs.db
 /core/searxng/settings.yml
 /core/docs/core.zip
 
+# --- internal context pack + VM-era runbook : kept locally, not published ---
+/core/docs/[0-9][0-9]_*_AI_ASSISTANT_CORE.txt
+/core/docs/RUNBOOK_POST_VM.md
+
 # keep safe example files tracked
 !core/.env.example
 !infra/vm/env_examples/
