@@ -107,7 +107,7 @@ Le noyau produit reste :
 Le déploiement single-host n'ajoute pas de logique métier. L'isolation de l'exécution du code généré reste un **objectif produit** (audit 2026-06-10, C1), aujourd'hui non livrée — à ne pas présenter comme une frontière déjà en place.
 
 ### Runtime produit (single-host, localhost)
-Tout le runtime canonique tourne sur une seule machine et communique en `localhost` (`127.0.0.1`). L'ancienne topologie VM Hyper-V est archivée sous `infra/vm/`, hors runtime canonique.
+Tout le runtime canonique tourne sur une seule machine et communique en `localhost` (`127.0.0.1`). L'ancienne topologie — un invité Ubuntu/Linux sur hôte Windows (Hyper-V) — est archivée sous `infra/vm/`, hors runtime canonique.
 
 #### Sur le host
 - backend AI_ASSISTANT_CORE (FastAPI), bind `127.0.0.1:8000`

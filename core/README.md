@@ -76,7 +76,7 @@ Le projet doit donc être documenté comme :
 
 ## Architecture de déploiement (single-host, localhost)
 
-Le runtime canonique est **single-host** : tout tourne sur la même machine et communique en `localhost` (`127.0.0.1`). La migration depuis l'ancienne topologie VM Hyper-V est clôturée ; ce contexte VM/Windows est archivé sous `infra/vm/` et **ne fait pas partie** du runtime canonique.
+Le runtime canonique est **single-host** : tout tourne sur la même machine et communique en `localhost` (`127.0.0.1`). La migration depuis l'ancienne topologie — un invité **Ubuntu/Linux** sur hôte **Windows** (Hyper-V) — est clôturée ; ce contexte est archivé sous `infra/vm/` et **ne fait pas partie** du runtime canonique.
 
 ### Backend (sur le host)
 - backend AI_ASSISTANT_CORE (FastAPI), bind `127.0.0.1:8000`
