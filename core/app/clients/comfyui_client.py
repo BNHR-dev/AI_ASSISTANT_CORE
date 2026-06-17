@@ -477,8 +477,8 @@ def _build_view_url(filename: str, subfolder: str, image_type: str) -> str:
 
     The endpoint is the standard ComfyUI `/view` route, which serves the raw
     bytes of an output image identified by (filename, subfolder, type).
-    This URL is reachable from anywhere that can reach the ComfyUI HTTP API,
-    including the backend VM via the host bridge (e.g. 192.168.77.1:8188).
+    This URL is reachable from anywhere that can reach the ComfyUI HTTP API
+    (e.g. the local single-host endpoint 127.0.0.1:8188).
     """
     query = urlencode(
         {
