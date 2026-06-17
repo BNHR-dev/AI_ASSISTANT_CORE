@@ -20,8 +20,7 @@ Le système prend une demande, produit une décision structurée, construit un p
 
 ## Invariants
 
-- Ne pas repartir de zéro
-- Ne pas proposer de refonte architecture globale
+- Ne pas proposer de refonte d'architecture globale ni de réécriture from scratch
 - Ne pas casser le noyau `routeur + planner + executor`
 - Travailler à partir de l’état réel validé
 - Privilégier les phases courtes, concrètes, rentables et réversibles
@@ -36,7 +35,7 @@ Trajectoire actuelle : Linux/Fedora natif (migration clôturée le 2026-05-30).
 - les services (Ollama, SearXNG, Open-WebUI) tournent en Docker via `docker-compose.linux.yml`, ports liés à 127.0.0.1
 - Blender s'exécute en headless directement sur le host (GPU NVIDIA RTX 3060 12 Go)
 - l'ancien contexte host Windows + VM Ubuntu est legacy/archivé (`infra/vm/`, `docker-compose.yml` Windows, scripts `.ps1`/`.bat`) — ne pas le traiter comme l'architecture courante
-- l'isolation de l'exécution du code généré reste un objectif produit (cf. audit 2026-06-10, finding C1) ; elle n'est plus portée par une VM aujourd'hui
+- l'isolation de l'exécution du code généré reste un objectif produit (roadmap) ; elle n'est plus portée par une VM aujourd'hui
 
 ## Source de vérité
 
