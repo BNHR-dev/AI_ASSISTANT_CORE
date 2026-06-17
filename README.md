@@ -105,7 +105,7 @@ Le runtime canonique est **single-host** : tout tourne sur la même machine et c
 > **Roadmap.** Direction visée : isoler l'exécution du code généré dans une **VM d'isolation dédiée** (Linux, sur le host), pour les pipelines de studios d'animation 3D manipulant des assets confidentiels. Distincte de l'ancienne topologie Hyper-V archivée.
 
 ### Setup (Linux / Windows)
-- **Linux (Fedora — chemin validé)** : `cp core/.env.example core/.env`, puis `docker compose -f core/docker-compose.linux.yml up -d` (Ollama / SearXNG / OpenWebUI ; GPU natif via `nvidia-container-toolkit`). Lancer ensuite le backend FastAPI sur `127.0.0.1:8000` (mise en place détaillée : `docs/SETUP_LINUX.md`).
+- **Linux (Fedora — chemin validé)** : `cp core/.env.example core/.env`, puis `docker compose -f core/docker-compose.linux.yml up -d` (Ollama / SearXNG / OpenWebUI ; GPU natif via `nvidia-container-toolkit`). Lancer ensuite le backend FastAPI sur `127.0.0.1:8000` (mise en place détaillée : `core/docs/SETUP_LINUX.md`).
 - **Windows (Docker Desktop)** : mêmes endpoints `localhost` via `docker compose -f core/docker-compose.yml up -d` ; GPU passé par le **backend WSL2** ; pour ComfyUI, un launcher `.bat` au lieu du `.sh`.
 
 ## API exposée
@@ -164,19 +164,23 @@ Gaps visibles à garder en tête :
 ## Structure utile du repo
 
 ```text
-core/
-├── app/
-├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── ROADMAP.md
-│   └── SETUP_LINUX.md
-├── scripts/
-├── tests/
-├── openai_compat.py
-└── README.md   ← présent uniquement à la racine (convention GitHub)
+.
+├── README.md              ← cette page (entrée du repo)
+├── LICENSE                ← AGPL-3.0
+├── core/                  ← l'application
+│   ├── app/               ← routeur + planner + executor
+│   ├── docs/
+│   │   ├── ARCHITECTURE.md
+│   │   ├── ROADMAP.md
+│   │   └── SETUP_LINUX.md
+│   ├── scripts/
+│   ├── tests/
+│   └── openai_compat.py
+├── infra/
+└── scripts/
 ```
 
-Les docs détaillées vivent sous `docs/`. Le README à la racine sert d'entrée et pointe vers `docs/` pour l'architecture, la roadmap et le setup.
+Les docs détaillées vivent sous `core/docs/`. Ce README (racine) sert d'entrée et pointe vers `core/docs/` pour l'architecture, la roadmap et le setup.
 
 ## Tests et validation
 
@@ -185,9 +189,9 @@ Validation de référence à la sortie de la session 4 :
 - release gate smoke : `26 passed`
 - release gate core : `45 passed`
 
-Validation runtime post-VM :
-- backend VM lancé via `systemd`
-- SearXNG VM lancé via `systemd` + Docker
+Validation runtime single-host :
+- backend lancé sur le host
+- Ollama / SearXNG en conteneurs (`docker-compose.linux.yml`)
 - `/health` : OK
 - `/health/runtime` : OK
 - `/route` : OK
@@ -200,5 +204,5 @@ Le projet peut donc être lu comme un noyau documentable et stable, avec une det
 Quand une information diverge :
 1. `app/*` prime
 2. `openai_compat.py` prime pour l’intégration UI
-3. les docs `docs/*` servent de récit canonique du snapshot
+3. les docs `core/docs/*` servent de récit canonique du snapshot
 4. les fichiers racine legacy ne sont pas des sources métier
