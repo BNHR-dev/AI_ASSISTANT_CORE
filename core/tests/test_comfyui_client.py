@@ -81,7 +81,7 @@ def test_enrich_visual_positive_prompt_adds_cyberpunk_portrait_signals():
 
 
 def test_extract_output_descriptors_single_image(monkeypatch):
-    monkeypatch.setattr("app.clients.comfyui_client.COMFYUI_URL", "http://192.168.77.1:8188")
+    monkeypatch.setattr("app.clients.comfyui_client.COMFYUI_URL", "http://127.0.0.1:8188")
 
     history = {
         "outputs": {
@@ -105,7 +105,7 @@ def test_extract_output_descriptors_single_image(monkeypatch):
     assert desc["subfolder"] == ""
     assert desc["type"] == "output"
     assert desc["view_url"] == (
-        "http://192.168.77.1:8188/view"
+        "http://127.0.0.1:8188/view"
         "?filename=cinematic_scene_v1_00023_.png&subfolder=&type=output"
     )
 
