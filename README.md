@@ -2,7 +2,7 @@
 
 **A local-first AI orchestrator for creative and 3D-production work.**
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE) ![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white) ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+[![tests](https://github.com/BNHR-dev/AI_ASSISTANT_CORE/actions/workflows/tests.yml/badge.svg)](https://github.com/BNHR-dev/AI_ASSISTANT_CORE/actions/workflows/tests.yml) [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE) ![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white) ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 
 AI_ASSISTANT_CORE (AAC) takes a natural-language request, makes a structured routing decision, builds an explicit execution plan, runs it step by step across local models and creative tools, and returns a result you can trace end to end.
 
