@@ -93,6 +93,8 @@ Le runtime canonique est **single-host** : tout tourne sur la même machine et c
 Ports, binds et URL canoniques : voir la section **Invariants runtime (référence canonique)** dans `docs/RUNBOOK_POST_VM.md`. Ce README ne les redéfinit pas pour éviter toute dérive.
 
 > **Isolation.** Le sandboxing de l'exécution du code généré reste un **objectif produit** (audit 2026-06-10, finding C1) ; il n'est plus porté par une VM aujourd'hui et ne doit pas être présenté comme une isolation déjà en place.
+>
+> **Roadmap.** Direction visée : isoler l'exécution du code généré dans une **VM d'isolation dédiée** (Linux, sur le host), pour les pipelines de studios d'animation 3D manipulant des assets confidentiels. Distincte de l'ancienne topologie Hyper-V archivée.
 
 ### Setup (Linux / Windows)
 - **Linux (Fedora — chemin validé)** : `cp core/.env.example core/.env`, puis `docker compose -f core/docker-compose.linux.yml up -d` (Ollama / SearXNG / OpenWebUI ; GPU natif via `nvidia-container-toolkit`). Lancer ensuite le backend FastAPI sur `127.0.0.1:8000` (voir `docs/RUNBOOK_POST_VM.md`).

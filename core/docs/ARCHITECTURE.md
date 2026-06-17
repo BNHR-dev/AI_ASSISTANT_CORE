@@ -122,6 +122,7 @@ Tout le runtime canonique tourne sur une seule machine et communique en `localho
 ### Frontière de sécurité produit
 - déploiement single-host : pas de frontière d'isolation réseau dédiée aujourd'hui
 - l'isolation de l'exécution du code généré reste un **objectif produit** (audit 2026-06-10, C1), non livré — à ne pas surreprésenter comme acquis
+- **roadmap** : isoler l'exécution du code généré dans une **VM d'isolation dédiée** (Linux, sur le host), motivée par la confidentialité des assets studio — distincte de l'ancienne topologie Hyper-V archivée
 
 Ports, binds et URL canoniques : voir la section **Invariants runtime (référence canonique)** dans `docs/RUNBOOK_POST_VM.md`. Cette architecture ne les redéfinit pas pour éviter toute dérive.
 
