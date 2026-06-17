@@ -28,7 +28,7 @@ Capacités présentes dans le snapshot :
 - recherche web via SearXNG + synthèse LLM
 - vision via `qwen2.5vl:3b`
 - génération visuelle via ComfyUI
-- pipeline Blender expérimental (génération de scènes 3D côté VM)
+- pipeline Blender expérimental (génération de scènes 3D, headless sur le host)
 - compatibilité OpenAI pour OpenWebUI
 - santé runtime et frontières canoniques via API
 
@@ -74,32 +74,29 @@ Stratégies d'exécution réellement présentes :
 Le projet doit donc être documenté comme :
 **routeur + planner + executor**, pas comme un backend de réponse unique.
 
-## Architecture de déploiement post-VM
+## Architecture de déploiement (single-host, localhost)
 
-### Dans la VM Hyper-V `AICORE-VM`
-- backend AI_ASSISTANT_CORE
-- `aicore-backend.service`
-- bind `127.0.0.1:8000`
-- SearXNG
-- Docker `searxng` (`restart: unless-stopped`)
-- bind `127.0.0.1:8081`
+Le runtime canonique est **single-host** : tout tourne sur la même machine et communique en `localhost` (`127.0.0.1`). La migration depuis l'ancienne topologie VM Hyper-V est clôturée ; ce contexte VM/Windows est archivé sous `infra/vm/` et **ne fait pas partie** du runtime canonique.
 
-### Sur le host Windows
-- Ollama
-- ComfyUI
-- OpenWebUI (optionnel) comme UI opérateur, **hors runtime canonique** — voir « Décision OpenWebUI » dans `docs/RUNBOOK_POST_VM.md`
+### Backend (sur le host)
+- backend AI_ASSISTANT_CORE (FastAPI), bind `127.0.0.1:8000`
 
-### Réseau et isolation
-- réseau privé Hyper-V `AICORE-INT`
-- host : `192.168.77.1`
-- VM : `192.168.77.10`
-- flux utiles : VM → Ollama host et VM → ComfyUI host
+### Services en conteneur (`docker-compose.linux.yml`, ports bornés à `127.0.0.1`)
+- Ollama — LLM local (`127.0.0.1:${OLLAMA_PORT} -> 11434`)
+- SearXNG — recherche web (`127.0.0.1:8081 -> 8080`)
+- OpenWebUI (optionnel) — UI opérateur, **hors runtime canonique** (voir « Décision OpenWebUI » dans `docs/RUNBOOK_POST_VM.md`)
+
+### Hors conteneur (sur le host)
+- ComfyUI — service supposé déjà joignable en `127.0.0.1:8188`
+- Blender — exécuté **headless directement sur le host** (GPU NVIDIA)
 
 Ports, binds et URL canoniques : voir la section **Invariants runtime (référence canonique)** dans `docs/RUNBOOK_POST_VM.md`. Ce README ne les redéfinit pas pour éviter toute dérive.
 
-Dans le setup validé, l'accès VM → Ollama repose sur un `portproxy` Windows. Ce `portproxy` est une **dépendance runtime canonique à court terme** mais **transitoire dans sa forme** — pas un invariant final de topologie.
+> **Isolation.** Le sandboxing de l'exécution du code généré reste un **objectif produit** (audit 2026-06-10, finding C1) ; il n'est plus porté par une VM aujourd'hui et ne doit pas être présenté comme une isolation déjà en place.
 
-La VM n’est donc plus un simple environnement de dev : elle porte déjà le runtime principal du produit et sa première couche de sécurité structurelle.
+### Setup (Linux / Windows)
+- **Linux (Fedora — chemin validé)** : `cp core/.env.example core/.env`, puis `docker compose -f core/docker-compose.linux.yml up -d` (Ollama / SearXNG / OpenWebUI ; GPU natif via `nvidia-container-toolkit`). Lancer ensuite le backend FastAPI sur `127.0.0.1:8000` (voir `docs/RUNBOOK_POST_VM.md`).
+- **Windows (Docker Desktop)** : mêmes endpoints `localhost` via `docker compose -f core/docker-compose.yml up -d` ; GPU passé par le **backend WSL2** ; pour ComfyUI, un launcher `.bat` au lieu du `.sh`.
 
 ## API exposée
 
@@ -128,7 +125,7 @@ Model IDs disponibles :
 | `assistant-core-web` | `web_research` |
 
 Pour `image_generation`, les artefacts image sont intégrés dans `content` sous forme de markdown data-URI lorsque l'image est récupérable et que son `Content-Type` est `image/*` :
-- **Branche HTTP** (canonique VM) : `artifact_view_url(s)` → ComfyUI `/view` → `![filename](data:<mime>;base64,...)`
+- **Branche HTTP** (canonique) : `artifact_view_url(s)` → ComfyUI `/view` → `![filename](data:<mime>;base64,...)`
 - **Branche locale** (fallback host-only) : `artifact_path(s)` → lecture filesystem → même embed
 - `MAX_EMBED_IMAGES = 4` — `MAX_EMBED_BYTES_PER_IMAGE = 4 MiB`
 - `COMFYUI_VIEW_TIMEOUT` configurable via env var (défaut 15s)
@@ -136,7 +133,7 @@ Pour `image_generation`, les artefacts image sont intégrés dans `content` sous
 
 ## Pipeline Blender expérimental
 
-AI_ASSISTANT_CORE dispose désormais d'un pipeline Blender expérimental mais fonctionnel. Pour les demandes de création Blender, le backend peut générer un script `scene.py`, exécuter Blender côté VM, produire un artefact canonique `scene.blend` et générer un `preview.png` best-effort. Le preview est produit dans un subprocess séparé afin de ne pas polluer le script principal et de garder le fichier `.blend` comme artefact de référence.
+AI_ASSISTANT_CORE dispose désormais d'un pipeline Blender expérimental mais fonctionnel. Pour les demandes de création Blender, le backend peut générer un script `scene.py`, exécuter Blender headless sur le host, produire un artefact canonique `scene.blend` et générer un `preview.png` best-effort. Le preview est produit dans un subprocess séparé afin de ne pas polluer le script principal et de garder le fichier `.blend` comme artefact de référence.
 
 Points clés :
 - `scene.blend` est l'artefact canonique
@@ -149,8 +146,7 @@ Points clés :
 Le projet est solide au niveau du noyau, mais pas encore totalement nettoyé au niveau runtime et surface externe.
 
 Gaps visibles à garder en tête :
-- le `portproxy` Ollama est **canonique à court terme** mais **transitoire dans sa forme** (formulation unique partagée avec `docs/ARCHITECTURE.md` et `docs/RUNBOOK_POST_VM.md`)
-- le chemin direct VM → `192.168.77.1:12000` ne doit plus être documenté comme chemin runtime validé
+- l'isolation/sandbox de l'exécution du code généré reste un **objectif produit** non livré (audit 2026-06-10, C1) — à ne pas surreprésenter comme acquis
 - OpenWebUI acté comme UI opérateur optionnelle côté host, non canonique et non requise pour le fonctionnement du cœur du produit
 - la surface `/debug/canonical` doit continuer à refléter correctement la frontière entre modules actifs, auxiliaires, optionnels et legacy
 - les fichiers racine legacy existent encore et doivent rester de simples shims de compatibilité

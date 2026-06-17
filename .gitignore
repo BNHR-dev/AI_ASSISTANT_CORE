@@ -22,6 +22,8 @@ venv/
 /outputs/
 /sync_from_vm/
 /benchmarks/
+# untracked working artifacts, anywhere (repo root or core/) — never published
+local_artifacts/
 *.log
 *.db
 *.sqlite
