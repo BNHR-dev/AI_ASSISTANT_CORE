@@ -78,3 +78,7 @@ chat_image_response.json
 .claude/worktrees/
 
 prochaine_tache.md
+
+# legacy Windows helper scripts — kept locally, not published
+/core/scripts/docker_reset.bat
+/core/scripts/push_github_main.ps1
