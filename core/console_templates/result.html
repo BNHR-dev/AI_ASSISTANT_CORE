@@ -13,6 +13,19 @@
     </span>
   </div>
 
+  {% if semantic %}
+    <div class="strip">
+      <span class="badge">🧬 Sujet</span>
+      {% if semantic.label %}<span>« {{ semantic.label }} »</span>{% endif %}
+      {% if semantic.kind %}<span>type : {{ semantic.kind }}</span>{% endif %}
+      {% if semantic.kind_fidelity %}
+        <span class="{{ 'ok' if semantic.kind_fidelity == 'exact' else 'warn' }}">
+          fidélité : {{ semantic.kind_fidelity }}
+        </span>
+      {% endif %}
+    </div>
+  {% endif %}
+
   {% if has_error %}
     <div class="strip err">
       <div>
@@ -53,7 +66,31 @@
     <details open>
       <summary>▸ Aperçu</summary>
       {% if render_url %}
-        <p><img class="render" src="{{ render_url }}" alt="rendu Blender"></p>
+        <div class="render-wrap">
+          <img class="render" src="{{ render_url }}" alt="rendu Blender">
+          {% if framing %}
+            <svg class="overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
+              {% if framing.perceptual %}
+                <rect x="{{ framing.perceptual.x }}" y="{{ framing.perceptual.y }}"
+                      width="{{ framing.perceptual.w }}" height="{{ framing.perceptual.h }}"
+                      fill="none" stroke="#e5484d" stroke-width="0.7"/>
+              {% endif %}
+              {% if framing.projected %}
+                <rect x="{{ framing.projected.x }}" y="{{ framing.projected.y }}"
+                      width="{{ framing.projected.w }}" height="{{ framing.projected.h }}"
+                      fill="none" stroke="#30a46c" stroke-width="0.7"/>
+              {% endif %}
+            </svg>
+          {% endif %}
+        </div>
+        {% if framing %}
+          <p class="legend">
+            <span class="sw-red">▬</span> vu par la caméra (pixels) ·
+            <span class="sw-green">▬</span> calculé (géométrie)
+            {% if framing.iou is not none %} · IoU {{ "%.2f"|format(framing.iou) }}{% endif %}
+            {% if framing.diverged is not none %} · diverge : {{ "oui" if framing.diverged else "non" }}{% endif %}
+          </p>
+        {% endif %}
       {% endif %}
       {% if gallery %}
         <div class="gallery">
