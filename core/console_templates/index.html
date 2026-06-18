@@ -33,10 +33,21 @@
     .htmx-indicator { display: none; opacity: .7; }
     .htmx-request.htmx-indicator { display: inline; }
     .err { color: #b3261e; border-color: #b3261e; }
+    .warn { color: #b5800a; }
+    .render-wrap { position: relative; display: inline-block; line-height: 0; }
+    .render-wrap .overlay { position: absolute; inset: 0; width: 100%; height: 100%;
+                            pointer-events: none; }
+    .legend { font-size: .85rem; }
+    .sw-red { color: #e5484d; font-weight: 700; }
+    .sw-green { color: #30a46c; font-weight: 700; }
   </style>
 </head>
 <body>
-  <h1>◆ AAC Console <small>— exécution locale & observabilité (V0)</small></h1>
+  <h1>◆ AAC Console <small>— exécution locale & observabilité</small></h1>
+
+  <div id="health" hx-get="/console/health" hx-trigger="load" hx-swap="innerHTML">
+    <p><small>… vérification de la stack …</small></p>
+  </div>
 
   <form hx-post="/console/run" hx-target="#resultat" hx-indicator="#spin" hx-disabled-elt="button">
     <textarea name="message" placeholder="Ta demande… (ex. : une scène 3d blender : une théière sur un socle sombre)"></textarea>

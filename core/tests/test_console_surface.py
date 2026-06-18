@@ -117,6 +117,104 @@ def test_run_rejects_empty_message():
 
 
 # --------------------------------------------------------------------------- #
+# V1.a — overlay cadrage, fidélité sémantique, bandeau santé
+# --------------------------------------------------------------------------- #
+def _blender_result_with_observability():
+    r = _blender_result()
+    r["blender_scene_report"] = {
+        "visual_qa": {
+            "image_size": [512, 512],
+            "checks": {"subject_bbox_detected": {"bbox": [75, 180, 512, 512]}},
+        },
+        "framing_contract": {
+            "screen_bbox": [0.40, 0.22, 0.55, 0.77],
+            "framing_divergence": {
+                "perceptual_bbox_fraction": [0.146, 0.351, 1.0, 1.0],
+                "projected_bbox_fraction": [0.404, 0.229, 0.550, 0.777],
+                "iou": 0.1087,
+                "diverged": True,
+            },
+        },
+    }
+    r["blender_manifest"] = {
+        "future": {
+            "product_render_intent": {
+                "subject": {
+                    "kind": "bottle",
+                    "label": "flacon de parfum noir",
+                    "kind_fidelity": "exact",
+                }
+            }
+        }
+    }
+    return r
+
+
+def test_run_renders_framing_overlay(monkeypatch):
+    monkeypatch.setattr(
+        console, "execute_request", lambda message: _blender_result_with_observability()
+    )
+    body = client.post("/console/run", data={"message": "flacon"}).text
+    # deux rectangles colorés (perceptuel rouge / projeté vert) + score divergence
+    assert "#e5484d" in body and "#30a46c" in body
+    assert "<svg" in body and "<rect" in body
+    assert "IoU 0.11" in body
+    assert "diverge : oui" in body
+
+
+def test_run_renders_semantic_fidelity(monkeypatch):
+    monkeypatch.setattr(
+        console, "execute_request", lambda message: _blender_result_with_observability()
+    )
+    body = client.post("/console/run", data={"message": "flacon"}).text
+    assert "flacon de parfum noir" in body
+    assert "bottle" in body
+    assert "fidélité : exact" in body
+
+
+def test_framing_overlay_falls_back_to_pixel_bbox():
+    # Sans framing_divergence : la boîte perceptuelle se déduit des pixels + image_size.
+    report = {
+        "visual_qa": {
+            "image_size": [512, 512],
+            "checks": {"subject_bbox_detected": {"bbox": [128, 256, 384, 512]}},
+        },
+        "framing_contract": {"screen_bbox": [0.4, 0.2, 0.6, 0.8]},
+    }
+    fr = console._framing_overlay(report)
+    assert fr["perceptual"] == {"x": 25.0, "y": 50.0, "w": 50.0, "h": 50.0}
+    assert fr["projected"]["x"] == 40.0
+
+
+def test_health_strip_renders(monkeypatch):
+    monkeypatch.setattr(
+        console,
+        "get_runtime_health",
+        lambda: {
+            "status": "partial",
+            "summary": "ollama ok, comfyui down",
+            "services": {
+                "ollama": {"ready": True, "required": True},
+                "comfyui": {"ready": False, "required": False},
+            },
+        },
+    )
+    body = client.get("/console/health").text
+    assert "ollama" in body and "comfyui" in body
+    assert "partial" in body
+
+
+def test_health_strip_survives_probe_error(monkeypatch):
+    def _boom():
+        raise RuntimeError("probe failed")
+
+    monkeypatch.setattr(console, "get_runtime_health", _boom)
+    response = client.get("/console/health")
+    assert response.status_code == 200
+    assert "inconnu" in response.text
+
+
+# --------------------------------------------------------------------------- #
 # Route artefact — sécurité
 # --------------------------------------------------------------------------- #
 def test_artifact_served_under_outputs(monkeypatch, tmp_path):

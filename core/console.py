@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app.engine.executor import execute_request
+from app.engine.runtime_debug import get_runtime_health
 
 # Chemins ancrés sur ce fichier, indépendants du répertoire courant.
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -65,6 +66,69 @@ def _artifact_url(fs_path: str | None) -> str | None:
     if not resolved.is_relative_to(OUTPUTS):
         return None
     return "/console/artifact?path=" + quote(str(resolved.relative_to(OUTPUTS)))
+
+
+def _bbox_pct(frac) -> dict | None:
+    """[x0,y0,x1,y1] en fractions 0–1 → pourcentages pour l'overlay SVG."""
+    if not frac or len(frac) != 4:
+        return None
+    x0, y0, x1, y1 = frac
+    return {
+        "x": round(x0 * 100, 2),
+        "y": round(y0 * 100, 2),
+        "w": round((x1 - x0) * 100, 2),
+        "h": round((y1 - y0) * 100, 2),
+    }
+
+
+def _framing_overlay(scene_report) -> dict | None:
+    """Les deux cadrages à superposer sur le rendu : perceptuel (🔴 pixels)
+    vs projeté (🟢 géométrie). Données déjà présentes dans le scene_report ;
+    la Console ne fait que les mettre en forme."""
+    if not isinstance(scene_report, dict):
+        return None
+    fc = scene_report.get("framing_contract") or {}
+    vq = scene_report.get("visual_qa") or {}
+    fd = fc.get("framing_divergence") or {}
+
+    perceptual = fd.get("perceptual_bbox_fraction")
+    if not perceptual:
+        bbox = ((vq.get("checks") or {}).get("subject_bbox_detected") or {}).get("bbox")
+        size = vq.get("image_size")
+        if bbox and size and len(bbox) == 4 and len(size) == 2 and size[0] and size[1]:
+            w, h = size[0], size[1]
+            perceptual = [bbox[0] / w, bbox[1] / h, bbox[2] / w, bbox[3] / h]
+
+    projected = fd.get("projected_bbox_fraction") or fc.get("screen_bbox")
+
+    red = _bbox_pct(perceptual)
+    green = _bbox_pct(projected)
+    if not red and not green:
+        return None
+    return {
+        "perceptual": red,
+        "projected": green,
+        "iou": fd.get("iou"),
+        "diverged": fd.get("diverged"),
+    }
+
+
+def _semantic_fidelity(manifest) -> dict | None:
+    """Sujet déclaré + fidélité (exact/approximate) : le « théière → cube »
+    devient explicite. Source : manifest.future.product_render_intent.subject."""
+    if not isinstance(manifest, dict):
+        return None
+    subj = (
+        ((manifest.get("future") or {}).get("product_render_intent") or {}).get("subject")
+        or {}
+    )
+    if not subj.get("kind") and not subj.get("label"):
+        return None
+    return {
+        "kind": subj.get("kind"),
+        "label": subj.get("label"),
+        "kind_fidelity": subj.get("kind_fidelity"),
+    }
 
 
 def build_view(result: dict) -> dict:
@@ -126,6 +190,8 @@ def build_view(result: dict) -> dict:
         "summary": summary,
         "step_errors": step_errors,
         "has_error": has_error,
+        "framing": _framing_overlay(result.get("blender_scene_report")),
+        "semantic": _semantic_fidelity(result.get("blender_manifest")),
         "exception": None,
     }
 
@@ -134,6 +200,16 @@ def build_view(result: dict) -> dict:
 def page(request: Request):
     """La page : formulaire + zone de résultat vide."""
     return templates.TemplateResponse(request, "index.html", {})
+
+
+@router.get("/health", response_class=HTMLResponse)
+def health_strip(request: Request):
+    """Bandeau santé de la stack (chargé en différé par HTMX, non bloquant)."""
+    try:
+        health = get_runtime_health()
+    except Exception as exc:  # noqa: BLE001 — un check qui échoue ne casse pas l'UI
+        health = {"status": "inconnu", "summary": str(exc), "services": {}}
+    return templates.TemplateResponse(request, "_health.html", {"health": health})
 
 
 @router.post("/run", response_class=HTMLResponse)

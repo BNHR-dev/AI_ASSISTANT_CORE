@@ -1,0 +1,12 @@
+{# Bandeau santé de la stack — fragment chargé en différé par HTMX. #}
+{% set h = health or {} %}
+{% set st = h.get("status") %}
+<div class="strip{% if st in ['degraded', 'inconnu'] %} err{% endif %}">
+  <span class="badge">🩺 stack : {{ st or "—" }}</span>
+  {% for name, s in (h.get("services") or {}).items() %}
+    <span class="{{ 'ok' if s.get('ready') else 'ko' }}">
+      {{ '✅' if s.get('ready') else '❌' }} {{ name }}{% if s.get('required') %} *{% endif %}
+    </span>
+  {% endfor %}
+  {% if h.get("summary") %}<small>{{ h.get("summary") }}</small>{% endif %}
+</div>
