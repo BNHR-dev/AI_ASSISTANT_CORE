@@ -18,7 +18,12 @@ def test_load_workflow_template_ok():
 
 
 def test_inject_visual_request_updates_expected_nodes(monkeypatch):
-    monkeypatch.setenv("COMFYUI_CHECKPOINT_NAME", "v1-5-pruned-emaonly.ckpt")
+    import importlib
+
+    import app.clients.comfyui_client as comfyui_client
+
+    monkeypatch.setenv("COMFYUI_CHECKPOINT_NAME", "realvisxlV50_v50Bakedvae.safetensors")
+    comfyui_client = importlib.reload(comfyui_client)
 
     request = VisualRequest(
         workflow_id="cinematic_scene_v1",
@@ -30,11 +35,13 @@ def test_inject_visual_request_updates_expected_nodes(monkeypatch):
         steps=22,
         cfg=6.5,
         variants_count=2,
+        quality="draft",
     )
 
-    workflow = load_workflow_template("cinematic_scene_v1")
-    injected = inject_visual_request(workflow, request)
+    workflow = comfyui_client.load_workflow_template("generic_draft_v1")
+    injected = comfyui_client.inject_visual_request(workflow, request, "generic_draft_v1")
 
+    # base sampler + prompts + dimensions
     assert injected["6"]["inputs"]["text"] == "neon alley"
     assert injected["7"]["inputs"]["text"] == "blurry"
     assert injected["3"]["inputs"]["seed"] == 123
@@ -42,7 +49,14 @@ def test_inject_visual_request_updates_expected_nodes(monkeypatch):
     assert injected["3"]["inputs"]["cfg"] == 6.5
     assert injected["5"]["inputs"]["width"] == 768
     assert injected["5"]["inputs"]["height"] == 512
+    # the hires resample pass shares the seed/cfg, but keeps its fixed light
+    # step count (template-defined) so draft iteration stays fast
+    assert injected["11"]["inputs"]["seed"] == 123
+    assert injected["11"]["inputs"]["cfg"] == 6.5
+    assert injected["11"]["inputs"]["steps"] == 15
+    # category workflow_id is preserved as the output prefix
     assert injected["9"]["inputs"]["filename_prefix"] == "cinematic_scene_v1"
+    assert injected["4"]["inputs"]["ckpt_name"] == "realvisxlV50_v50Bakedvae.safetensors"
 
 
 

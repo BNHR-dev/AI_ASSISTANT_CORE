@@ -4,6 +4,9 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 
+VALID_QUALITIES = ("draft", "final")
+
+
 @dataclass(frozen=True)
 class VisualRequest:
     workflow_id: str
@@ -15,6 +18,13 @@ class VisualRequest:
     steps: int = 30
     cfg: float = 7.0
     variants_count: int = 1
+    quality: str = "draft"
+
+    def __post_init__(self) -> None:
+        if self.quality not in VALID_QUALITIES:
+            raise ValueError(
+                f"Invalid quality {self.quality!r}; expected one of {VALID_QUALITIES}"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
