@@ -43,10 +43,12 @@ est exposé sur l'hôte (`127.0.0.1:8000`).
    jamais cuits dans l'image. Démo **pleine** : RealVisXL + refiner + ESRGAN.
 
 ## Phases
-- **P1 — Backend conteneurisé** *(en cours)*
+- **P1 — Backend conteneurisé** *(fait)*
   - **P1a** *(fait)* : `Dockerfile` backend (Python 3.14 + `requirements.txt` + app), `up`
     → `/health` ok, parle à Ollama/SearXNG. CPU.
-  - **P1b** *(suivant)* : couche **Blender + bwrap** dans l'image backend.
+  - **P1b** *(fait)* : Blender **5.1.1** + **bubblewrap** dans l'image. Validé : `blender
+    --version` + rendu headless **Cycles CPU** OK dans le conteneur. *(bwrap installé ;
+    l'enveloppe applicative C1c n'est pas sur cette branche → conteneur = isolation en démo.)*
 - **P2 — ComfyUI conteneurisé** : image + volume modèles + workflows draft/final.
   ⚠️ PyTorch/CUDA sur Python 3.14 = canal `cu128`.
 - **P3 — Overlay GPU** : `docker-compose.gpu.yml`, validé sur Fedora, documenté Windows/WSL2.

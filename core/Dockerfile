@@ -10,6 +10,29 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
+# --- P1b : Blender 5.1.1 (rendu) + bubblewrap (sandbox, prêt pour C1c) ---
+# Le pipeline génère du bpy ciblant l'API Blender 5.1.x -> on épingle 5.1.1.
+# bubblewrap est installé mais l'enveloppe applicative (C1c) n'est pas sur cette
+# branche : en démo, le conteneur fait l'isolation (voir docs/DOCKER.md).
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        curl ca-certificates xz-utils bubblewrap \
+        libx11-6 libxext6 libxcb1 libxi6 libxxf86vm1 libxfixes3 libxrender1 \
+        libxkbcommon0 libsm6 libgl1 libegl1 libgomp1; \
+    rm -rf /var/lib/apt/lists/*; \
+    curl -fsSL -o /tmp/blender.tar.xz \
+        "https://download.blender.org/release/Blender5.1/blender-5.1.1-linux-x64.tar.xz"; \
+    mkdir -p /opt/blender; \
+    tar -xJf /tmp/blender.tar.xz -C /opt/blender --strip-components=1; \
+    rm -f /tmp/blender.tar.xz; \
+    ln -s /opt/blender/blender /usr/local/bin/blender; \
+    blender --version
+
+ENV BLENDER_EXE=/usr/local/bin/blender \
+    BLENDER_OUTPUT_DIR=/outputs/blender \
+    AAC_BLENDER_SANDBOX=auto
+
 WORKDIR /app
 
 # 1) Dépendances d'abord (cache de couche stable tant que requirements.txt ne change pas).
