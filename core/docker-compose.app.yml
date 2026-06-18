@@ -1,0 +1,43 @@
+# Stack AAC cross-platform — `docker compose -f docker-compose.app.yml up --build`.
+# Base CPU-safe (marche partout). Le GPU est ajouté via docker-compose.gpu.yml (P3).
+name: aac
+
+services:
+  aac-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Réseau interne : noms de service (pas de 127.0.0.1 ni d'IP host).
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_URL=http://ollama:11434/api/generate
+      - OLLAMA_TAGS_URL=http://ollama:11434/api/tags
+      - SEARXNG_SEARCH_URL=http://searxng:8080/search
+      - COMFYUI_URL=http://comfyui:8188
+    ports:
+      - "127.0.0.1:8000:8000"   # exposé seulement en local
+    volumes:
+      - aac-outputs:/outputs
+    depends_on:
+      - ollama
+      - searxng
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:0.24.0
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+    # GPU ajouté par docker-compose.gpu.yml (P3)
+
+  searxng:
+    image: searxng/searxng:2026.5.10-df1f24fb7
+    volumes:
+      - ./searxng:/etc/searxng:ro
+    restart: unless-stopped
+
+  # comfyui: ajouté en P2 (image ComfyUI + volume modèles + GPU).
+
+volumes:
+  aac-outputs:
+  ollama-models:
