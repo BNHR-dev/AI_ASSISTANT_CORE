@@ -11,6 +11,7 @@ exposition internet. Voir la note portfolio « Console — UI dédiée ».
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from urllib.parse import parse_qs, quote
 
@@ -27,6 +28,8 @@ TEMPLATES_DIR = PROJECT_ROOT / "console_templates"
 STATIC_DIR = (PROJECT_ROOT / "console_static").resolve()
 # Racine autorisée pour servir des artefacts (rendus Blender, etc.).
 OUTPUTS = (PROJECT_ROOT / "outputs").resolve()
+# Rapports d'eval produits par les runners du harness (read-only ici).
+EVAL_DIR = (OUTPUTS / "blender" / "_eval_reports")
 
 router = APIRouter(prefix="/console", tags=["console"])
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -131,6 +134,89 @@ def _semantic_fidelity(manifest) -> dict | None:
     }
 
 
+def _num(x):
+    return x if isinstance(x, (int, float)) and not isinstance(x, bool) else None
+
+
+def list_eval_reports() -> list[str]:
+    """Noms des rapports d'eval, du plus récent au plus ancien (tri lexical =
+    chronologique par convention du runner)."""
+    if not EVAL_DIR.is_dir():
+        return []
+    return sorted(
+        (p.name for p in EVAL_DIR.glob("*.json") if p.is_file()), reverse=True
+    )
+
+
+def load_eval_report(name: str) -> dict | None:
+    """Charge un rapport, en restant strictement sous EVAL_DIR."""
+    resolved = _safe_resolve(EVAL_DIR, name)
+    if resolved is None or resolved.suffix != ".json" or not resolved.is_file():
+        return None
+    try:
+        return json.loads(resolved.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def eval_summary(r: dict) -> dict:
+    """Normalise un rapport en une vue d'affichage, tolérant aux deux familles
+    de harness :
+    - product_render : `parse_ok_rate` (scalaire ou multi-run `aggregate.*.mean`),
+      cas sous `case_scores` / `case_aggregates` ;
+    - script_gen     : `generation_ok_rate` + `mean_score` sous `aggregate`,
+      cas sous `cases`.
+    Lecture seule : la Console ne recalcule aucune métrique."""
+    agg = r.get("aggregate") or {}
+
+    def metric(*keys):
+        for src in (agg, r):
+            for key in keys:
+                block = src.get(key)
+                if isinstance(block, dict) and "mean" in block:
+                    return _num(block.get("mean"))
+                if _num(block) is not None:
+                    return _num(block)
+        return None
+
+    n_runs = r.get("n_runs")
+    raw_cases = (
+        r.get("case_scores") or r.get("case_aggregates") or r.get("cases") or []
+    )
+    cases = []
+    for c in raw_cases:
+        if "parse_ok_count" in c:  # product_render multi-run
+            cnt = c.get("parse_ok_count")
+            ok_label = f"{cnt}/{n_runs}" if (cnt is not None and n_runs) else str(cnt)
+        elif "parse_ok" in c:  # product_render single-run
+            ok_label = "✅" if c.get("parse_ok") else "❌"
+        elif "generation_ok" in c:  # script_gen
+            ok_label = "✅" if c.get("generation_ok") else "❌"
+        else:
+            ok_label = "—"
+        score = c.get("score")
+        score = _num(score.get("mean")) if isinstance(score, dict) else _num(score)
+        cases.append(
+            {"case_id": c.get("case_id"), "parse_ok_label": ok_label,
+             "score": score, "error": c.get("error")}
+        )
+
+    n_cases = (
+        _num(agg.get("n_cases")) or r.get("total_cases") or r.get("n_cases")
+        or len(cases)
+    )
+    return {
+        "model": r.get("model"),
+        "timestamp": r.get("timestamp") or r.get("generated_at_utc"),
+        "n_cases": n_cases,
+        "n_runs": n_runs,
+        "parse_ok_rate": metric("parse_ok_rate", "generation_ok_rate"),
+        "mean_score": metric("mean_score"),
+        "cases": cases,
+        "common_errors": r.get("common_errors") or [],
+    }
+
+
 def build_view(result: dict) -> dict:
     """Prépare une vue d'affichage à partir du dict renvoyé par le service.
 
@@ -200,6 +286,23 @@ def build_view(result: dict) -> dict:
 def page(request: Request):
     """La page : formulaire + zone de résultat vide."""
     return templates.TemplateResponse(request, "index.html", {})
+
+
+@router.get("/eval", response_class=HTMLResponse)
+def eval_view(request: Request, file: str | None = None):
+    """Vue Eval/Benchmark : lit les rapports du harness et les présente."""
+    reports = list_eval_reports()
+    selected = None
+    summary = None
+    if reports:
+        selected = file if file in reports else reports[0]
+        raw = load_eval_report(selected)
+        summary = eval_summary(raw) if raw else None
+    return templates.TemplateResponse(
+        request,
+        "eval.html",
+        {"reports": reports, "selected": selected, "summary": summary},
+    )
 
 
 @router.get("/health", response_class=HTMLResponse)
