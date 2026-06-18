@@ -3,6 +3,8 @@
 Conventions alignées sur `tests/test_fastapi_surface.py` : TestClient(app) et
 mock de `execute_request` via monkeypatch. Aucun appel réel au moteur.
 """
+import json
+
 from fastapi.testclient import TestClient
 
 import console
@@ -212,6 +214,116 @@ def test_health_strip_survives_probe_error(monkeypatch):
     response = client.get("/console/health")
     assert response.status_code == 200
     assert "inconnu" in response.text
+
+
+# --------------------------------------------------------------------------- #
+# V1.b — vue Eval / Benchmark (lecture seule des rapports du harness)
+# --------------------------------------------------------------------------- #
+_SINGLE_RUN_REPORT = {
+    "report_schema_version": "1",
+    "timestamp": "2026-06-18T02:00:00+00:00",
+    "model": "qwen2.5-coder:7b",
+    "total_cases": 2,
+    "parse_ok_rate": 1.0,
+    "mean_score": 0.94,
+    "per_field_accuracy": {},
+    "case_scores": [
+        {"case_id": "c1", "parse_ok": True, "score": 0.95, "error": None},
+        {"case_id": "c2", "parse_ok": False, "score": 0.40, "error": "json error"},
+    ],
+}
+
+_MULTI_RUN_REPORT = {
+    "timestamp": "2026-06-18T03:00:00+00:00",
+    "model": "qwen2.5-coder:7b",
+    "n_runs": 3,
+    "n_cases": 1,
+    "aggregate": {
+        "parse_ok_rate": {"mean": 0.8333},
+        "mean_score": {"mean": 0.88},
+    },
+    "case_aggregates": [
+        {"case_id": "c1", "parse_ok_count": 3, "score": {"mean": 0.90}},
+    ],
+    "common_errors": [{"error_prefix": "JSONDecodeError", "count": 2}],
+}
+
+
+def test_eval_page_empty(monkeypatch, tmp_path):
+    monkeypatch.setattr(console, "EVAL_DIR", tmp_path / "none")
+    body = client.get("/console/eval").text
+    assert "Aucun rapport" in body
+    assert "product_render_eval_runner" in body  # commande pour en générer
+
+
+def test_eval_page_single_run(monkeypatch, tmp_path):
+    (tmp_path / "20260618T0200_qwen.json").write_text(
+        json.dumps(_SINGLE_RUN_REPORT), encoding="utf-8"
+    )
+    monkeypatch.setattr(console, "EVAL_DIR", tmp_path)
+    body = client.get("/console/eval").text
+    assert "qwen2.5-coder:7b" in body
+    assert "100 %" in body          # parse_ok_rate 1.0
+    assert "0.94" in body           # mean_score
+    assert "c1" in body and "c2" in body
+    assert "json error" in body     # erreur de cas affichée
+
+
+def test_eval_page_multi_run(monkeypatch, tmp_path):
+    (tmp_path / "20260618T0300_qwen_x3runs.json").write_text(
+        json.dumps(_MULTI_RUN_REPORT), encoding="utf-8"
+    )
+    monkeypatch.setattr(console, "EVAL_DIR", tmp_path)
+    body = client.get("/console/eval").text
+    assert "83 %" in body           # aggregate.parse_ok_rate.mean 0.8333
+    assert "0.88" in body           # aggregate.mean_score.mean
+    assert "3/3" in body            # parse_ok_count / n_runs
+
+
+def test_eval_summary_handles_both_shapes():
+    s1 = console.eval_summary(_SINGLE_RUN_REPORT)
+    assert s1["parse_ok_rate"] == 1.0 and s1["n_cases"] == 2
+    assert s1["cases"][0]["parse_ok_label"] == "✅"
+    s2 = console.eval_summary(_MULTI_RUN_REPORT)
+    assert round(s2["parse_ok_rate"], 2) == 0.83
+    assert s2["cases"][0]["parse_ok_label"] == "3/3"
+
+
+def test_eval_summary_handles_script_gen_shape():
+    # Famille script_gen : métriques sous `aggregate`, cas sous `cases`.
+    report = {
+        "generated_at_utc": "2026-06-18T02:19:50Z",
+        "model": "qwen2.5-coder:7b",
+        "aggregate": {"n_cases": 2, "mean_score": 0.967, "generation_ok_rate": 1.0},
+        "cases": [
+            {"case_id": "sphere", "generation_ok": True, "score": 1.0, "error": None},
+            {"case_id": "tube", "generation_ok": False, "score": 0.5, "error": "x"},
+        ],
+    }
+    s = console.eval_summary(report)
+    assert s["parse_ok_rate"] == 1.0       # mappé depuis generation_ok_rate
+    assert round(s["mean_score"], 2) == 0.97
+    assert s["n_cases"] == 2
+    assert s["cases"][0]["parse_ok_label"] == "✅"
+    assert s["cases"][1]["parse_ok_label"] == "❌"
+
+
+def test_eval_report_load_rejects_traversal(monkeypatch, tmp_path):
+    secret = tmp_path / "secret.json"
+    secret.write_text("{}")
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    monkeypatch.setattr(console, "EVAL_DIR", reports)
+    assert console.load_eval_report("../secret.json") is None
+
+
+def test_eval_latest_report_selected_by_default(monkeypatch, tmp_path):
+    (tmp_path / "20260101T0000_qwen.json").write_text(json.dumps(_SINGLE_RUN_REPORT))
+    (tmp_path / "20260618T0300_qwen_x3runs.json").write_text(json.dumps(_MULTI_RUN_REPORT))
+    monkeypatch.setattr(console, "EVAL_DIR", tmp_path)
+    # le plus récent (tri lexical décroissant) = le multi-run → "3/3" visible
+    body = client.get("/console/eval").text
+    assert "3/3" in body
 
 
 # --------------------------------------------------------------------------- #

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AAC Console — Eval / Benchmark</title>
+  <link rel="stylesheet" href="/console/static/console.css">
+</head>
+<body>
+  <h1>📊 Eval / Benchmark <small>— rapports du harness</small></h1>
+  <nav><a href="/console">▶ Exécuter</a><a href="/console/eval">📊 Eval / Benchmark</a></nav>
+
+  {% if not reports %}
+    <div class="strip">
+      <div>
+        <strong>Aucun rapport d'eval pour l'instant.</strong>
+        <p>Génère-en un (hors UI) :</p>
+        <pre>.venv/bin/python -m app.engine.product_render_eval_runner
+.venv/bin/python -m app.engine.script_gen_eval_runner</pre>
+        <p><small>Les rapports atterrissent sous <code>outputs/blender/_eval_reports/</code> et apparaissent ici.</small></p>
+      </div>
+    </div>
+  {% else %}
+    <form method="get" action="/console/eval">
+      <label>Rapport :
+        <select name="file" onchange="this.form.submit()">
+          {% for name in reports %}
+            <option value="{{ name }}"{% if name == selected %} selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <noscript><button type="submit">Voir</button></noscript>
+    </form>
+
+    {% if summary %}
+      <div class="strip">
+        <span class="badge">modèle : {{ summary.model or "—" }}</span>
+        <span>{{ summary.n_cases }} cas{% if summary.n_runs %} · {{ summary.n_runs }} run(s){% endif %}</span>
+        {% if summary.timestamp %}<small>{{ summary.timestamp }}</small>{% endif %}
+      </div>
+
+      <div class="metrics">
+        <div class="metric">
+          <div class="v">{% if summary.parse_ok_rate is not none %}{{ "%.0f"|format(summary.parse_ok_rate * 100) }} %{% else %}—{% endif %}</div>
+          <div class="l">taux OK (généré + valide)</div>
+        </div>
+        <div class="metric">
+          <div class="v">{% if summary.mean_score is not none %}{{ "%.2f"|format(summary.mean_score) }}{% else %}—{% endif %}</div>
+          <div class="l">score moyen (qualité de l'extraction)</div>
+        </div>
+      </div>
+
+      <h3>Détail par cas</h3>
+      <table class="eval">
+        <thead><tr><th>Cas</th><th>OK</th><th>score</th></tr></thead>
+        <tbody>
+          {% for c in summary.cases %}
+            <tr>
+              <td>{{ c.case_id }}{% if c.error %}<br><small class="ko">{{ c.error }}</small>{% endif %}</td>
+              <td>{{ c.parse_ok_label }}</td>
+              <td class="num">{% if c.score is not none %}{{ "%.2f"|format(c.score) }}{% else %}—{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      {% if summary.common_errors %}
+        <details>
+          <summary>▸ Erreurs fréquentes</summary>
+          <ul>
+            {% for e in summary.common_errors %}
+              <li>{{ e.error_prefix }} — {{ e.count }}×</li>
+            {% endfor %}
+          </ul>
+        </details>
+      {% endif %}
+    {% else %}
+      <div class="strip err">⚠️ Rapport illisible : {{ selected }}</div>
+    {% endif %}
+  {% endif %}
+</body>
+</html>
