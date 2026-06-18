@@ -5,7 +5,7 @@
   <span class="badge">🩺 stack : {{ st or "—" }}</span>
   {% for name, s in (h.get("services") or {}).items() %}
     <span class="{{ 'ok' if s.get('ready') else 'ko' }}">
-      {{ '✅' if s.get('ready') else '❌' }} {{ name }}{% if s.get('required') %} *{% endif %}
+      {{ '✅' if s.get('ready') else '❌' }} {{ name }}
     </span>
   {% endfor %}
   {% if h.get("summary") %}<small>{{ h.get("summary") }}</small>{% endif %}
