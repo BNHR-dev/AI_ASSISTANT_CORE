@@ -3,6 +3,7 @@ load_dotenv()
 from fastapi import FastAPI
 
 from openai_compat import router as openai_compat_router
+from console import router as console_router
 
 from app.engine.executor import execute_request
 from app.engine.router_service import build_route_decision
@@ -26,6 +27,7 @@ app = FastAPI(
 )
 
 app.include_router(openai_compat_router)
+app.include_router(console_router)
 
 
 @app.get("/health")
