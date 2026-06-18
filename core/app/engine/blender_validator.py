@@ -19,6 +19,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.clients.blender_sandbox import build_sandbox_plan, PROFILE_STRICT
 from app.engine import framing_contract
 from app.engine.blender_templates import get_template_spec
 from app.engine.blender_qa_visual import (
@@ -395,12 +396,21 @@ def _run_inspection_subprocess(
         inspect_script_path = str(output_dir_path / "_inspect_scene.py")
         Path(inspect_script_path).write_text(inspect_script, encoding="utf-8")
 
-        proc = subprocess.run(
-            # C1b — --factory-startup + --disable-autoexec : le .blend
-            # inspecté provient de code généré, ne pas exécuter ses scripts
-            # embarqués ni charger les prefs/addons utilisateur.
+        # C1b — flags conservés dans l'argv. C1c — profil strict (inspection
+        # sans rendu, pas de GPU). Le rapport JSON vit hors output_dir (/tmp
+        # système) → bind rw explicite pour relire côté host l'écriture du
+        # subprocess sandboxé. Un SandboxError (mode require sans bwrap) remonte
+        # à l'except Exception ci-dessous → V_SUBPROCESS_ERROR (fail-closed).
+        sandbox_plan = build_sandbox_plan(
             [exe, "--background", "--factory-startup", "--disable-autoexec",
              str(blend_path), "--python", inspect_script_path],
+            output_dir=str(output_dir_path),
+            profile=PROFILE_STRICT,
+            extra_rw_paths=[tmp_report_path],
+        )
+        print(sandbox_plan.log_line())
+        proc = subprocess.run(
+            sandbox_plan.argv,
             capture_output=True,
             text=True,
             timeout=timeout,
