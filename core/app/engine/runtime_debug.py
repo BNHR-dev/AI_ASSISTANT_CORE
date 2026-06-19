@@ -74,6 +74,7 @@ ACTIVE_AUXILIARY_MODULES = [
     "app/clients/comfyui_client.py",
     "app/clients/comfyui_runtime.py",
     "app/clients/blender_client.py",
+    "app/clients/blender_sandbox.py",
     "app/engine/artistic_intent.py",
     "app/engine/blender_ast_guard.py",
     "app/engine/blender_validator.py",
