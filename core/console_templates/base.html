@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AAC Console{% endblock %}</title>
+  <script src="/console/static/htmx.min.js" defer></script>
+  <link rel="stylesheet" href="/console/static/console.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">◆ AAC <span>Console</span></div>
+      <nav class="menu">
+        <a href="/console"         class="{% if active == 'run' %}active{% endif %}">▶ <span>Run</span></a>
+        <a href="/console/2d"      class="{% if active == '2d' %}active{% endif %}">🖼 <span>2D — Image</span></a>
+        <a href="/console/3d"      class="{% if active == '3d' %}active{% endif %}">🧊 <span>3D — Blender</span></a>
+        <a href="/console/outputs" class="{% if active == 'outputs' %}active{% endif %}">🗂 <span>Outputs</span></a>
+      </nav>
+      <div class="sidebar-foot">
+        <div id="health" hx-get="/console/health" hx-trigger="load" hx-swap="innerHTML">
+          <p class="muted"><small>… checking the stack …</small></p>
+        </div>
+      </div>
+    </aside>
+
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}AAC Console — 3D Blender{% endblock %}
+{% block content %}
+  <h1>🧊 3D — Blender <small>— generate &amp; judge 3D scene outputs</small></h1>
+
+  <form hx-post="/console/run" hx-target="#resultat" hx-indicator="#spin" hx-disabled-elt="button">
+    <textarea name="message" placeholder="Describe a 3D scene… (e.g. a Blender 3D scene: a teapot on a dark pedestal)"></textarea>
+    <button type="submit">Render ▶</button>
+  </form>
+  <p id="spin" class="htmx-indicator">⏳ rendering…</p>
+
+  <div id="resultat"></div>
+
+  <p class="muted" style="margin-top:1rem">
+    📊 Quality measurement → <a href="/console/eval">Eval / Benchmark</a> (harness reports).
+  </p>
+
+  <div class="placeholder">
+    <strong>Next step here:</strong> example scenes, the framing overlay 🔴🟢 inline,
+    and the eval harness reports embedded directly under each 3D run.
+  </div>
+{% endblock %}

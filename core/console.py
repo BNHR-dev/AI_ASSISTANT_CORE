@@ -284,8 +284,26 @@ def build_view(result: dict) -> dict:
 
 @router.get("", response_class=HTMLResponse)
 def page(request: Request):
-    """La page : formulaire + zone de résultat vide."""
-    return templates.TemplateResponse(request, "index.html", {})
+    """Section Run : entrée universelle (auto-routing) + zone de résultat."""
+    return templates.TemplateResponse(request, "index.html", {"active": "run"})
+
+
+@router.get("/2d", response_class=HTMLResponse)
+def page_2d(request: Request):
+    """Section 2D — génération et jugement des images (ComfyUI)."""
+    return templates.TemplateResponse(request, "section_2d.html", {"active": "2d"})
+
+
+@router.get("/3d", response_class=HTMLResponse)
+def page_3d(request: Request):
+    """Section 3D — génération et jugement des scènes Blender."""
+    return templates.TemplateResponse(request, "section_3d.html", {"active": "3d"})
+
+
+@router.get("/outputs", response_class=HTMLResponse)
+def page_outputs(request: Request):
+    """Section Outputs — historique des runs sur disque (à remplir)."""
+    return templates.TemplateResponse(request, "outputs.html", {"active": "outputs"})
 
 
 @router.get("/eval", response_class=HTMLResponse)
@@ -301,7 +319,7 @@ def eval_view(request: Request, file: str | None = None):
     return templates.TemplateResponse(
         request,
         "eval.html",
-        {"reports": reports, "selected": selected, "summary": summary},
+        {"reports": reports, "selected": selected, "summary": summary, "active": "3d"},
     )
 
 

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}AAC Console — Outputs{% endblock %}
+{% block content %}
+  <h1>🗂 Outputs <small>— every run, kept with its files on disk</small></h1>
+
+  <div class="placeholder">
+    <strong>Next step here:</strong> a list of all past runs read straight from
+    <code>outputs/comfyui/&lt;id&gt;/</code> and <code>outputs/blender/&lt;id&gt;/</code>
+    (the per-run registry we already write) — each with a thumbnail, type (2D/3D),
+    date, the on-disk path, and a <strong>📂 Open</strong> link that reveals the folder
+    in your file manager (Dolphin) via a local-only endpoint.
+  </div>
+{% endblock %}

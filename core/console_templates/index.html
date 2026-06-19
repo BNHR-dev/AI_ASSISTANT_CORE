@@ -1,19 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AAC Console</title>
-  <script src="/console/static/htmx.min.js" defer></script>
-  <link rel="stylesheet" href="/console/static/console.css">
-</head>
-<body>
-  <h1>◆ AAC Console <small>— local execution &amp; observability</small></h1>
-  <nav><a href="/console">▶ Run</a><a href="/console/eval">📊 Eval / Benchmark</a></nav>
-
-  <div id="health" hx-get="/console/health" hx-trigger="load" hx-swap="innerHTML">
-    <p><small>… checking the stack …</small></p>
-  </div>
+{% extends "base.html" %}
+{% block title %}AAC Console — Run{% endblock %}
+{% block content %}
+  <h1>Run <small>— type anything, the router decides</small></h1>
 
   <form hx-post="/console/run" hx-target="#resultat" hx-indicator="#spin" hx-disabled-elt="button">
     <textarea name="message" placeholder="Your request… (e.g. a Blender 3D scene: a teapot on a dark pedestal)"></textarea>
@@ -22,5 +10,4 @@
   <p id="spin" class="htmx-indicator">⏳ running…</p>
 
   <div id="resultat"></div>
-</body>
-</html>
+{% endblock %}

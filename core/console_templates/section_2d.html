@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}AAC Console — 2D Image{% endblock %}
+{% block content %}
+  <h1>🖼 2D — Image <small>— generate &amp; judge image outputs (ComfyUI)</small></h1>
+
+  <form hx-post="/console/run" hx-target="#resultat" hx-indicator="#spin" hx-disabled-elt="button">
+    <textarea name="message" placeholder="Describe an image… (e.g. a cinematic photo of a red fox in a misty forest at golden hour)"></textarea>
+    <button type="submit">Generate ▶</button>
+  </form>
+  <p id="spin" class="htmx-indicator">⏳ generating…</p>
+
+  <div id="resultat"></div>
+
+  <div class="placeholder">
+    <strong>Next step here:</strong> a draft/final quality toggle, clickable example
+    prompts, and a gallery of past images with their seed / size / time pulled from
+    each run's <code>manifest.json</code>.
+  </div>
+{% endblock %}

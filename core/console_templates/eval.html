@@ -1,14 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AAC Console — Eval / Benchmark</title>
-  <link rel="stylesheet" href="/console/static/console.css">
-</head>
-<body>
-  <h1>📊 Eval / Benchmark <small>— harness reports</small></h1>
-  <nav><a href="/console">▶ Run</a><a href="/console/eval">📊 Eval / Benchmark</a></nav>
+{% extends "base.html" %}
+{% block title %}AAC Console — Eval / Benchmark{% endblock %}
+{% block content %}
+  <h1>📊 Eval / Benchmark <small>— harness reports (3D pipeline)</small></h1>
 
   {% if not reports %}
     <div class="strip">
@@ -78,5 +71,4 @@
       <div class="strip err">⚠️ Unreadable report: {{ selected }}</div>
     {% endif %}
   {% endif %}
-</body>
-</html>
+{% endblock %}
