@@ -1,0 +1,62 @@
+# ComfyUI — image cross-platform (P2). Voir core/docs/DOCKER.md.
+#
+# Risque PyTorch/Python 3.14 LEVÉ (2026-06-19) : wheels cp314 présentes sur les
+# canaux cpu ET cu128, et TOUT le requirements.txt de ComfyUI a des wheels cp314
+# (PyAV, sentencepiece, tokenizers, safetensors, spandrel… : aucune compilation).
+# => l'image reste sur python:3.14-slim, comme le backend (un seul socle).
+#
+# Canal torch via build-arg : cpu par défaut (base CPU-safe, tourne partout, mais
+# lente sans GPU) ; l'overlay GPU (docker-compose.gpu.yml, P3) surcharge
+# TORCH_CHANNEL=cu128 + les versions correspondantes.
+FROM python:3.14-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+# git : cloner ComfyUI (épinglé). libgomp1 : OpenMP de torch/scipy.
+# libgl1/libglib2.0-0 : imports OpenGL/glfw de ComfyUI (headless mais chargés au boot).
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        git ca-certificates libgomp1 libgl1 libglib2.0-0; \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 1) PyTorch depuis le canal choisi (versions épinglées = build reproductible).
+#    Défauts = jeu cpu validé en dry-run le 2026-06-19. L'overlay GPU passe le jeu cu128.
+ARG TORCH_CHANNEL=cpu
+ARG TORCH_VERSION=2.12.1
+ARG TORCHVISION_VERSION=0.27.1
+ARG TORCHAUDIO_VERSION=2.11.0
+RUN python -m pip install --upgrade pip && \
+    python -m pip install --index-url "https://download.pytorch.org/whl/${TORCH_CHANNEL}" \
+        "torch==${TORCH_VERSION}" \
+        "torchvision==${TORCHVISION_VERSION}" \
+        "torchaudio==${TORCHAUDIO_VERSION}"
+
+# 2) Source ComfyUI épinglée au commit validé en natif. Pas de custom node : le
+#    workflow draft/final n'utilise que des noeuds coeur (KSampler, UpscaleModelLoader…).
+ARG COMFYUI_REF=f2270f070a372898ca748299a51dcba5bba0ba53
+RUN git clone https://github.com/comfyanonymous/ComfyUI.git . && \
+    git checkout "${COMFYUI_REF}"
+
+# 3) Dépendances ComfyUI (torch déjà satisfait -> ignoré). Toutes en wheels cp314.
+RUN python -m pip install -r requirements.txt
+
+EXPOSE 8188
+
+# ComfyUI sert son API sur 8188 (pas de curl en slim -> urllib sur /system_stats).
+HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=10 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8188/system_stats').status==200 else 1)"
+
+# Modèles montés en /app/models (volume RO). Sorties -> /outputs/comfyui (volume
+# partagé avec le backend, qui les lit aussi via la route HTTP /view).
+#
+# CPU par défaut : ce ComfyUI appelle torch.cuda.current_device() au boot, qui
+# échoue sur un build cpu -> --cpu obligatoire pour la base CPU-safe. L'overlay GPU
+# (P3) videra COMFYUI_EXTRA_ARGS pour activer CUDA. Forme `sh -c` + exec : la
+# variable est expansée tout en gardant python en PID 1 (arrêt propre sur SIGTERM).
+ENV COMFYUI_EXTRA_ARGS=--cpu
+CMD ["sh", "-c", "exec python main.py --listen 0.0.0.0 --port 8188 --output-directory /outputs/comfyui ${COMFYUI_EXTRA_ARGS}"]

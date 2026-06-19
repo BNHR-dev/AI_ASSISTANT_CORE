@@ -49,8 +49,13 @@ est exposé sur l'hôte (`127.0.0.1:8000`).
   - **P1b** *(fait)* : Blender **5.1.1** + **bubblewrap** dans l'image. Validé : `blender
     --version` + rendu headless **Cycles CPU** OK dans le conteneur. *(bwrap installé ;
     l'enveloppe applicative C1c n'est pas sur cette branche → conteneur = isolation en démo.)*
-- **P2 — ComfyUI conteneurisé** : image + volume modèles + workflows draft/final.
-  ⚠️ PyTorch/CUDA sur Python 3.14 = canal `cu128`.
+- **P2 — ComfyUI conteneurisé** *(image CPU faite + smoke-test ok, 2026-06-19)* :
+  `Dockerfile.comfyui` (python:3.14-slim, ComfyUI épinglé `f2270f0`, torch via build-arg
+  `TORCH_CHANNEL`), service `comfyui`, modèles en volume **RO**, sortie sur volume **partagé**
+  avec le backend. **Zéro custom node** (le workflow `cinematic_scene_v1` n'utilise que des
+  nœuds cœur). Wheels `cp314` présentes sur cpu **ET** cu128 + tout le requirements ComfyUI →
+  Python 3.14 conservé (pas de 3.12). ⚠️ ComfyUI exige `--cpu` sans GPU (variable
+  `COMFYUI_EXTRA_ARGS`, vidée par l'overlay GPU). E2E RealVisXL = avec le GPU (P3).
 - **P3 — Overlay GPU** : `docker-compose.gpu.yml`, validé sur Fedora, documenté Windows/WSL2.
 - **P4 — Validation cross-platform** : smoke `up` Linux (GPU + CPU), procédure Windows/WSL2.
 - **P5 — DX & docs** : entrée une-commande, script de fetch modèles, doc des 4 tiers.
@@ -65,6 +70,7 @@ curl -s http://127.0.0.1:8000/health    # -> {"status":"ok"}
 
 ## Risques connus
 - **Taille des modèles** = la vraie friction « ça marche tout de suite » (démo pleine).
-- **PyTorch/CUDA sur Python 3.14** en conteneur (wheels `cu128`) — traité en P2.
+- **PyTorch sur Python 3.14** — **levé (2026-06-19)** : wheels `cp314` sur cpu (`torch 2.12.1`)
+  ET cu128 (`torch 2.11.0`), et tout le requirements ComfyUI a une wheel cp314 → aucune compilation.
 - **Prérequis GPU Windows** : Docker Desktop + backend WSL2 + driver NVIDIA (sinon CPU).
 - **bwrap imbriqué** = privilèges conteneur (sinon `auto`/`off` en démo).

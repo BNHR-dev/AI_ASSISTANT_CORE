@@ -14,13 +14,23 @@ services:
       - OLLAMA_TAGS_URL=http://ollama:11434/api/tags
       - SEARXNG_SEARCH_URL=http://searxng:8080/search
       - COMFYUI_URL=http://comfyui:8188
+      # ComfyUI tourne dans son propre service -> le backend ne doit pas le démarrer.
+      - COMFYUI_AUTO_START=0
+      # Sorties lues côté backend par ce chemin (volume partagé) ou via /view (HTTP).
+      - COMFYUI_OUTPUT_DIR=/outputs/comfyui
+      # Démo pleine : RealVisXL (checkpoint + refiner) + upscaler 4x-UltraSharp.
+      - COMFYUI_CHECKPOINT_NAME=realvisxlV50_v50Bakedvae.safetensors
+      - COMFYUI_REFINER_CHECKPOINT_NAME=realvisxlV50_v50Bakedvae.safetensors
+      - COMFYUI_UPSCALE_MODEL_NAME=4x-UltraSharp.pth
     ports:
       - "127.0.0.1:8000:8000"   # exposé seulement en local
     volumes:
       - aac-outputs:/outputs
+      - comfyui-output:/outputs/comfyui:ro   # sorties générées par le service comfyui
     depends_on:
       - ollama
       - searxng
+      - comfyui
     restart: unless-stopped
 
   ollama:
@@ -36,8 +46,28 @@ services:
       - ./searxng:/etc/searxng:ro
     restart: unless-stopped
 
-  # comfyui: ajouté en P2 (image ComfyUI + volume modèles + GPU).
+  comfyui:
+    build:
+      context: .
+      dockerfile: Dockerfile.comfyui
+      # Canal torch = CPU par défaut (tourne partout, lent sans GPU). L'overlay GPU
+      # (docker-compose.gpu.yml, P3) surcharge TORCH_CHANNEL=cu128 + les versions.
+      args:
+        TORCH_CHANNEL: cpu
+    # Pas de `ports:` -> accédé seulement par le backend (réseau interne comfyui:8188).
+    environment:
+      # Base CPU-safe : ce ComfyUI appelle torch.cuda au boot sauf si --cpu est passé.
+      # L'overlay GPU (P3) remettra COMFYUI_EXTRA_ARGS="" pour activer CUDA.
+      - COMFYUI_EXTRA_ARGS=--cpu
+    volumes:
+      # Modèles existants (19 Go : RealVisXL + 4x-UltraSharp) en lecture seule —
+      # JAMAIS recopiés dans l'image. Surchargeable via COMFYUI_MODELS_DIR.
+      - ${COMFYUI_MODELS_DIR:-/home/BNHR/projects/ComfyUI/models}:/app/models:ro
+      - comfyui-output:/outputs/comfyui   # sorties partagées avec le backend
+    restart: unless-stopped
+    # GPU (réservation NVIDIA) ajouté par docker-compose.gpu.yml (P3).
 
 volumes:
   aac-outputs:
   ollama-models:
+  comfyui-output:
