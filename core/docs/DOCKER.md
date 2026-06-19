@@ -67,7 +67,8 @@ est exposé sur l'hôte (`127.0.0.1:8000`).
 ## Lancer la stack
 ```bash
 cd core
-cp env.docker.example .env.docker        # ajuster si besoin (COMFYUI_MODELS_DIR…)
+cp env.docker.example .env.docker                       # ajuster si besoin (COMFYUI_MODELS_DIR…)
+cp searxng/settings.example.yml searxng/settings.yml    # config SearXNG (recherche web)
 
 # Base CPU-safe (tourne partout ; image lente sans GPU) :
 docker compose -f docker-compose.app.yml up --build
@@ -100,5 +101,6 @@ défaut 1000 ; le backend root les `chown`).
   ET cu128 (`torch 2.11.0`), et tout le requirements ComfyUI a une wheel cp314 → aucune compilation.
 - **Prérequis GPU Windows** : Docker Desktop + backend WSL2 + driver NVIDIA (sinon CPU).
 - **bwrap imbriqué** = privilèges conteneur (sinon `auto`/`off` en démo).
-- **SearXNG** : `core/searxng/` n'a pas de `settings.yml` → le service boucle (exit 127).
-  Pré-existant (P1), **hors** chemin image-gen ; à corriger pour activer la recherche web.
+- **SearXNG** : nécessite `core/searxng/settings.yml` (gitignoré car secret) — `cp` depuis
+  `settings.example.yml`. Le template active `format: json` (requis par le backend) et
+  `limiter: false` (accès interne). Sans le fichier, le service boucle (exit 127).
