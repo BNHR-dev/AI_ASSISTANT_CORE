@@ -1,0 +1,46 @@
+:root { color-scheme: light dark; }
+body { font-family: system-ui, sans-serif; max-width: 920px; margin: 2rem auto;
+       padding: 0 1rem; line-height: 1.5; }
+h1 { font-size: 1.25rem; }
+nav { margin: .3rem 0 1rem; font-size: .9rem; }
+nav a { margin-right: 1rem; }
+form { display: flex; gap: .5rem; align-items: flex-start; }
+textarea { flex: 1; min-height: 3.5rem; padding: .6rem; font: inherit;
+           border: 1px solid #8888; border-radius: 6px; }
+button { padding: .6rem 1rem; font: inherit; cursor: pointer;
+         border: 1px solid #8888; border-radius: 6px; }
+.strip { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center;
+         padding: .6rem .8rem; border: 1px solid #8888; border-radius: 6px;
+         margin: 1rem 0; }
+.badge { font-weight: 600; }
+.ok { color: #1a7f37; } .ko { color: #b3261e; }
+details { border: 1px solid #8888; border-radius: 6px; padding: .4rem .8rem;
+          margin: .6rem 0; }
+summary { cursor: pointer; font-weight: 600; }
+pre { white-space: pre-wrap; word-break: break-word; background: #8881;
+      padding: .6rem; border-radius: 6px; overflow-x: auto; }
+ul.steps { list-style: none; padding-left: 0; }
+ul.steps li { padding: .15rem 0; }
+img.render { max-width: 100%; border: 1px solid #8888; border-radius: 6px; }
+.gallery { display: flex; flex-wrap: wrap; gap: .6rem; }
+.gallery img { max-width: 240px; border: 1px solid #8888; border-radius: 6px; }
+.htmx-indicator { display: none; opacity: .7; }
+.htmx-request.htmx-indicator { display: inline; }
+.err { color: #b3261e; border-color: #b3261e; }
+.warn { color: #b5800a; }
+.render-wrap { position: relative; display: inline-block; line-height: 0; }
+.render-wrap .overlay { position: absolute; inset: 0; width: 100%; height: 100%;
+                        pointer-events: none; }
+.legend { font-size: .85rem; }
+.sw-red { color: #e5484d; font-weight: 700; }
+.sw-green { color: #30a46c; font-weight: 700; }
+
+/* Eval / Benchmark */
+.metrics { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1rem 0; }
+.metric { border: 1px solid #8888; border-radius: 6px; padding: .6rem 1rem; min-width: 8rem; }
+.metric .v { font-size: 1.6rem; font-weight: 700; }
+.metric .l { font-size: .8rem; opacity: .8; }
+table.eval { border-collapse: collapse; width: 100%; }
+table.eval th, table.eval td { text-align: left; padding: .35rem .6rem;
+                               border-bottom: 1px solid #8884; }
+table.eval td.num { text-align: right; font-variant-numeric: tabular-nums; }

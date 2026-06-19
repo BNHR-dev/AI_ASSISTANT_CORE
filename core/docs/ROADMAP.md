@@ -17,7 +17,7 @@ La vraie valeur à court terme n’est donc pas un grand refactor, mais un align
 ## Baseline actuelle
 
 Lecture correcte du snapshot :
-**V1.7.0 stable / proto V2 contrôlé, avec session 4 visuelle intégrée, runtime post-VM stabilisé et phase 1 de hardening safe backend validée.**
+**V1.7.0 stable / proto V2 contrôlé, avec session 4 visuelle intégrée, runtime single-host (localhost) stabilisé après clôture de la migration VM, et phase 1 de hardening safe backend validée.**
 
 ## Ce qui est déjà verrouillé
 
@@ -32,35 +32,32 @@ Lecture correcte du snapshot :
 - contrats ComfyUI préservés
 
 ### Pipeline Blender
-- pipeline Blender fonctionnel côté VM
+- pipeline Blender fonctionnel, headless sur le host
 - génération de `scene.py`, `scene.blend` et `preview.png`
 - `scene.blend` comme artefact canonique
 - `preview.png` best-effort, produit dans un subprocess séparé
 - preview PNG lisible ; qualité visuelle encore améliorable
 
-### Runtime post-VM
-- backend canonisé dans la VM via `systemd`
-- SearXNG canonisé dans la VM via `systemd` + Docker
-- checks runtime réalignés sur la topologie réelle host + VM
-- validation reboot de la VM
-- répartition runtime clarifiée entre host Windows et VM Hyper-V
+### Runtime single-host
+- migration VM Hyper-V clôturée : tout le runtime canonique tourne sur le host Fedora, en `localhost`
+- backend (FastAPI) sur le host, bind `127.0.0.1:8000`
+- Ollama / SearXNG / OpenWebUI en conteneurs (`docker-compose.linux.yml`), ports bornés à `127.0.0.1`
+- ComfyUI et Blender exécutés directement sur le host
+- ancienne topologie VM/Windows archivée (`infra/vm/`), hors runtime canonique
 
 ### Hardening phase 1
-- backend durci via un drop-in `systemd` léger et validé
-- hardening safe appliqué sans casser l’exploitation
-- sécurité structurelle déjà renforcée par la VM comme frontière produit
+- hardening safe appliqué côté backend sans casser l’exploitation
+- l’isolation de l’exécution du code généré reste un **objectif produit** (audit C1), non livré aujourd’hui — à ne pas présenter comme une frontière déjà en place
 
 ## Priorités raisonnables à très court terme
 
 1. **Docs canoniques alignées**
-   - `README.md` au root ; `ARCHITECTURE.md`, `ROADMAP.md`, `RUNBOOK_POST_VM.md` dans `docs/`
-   - cohérence entre root/README et docs (pas de duplicata des 3 autres fichiers)
-   - pack `docs/*` régénéré
+   - `README.md` au root ; `ARCHITECTURE.md`, `ROADMAP.md`, `SETUP_LINUX.md` dans `docs/`
+   - cohérence entre le README racine et `docs/` (pas de duplication)
 
 2. **Consolidation runtime honnête**
-   - documenter le bridge Ollama réel `12001` comme dépendance canonique à court terme
-   - garder le firewall host minimal et borné à la VM
-   - OpenWebUI acté côté host comme UI opérateur optionnelle, hors runtime canonique (voir `docs/RUNBOOK_POST_VM.md`)
+   - garder les endpoints `localhost` canoniques (backend `8000`, Ollama `12000`, SearXNG `8081`, ComfyUI `8188`) cohérents entre code, compose et docs
+   - OpenWebUI acté comme UI opérateur optionnelle, hors runtime canonique
 
 3. **Surface debug plus propre**
    - garder `/health/runtime` comme vue utile
@@ -80,16 +77,15 @@ Lecture correcte du snapshot :
 
 Le meilleur prochain move n’est pas une nouvelle couche externe.
 C’est une **consolidation documentaire finale + normalisation légère du runtime déclaré** :
-- runbook host / VM
+- runbook de mise en route single-host
 - clarification runtime debug
 - nettoyage documentaire final
-- cohérence des endpoints et exemples de config
-- neutralisation des anciens snapshots qui racontent encore `12000`
+- cohérence des endpoints `localhost` et exemples de config
 
 ## Petite phase 2 raisonnable après ça
 
 Une fois la consolidation documentaire terminée, la phase suivante la plus rentable est :
-- clarification des profils runtime (`host-only`, `VM canonique`, `UI opérateur host`)
+- clarification des profils runtime (`single-host`, `UI opérateur optionnelle`)
 - amélioration légère de la surface debug/runtime si nécessaire
 - meilleure lisibilité des exemples `.env` sans refondre le code
 

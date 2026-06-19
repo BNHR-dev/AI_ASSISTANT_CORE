@@ -69,11 +69,13 @@ ACTIVE_RUNTIME_MODULES = [
 ]
 
 ACTIVE_AUXILIARY_MODULES = [
+    "app/auth.py",
     "app/clients/ollama_client.py",
     "app/clients/web_client.py",
     "app/clients/comfyui_client.py",
     "app/clients/comfyui_runtime.py",
     "app/clients/blender_client.py",
+    "app/clients/blender_sandbox.py",
     "app/engine/artistic_intent.py",
     "app/engine/blender_ast_guard.py",
     "app/engine/blender_validator.py",
@@ -95,6 +97,7 @@ ACTIVE_AUXILIARY_MODULES = [
     "app/engine/blender_model_config.py",
     "app/engine/llm_trajectory_log.py",
     "app/engine/artifact_manifest.py",
+    "app/engine/comfyui_manifest.py",
     "app/infra/runtime_urls.py",
     "app/infra/tool_manager.py",
 ]

@@ -91,6 +91,59 @@ docker compose -f core/docker-compose.linux.yml up
 
 ---
 
+## Authentification de l'API (C2)
+
+L'API s'authentifie par **bearer token** : les requêtes portent une en-tête
+`Authorization: Bearer <token>`. C'est ce qu'envoient déjà les clients
+compatibles OpenAI (Open-WebUI). Le token n'est jamais logué ; la comparaison
+est en temps constant.
+
+### Variables d'environnement (dans `core/.env`)
+
+| Variable | Rôle |
+|---|---|
+| `AAC_API_TOKEN` | Le token partagé. ≥ 16 caractères. Généré par ex. avec `python -c "import secrets;print(secrets.token_hex(24))"`. |
+| `AAC_API_AUTH_MODE` | `off` \| `required`. Non posé ⇒ `presence` (défaut). |
+| `AAC_CONSOLE_ENABLED` | Monte la console `/console/*` (UI navigateur, **non authentifiée**). Défaut activé. |
+
+### Postures
+
+- **`presence`** (défaut, non posé) — auth appliquée **si** `AAC_API_TOKEN` est
+  posé ; sinon API ouverte + avertissement au démarrage. Confort dev loopback.
+- **`off`** — auth jamais appliquée (même avec un token posé).
+- **`required`** — auth appliquée **et** l'app **refuse de démarrer** si
+  `AAC_API_TOKEN` est absent ou invalide (fail-closed).
+
+### Routes
+
+- **Ouvert** : `GET /health` (sonde de vie).
+- **Protégé** (quand l'auth est appliquée) : `/route`, `/execute`,
+  `/debug/canonical`, `/health/runtime`, et tout `/v1/*` → `401` +
+  `WWW-Authenticate: Bearer` sans token valide.
+- **Console** `/console/*` : non protégée par le token (UI navigateur). Montée
+  seulement si `AAC_CONSOLE_ENABLED` est activé.
+
+### Profil local vs profil exposé
+
+- **Profil local** (défaut) : bind `127.0.0.1`, console activée, docs activés.
+  `AAC_API_TOKEN` optionnel.
+- **Profil exposé / public** (avant tout bind hors loopback) :
+  ```bash
+  AAC_API_AUTH_MODE=required
+  AAC_API_TOKEN=<token fort>
+  AAC_CONSOLE_ENABLED=0
+  ```
+  En mode `required`, `/docs`, `/redoc` et `/openapi.json` sont automatiquement
+  désactivés.
+
+> **Règle** : ne jamais binder l'API hors `127.0.0.1` sans
+> `AAC_API_AUTH_MODE=required` + un token fort. La console n'étant pas
+> authentifiée, ne pas l'exposer : la garder en loopback ou la désactiver
+> (`AAC_CONSOLE_ENABLED=0`) et n'exposer que l'API (par ex. via un reverse
+> proxy qui ne publie que `/execute` et `/v1/*`).
+
+---
+
 ## NVIDIA / Secure Boot (section dédiée)
 
 > ⚠️ Étape sensible : **rien d'irréversible n'est figé**. Procédure adaptée à

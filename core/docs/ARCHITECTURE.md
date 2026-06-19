@@ -104,39 +104,33 @@ Le noyau produit reste :
 - executor
 - observabilité
 
-La VM n’ajoute pas une nouvelle logique métier. Elle ajoute une **forme de déploiement canonique** et une **frontière d’isolation**.
+Le déploiement single-host n'ajoute pas de logique métier. L'isolation de l'exécution du code généré reste un **objectif produit** (audit 2026-06-10, C1), aujourd'hui non livrée — à ne pas présenter comme une frontière déjà en place.
 
-### Runtime produit
-#### Dans la VM Hyper-V `AICORE-VM`
-- backend AI_ASSISTANT_CORE
-- service `aicore-backend.service`
-- bind `127.0.0.1:8000`
-- SearXNG
-- service Docker `searxng` (`restart: unless-stopped`)
-- bind `127.0.0.1:8081 -> 8080`
+### Runtime produit (single-host, localhost)
+Tout le runtime canonique tourne sur une seule machine et communique en `localhost` (`127.0.0.1`). L'ancienne topologie — un invité Ubuntu/Linux sur hôte Windows (Hyper-V) — est archivée sous `infra/vm/`, hors runtime canonique.
 
-#### Sur le host Windows
-- Ollama
-- ComfyUI
-- OpenWebUI (optionnel) comme UI opérateur, **hors runtime canonique** — voir « Décision OpenWebUI » dans `docs/RUNBOOK_POST_VM.md`
+#### Sur le host
+- backend AI_ASSISTANT_CORE (FastAPI), bind `127.0.0.1:8000`
+- ComfyUI — supposé joignable en `127.0.0.1:8188`
+- Blender — exécuté headless directement sur le host (GPU NVIDIA)
+
+#### En conteneur (`docker-compose.linux.yml`, ports bornés à `127.0.0.1`)
+- Ollama — LLM local (`127.0.0.1:${OLLAMA_PORT} -> 11434`)
+- SearXNG — recherche web (`127.0.0.1:8081 -> 8080`)
+- OpenWebUI (optionnel) — UI opérateur, **hors runtime canonique** (non requis pour le cœur du produit)
 
 ### Frontière de sécurité produit
-- host Windows
-- VM Hyper-V isolée
-- réseau privé `AICORE-INT`
-- host : `192.168.77.1`
-- VM : `192.168.77.10`
-- flux utiles : VM → Ollama host, VM → ComfyUI host
+- déploiement single-host : pas de frontière d'isolation réseau dédiée aujourd'hui
+- l'isolation de l'exécution du code généré reste un **objectif produit** (audit 2026-06-10, C1), non livré — à ne pas surreprésenter comme acquis
+- **roadmap** : isoler l'exécution du code généré dans une **VM d'isolation dédiée** (Linux, sur le host), motivée par la confidentialité des assets studio — distincte de l'ancienne topologie Hyper-V archivée
 
-Ports, binds et URL canoniques : voir la section **Invariants runtime (référence canonique)** dans `docs/RUNBOOK_POST_VM.md`. Cette architecture ne les redéfinit pas pour éviter toute dérive.
-
-Dans le setup actuel, le raccord VM → Ollama repose sur un `portproxy` Windows. Ce `portproxy` est une **dépendance runtime canonique à court terme** mais **transitoire dans sa forme** — pas un invariant final de topologie. Le chemin direct VM → `192.168.77.1:12000` ne doit pas être documenté comme runtime validé.
+Les ports/binds canoniques sont ceux listés ci-dessus ; tous les services écoutent sur `127.0.0.1` (backend `8000`, Ollama `12000`, SearXNG `8081`, ComfyUI `8188`, OpenWebUI optionnel `8088`).
 
 ## Sous-système Blender (pipeline expérimental)
 
 Le pipeline Blender est rattaché à la couche clients/tools sans modifier le noyau routeur + planner + executor.
 
-- `app/clients/blender_client.py` — exécution Blender côté VM
+- `app/clients/blender_client.py` — exécution Blender headless sur le host
 - le planner/executor existant route vers `blender_pipeline` pour les demandes 3D
 - les fichiers sont produits sous `outputs/blender/<uuid>/` :
   - `scene.py` — script bpy généré
@@ -220,7 +214,7 @@ Ces fichiers ne doivent pas redevenir des sources métier.
 
 ## Gaps structurels encore réels
 
-- `portproxy` Ollama **canonique à court terme** mais **transitoire dans sa forme** (formulation unique partagée avec `README.md` et `docs/RUNBOOK_POST_VM.md`)
+- isolation/sandbox de l'exécution du code généré : **objectif produit** non livré (audit 2026-06-10, C1)
 - dette legacy encore présente même si contenue
 - OpenWebUI acté comme UI opérateur optionnelle côté host, non canonique et non requise pour le fonctionnement du cœur du produit
 

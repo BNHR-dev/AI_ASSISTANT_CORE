@@ -12,10 +12,15 @@ Le noyau du produit est :
 
 Le système prend une demande, produit une décision structurée, construit un plan d’exécution, exécute ce plan étape par étape, puis retourne une sortie utile et traçable.
 
+## Sécurité — règle absolue (clés privées)
+
+- **NE JAMAIS lire de clé SSH privée (ni aucune clé privée) sur cette machine.** Les fichiers de clés privées sous `~/.ssh/` (`id_ed25519`, `id_rsa`, etc. — tout sauf les `*.pub`) sont strictement hors limites. Les clés publiques (`*.pub`), `config`, `known_hosts` restent lisibles.
+- Invariant **non négociable**, **appliqué mécaniquement** par un hook `PreToolUse` global (`~/.claude/hooks/block-ssh-private-keys.sh`, déclaré dans `~/.claude/settings.json`) qui bloque tout appel `Read`/`Bash`/`Grep` ciblant une clé privée.
+- Raison : la clé privée prouve l'identité et l'autorité de l'auteur ; sa confidentialité ne doit jamais dépendre d'un outil tiers.
+
 ## Invariants
 
-- Ne pas repartir de zéro
-- Ne pas proposer de refonte architecture globale
+- Ne pas proposer de refonte d'architecture globale ni de réécriture from scratch
 - Ne pas casser le noyau `routeur + planner + executor`
 - Travailler à partir de l’état réel validé
 - Privilégier les phases courtes, concrètes, rentables et réversibles
@@ -30,7 +35,7 @@ Trajectoire actuelle : Linux/Fedora natif (migration clôturée le 2026-05-30).
 - les services (Ollama, SearXNG, Open-WebUI) tournent en Docker via `docker-compose.linux.yml`, ports liés à 127.0.0.1
 - Blender s'exécute en headless directement sur le host (GPU NVIDIA RTX 3060 12 Go)
 - l'ancien contexte host Windows + VM Ubuntu est legacy/archivé (`infra/vm/`, `docker-compose.yml` Windows, scripts `.ps1`/`.bat`) — ne pas le traiter comme l'architecture courante
-- l'isolation de l'exécution du code généré reste un objectif produit (cf. audit 2026-06-10, finding C1) ; elle n'est plus portée par une VM aujourd'hui
+- l'isolation de l'exécution du code généré reste un objectif produit (roadmap) ; elle n'est plus portée par une VM aujourd'hui
 
 ## Source de vérité
 

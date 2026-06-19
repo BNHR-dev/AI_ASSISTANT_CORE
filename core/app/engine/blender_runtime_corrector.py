@@ -29,6 +29,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from app.clients.blender_sandbox import build_sandbox_plan, PROFILE_RENDER
 from app.engine.blender_preview_fidelity import preview_fidelity_script_lines
 from app.engine.hero_framing import (
     HERO_FRAMING_REPORT_FILENAME,
@@ -526,12 +527,19 @@ def apply_corrections(
         }
 
     try:
-        proc = subprocess.run(
-            # C1b — --factory-startup + --disable-autoexec : le .blend
-            # corrigé provient de code généré, ne pas exécuter ses scripts
-            # embarqués ni charger les prefs/addons utilisateur.
+        # C1b — flags conservés dans l'argv. C1c — profil render : ce re-rendu
+        # corrector produit la preview (GPU EEVEE), confiné sans réseau ni home.
+        # Un SandboxError (mode require sans bwrap) remonte à l'except Exception
+        # ci-dessous → status error (fail-closed, aucune exécution hors sandbox).
+        sandbox_plan = build_sandbox_plan(
             [exe, "--background", "--factory-startup", "--disable-autoexec",
              blend_path, "--python", str(script_path)],
+            output_dir=output_dir,
+            profile=PROFILE_RENDER,
+        )
+        print(sandbox_plan.log_line())
+        proc = subprocess.run(
+            sandbox_plan.argv,
             capture_output=True,
             text=True,
             timeout=timeout,

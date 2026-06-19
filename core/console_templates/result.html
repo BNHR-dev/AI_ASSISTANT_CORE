@@ -1,0 +1,128 @@
+{# Fragment de résultat — inséré par HTMX dans #resultat. Présentation pure. #}
+{% if exception %}
+  <div class="strip err">⚠️ {{ exception }}</div>
+{% elif r %}
+
+  {% set summary = summary or {} %}
+  <div class="strip{% if has_error %} err{% endif %}">
+    <span class="badge">🧩 {{ r.task_type or "—" }}</span>
+    <span>modèle : {{ r.selected_model or "—" }}</span>
+    {% if r.duration_ms is not none %}<span>⏱ {{ "%.1f"|format(r.duration_ms / 1000) }} s</span>{% endif %}
+    <span class="{{ 'ko' if has_error else 'ok' }}">
+      {{ "⚠️" if has_error else "✅" }} {{ summary.get("status") or "—" }}
+    </span>
+  </div>
+
+  {% if semantic %}
+    <div class="strip">
+      <span class="badge">🧬 Sujet</span>
+      {% if semantic.label %}<span>« {{ semantic.label }} »</span>{% endif %}
+      {% if semantic.kind %}<span>type : {{ semantic.kind }}</span>{% endif %}
+      {% if semantic.kind_fidelity %}
+        <span class="{{ 'ok' if semantic.kind_fidelity == 'exact' else 'warn' }}">
+          fidélité : {{ semantic.kind_fidelity }}
+        </span>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if has_error %}
+    <div class="strip err">
+      <div>
+        <strong>Erreur</strong>
+        <ul class="steps">
+          {% for e in step_errors %}<li>• {{ e.step_id }} — {{ e.error }}</li>{% endfor %}
+          {% if not step_errors and r.blender_error %}<li>• {{ r.blender_error }}</li>{% endif %}
+        </ul>
+      </div>
+    </div>
+  {% endif %}
+
+  <details>
+    <summary>▸ Pourquoi cette pipeline ? (trace de décision)</summary>
+    {% if r.reason %}<p>{{ r.reason }}</p>{% endif %}
+    {% if r.decision_path %}<p><em>{{ r.decision_path | join(" → ") }}</em></p>{% endif %}
+    {% if r.decision_trace %}<pre>{{ r.decision_trace | join("\n") }}</pre>{% endif %}
+  </details>
+
+  <h3>Étapes</h3>
+  {% if steps %}
+    <ul class="steps">
+      {% for s in steps %}
+        <li>
+          {{ "✅" if s.status == "success" else ("⛔" if s.status == "blocked" else ("❌" if s.status == "error" else "•")) }}
+          <strong>{{ s.step_id }}</strong>{% if s.goal %} — {{ s.goal }}{% endif %}
+          {% if s.duration_ms is not none %}<small>({{ s.duration_ms }} ms)</small>{% endif %}
+          {% if s.error %}<br><small class="ko">{{ s.error }}</small>{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p><em>Aucune étape.</em></p>
+  {% endif %}
+
+  {# Aperçu : rendu Blender OU galerie ComfyUI (normalisés séparément). #}
+  {% if render_url or gallery %}
+    <details open>
+      <summary>▸ Aperçu</summary>
+      {% if render_url %}
+        <div class="render-wrap">
+          <img class="render" src="{{ render_url }}" alt="rendu Blender">
+          {% if framing %}
+            <svg class="overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
+              {% if framing.perceptual %}
+                <rect x="{{ framing.perceptual.x }}" y="{{ framing.perceptual.y }}"
+                      width="{{ framing.perceptual.w }}" height="{{ framing.perceptual.h }}"
+                      fill="none" stroke="#e5484d" stroke-width="0.7"/>
+              {% endif %}
+              {% if framing.projected %}
+                <rect x="{{ framing.projected.x }}" y="{{ framing.projected.y }}"
+                      width="{{ framing.projected.w }}" height="{{ framing.projected.h }}"
+                      fill="none" stroke="#30a46c" stroke-width="0.7"/>
+              {% endif %}
+            </svg>
+          {% endif %}
+        </div>
+        {% if framing %}
+          <p class="legend">
+            <span class="sw-red">▬</span> vu par la caméra (pixels) ·
+            <span class="sw-green">▬</span> calculé (géométrie)
+            {% if framing.iou is not none %} · IoU {{ "%.2f"|format(framing.iou) }}{% endif %}
+            {% if framing.diverged is not none %} · diverge : {{ "oui" if framing.diverged else "non" }}{% endif %}
+          </p>
+        {% endif %}
+      {% endif %}
+      {% if gallery %}
+        <div class="gallery">
+          {% for url in gallery %}<img src="{{ url }}" alt="image générée">{% endfor %}
+        </div>
+      {% endif %}
+    </details>
+  {% endif %}
+
+  {% if r.blender_scene_report or r.blender_quality_report %}
+    <details>
+      <summary>▸ Rapport qualité</summary>
+      {% if r.blender_scene_report %}<pre>{{ r.blender_scene_report | tojson(indent=2) }}</pre>{% endif %}
+      {% if r.blender_quality_report %}<pre>{{ r.blender_quality_report | tojson(indent=2) }}</pre>{% endif %}
+    </details>
+  {% endif %}
+
+  {% if r.blender_manifest %}
+    <details>
+      <summary>▸ Manifeste (+ intention)</summary>
+      <pre>{{ r.blender_manifest | tojson(indent=2) }}</pre>
+    </details>
+  {% endif %}
+
+  {# Sortie texte (pipelines non visuelles). #}
+  {% if r.output and not render_url and not gallery %}
+    <details open>
+      <summary>▸ Réponse</summary>
+      <pre>{{ r.output }}</pre>
+    </details>
+  {% endif %}
+
+{% else %}
+  <div class="strip err">⚠️ Réponse vide.</div>
+{% endif %}

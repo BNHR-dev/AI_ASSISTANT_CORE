@@ -1,0 +1,79 @@
+# Stack AAC cross-platform — `docker compose -f docker-compose.app.yml up --build`.
+# Base CPU-safe (marche partout). Le GPU est ajouté via docker-compose.gpu.yml (P3).
+name: aac
+
+services:
+  aac-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Réseau interne : noms de service (pas de 127.0.0.1 ni d'IP host).
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_URL=http://ollama:11434/api/generate
+      - OLLAMA_TAGS_URL=http://ollama:11434/api/tags
+      - SEARXNG_SEARCH_URL=http://searxng:8080/search
+      - COMFYUI_URL=http://comfyui:8188
+      # ComfyUI tourne dans son propre service -> le backend ne doit pas le démarrer.
+      - COMFYUI_AUTO_START=0
+      # Sorties lues côté backend par ce chemin (volume partagé) ou via /view (HTTP).
+      - COMFYUI_OUTPUT_DIR=/outputs/comfyui
+      # Démo pleine : RealVisXL (checkpoint + refiner) + upscaler 4x-UltraSharp.
+      # Défauts = modèles récupérés par `make fetch-models` ; surchargeables via .env.
+      - COMFYUI_CHECKPOINT_NAME=${COMFYUI_CHECKPOINT_NAME:-RealVisXL_V5.0_fp16.safetensors}
+      - COMFYUI_REFINER_CHECKPOINT_NAME=${COMFYUI_REFINER_CHECKPOINT_NAME:-RealVisXL_V5.0_fp16.safetensors}
+      - COMFYUI_UPSCALE_MODEL_NAME=${COMFYUI_UPSCALE_MODEL_NAME:-4x-UltraSharp.pth}
+      # Registre ComfyUI : OS hôte réel à stamper (le conteneur reste Linux). Vide -> Linux.
+      - AAC_HOST_OS=${AAC_HOST_OS:-}
+      # Le backend (root) écrit le manifest -> le redonne à l'UID hôte (fichiers non-root).
+      - AAC_OUTPUT_UID=${AAC_UID:-1000}
+      - AAC_OUTPUT_GID=${AAC_GID:-1000}
+    ports:
+      - "127.0.0.1:8000:8000"   # exposé seulement en local
+    volumes:
+      - aac-outputs:/outputs
+      - ./outputs/comfyui:/outputs/comfyui   # lit les images comfyui + y écrit le registre (manifest)
+    depends_on:
+      - ollama
+      - searxng
+      - comfyui
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:0.24.0
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+    # GPU ajouté par docker-compose.gpu.yml (P3)
+
+  searxng:
+    image: searxng/searxng:2026.5.10-df1f24fb7
+    volumes:
+      - ./searxng:/etc/searxng:ro
+    restart: unless-stopped
+
+  comfyui:
+    build:
+      context: .
+      dockerfile: Dockerfile.comfyui
+      # Canal torch = CPU par défaut (tourne partout, lent sans GPU). L'overlay GPU
+      # (docker-compose.gpu.yml, P3) surcharge TORCH_CHANNEL=cu128 + les versions.
+      args:
+        TORCH_CHANNEL: cpu
+    # Pas de `ports:` -> accédé seulement par le backend (réseau interne comfyui:8188).
+    environment:
+      # Base CPU-safe : ce ComfyUI appelle torch.cuda au boot sauf si --cpu est passé.
+      # L'overlay GPU (P3) remettra COMFYUI_EXTRA_ARGS="" pour activer CUDA.
+      - COMFYUI_EXTRA_ARGS=--cpu
+    volumes:
+      # Modèles en lecture seule (jamais recopiés dans l'image). Défaut ./models, rempli
+      # par `make fetch-models` ; pointez COMFYUI_MODELS_DIR ailleurs pour réutiliser les vôtres.
+      - ${COMFYUI_MODELS_DIR:-./models}:/app/models:ro
+      # Bind mount : images + manifests atterrissent dans core/outputs/comfyui/ sur l'hôte.
+      - ./outputs/comfyui:/outputs/comfyui
+    restart: unless-stopped
+    # GPU (réservation NVIDIA) ajouté par docker-compose.gpu.yml (P3).
+
+volumes:
+  aac-outputs:
+  ollama-models:

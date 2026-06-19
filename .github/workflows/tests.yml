@@ -1,0 +1,26 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Dev env runs 3.14; CI pins 3.13 for guaranteed wheel availability
+          # on the pinned dependencies. The app code runs identically.
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r core/requirements.txt
+
+      - name: Run tests (fully hermetic — no external services required)
+        working-directory: core
+        # `python -m pytest` (pas `pytest` nu) : ajoute core/ au sys.path -> `import app` OK.
+        run: python -m pytest -q

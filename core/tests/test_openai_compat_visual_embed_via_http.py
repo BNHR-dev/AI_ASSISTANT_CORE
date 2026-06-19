@@ -86,7 +86,7 @@ def test_single_view_url_embeds_data_uri(monkeypatch):
         {
             "output": "image générée",
             "artifact_type": "image",
-            "artifact_view_url": "http://192.168.77.1:8188/view?filename=a.png&subfolder=&type=output",
+            "artifact_view_url": "http://127.0.0.1:8188/view?filename=a.png&subfolder=&type=output",
             # artifact_path is intentionally unset to prove we never touched the filesystem
         },
     )
@@ -105,7 +105,7 @@ def test_single_view_url_embeds_data_uri(monkeypatch):
     assert "![a.png]" in content
 
     assert len(calls) == 1
-    assert calls[0]["url"].startswith("http://192.168.77.1:8188/view?")
+    assert calls[0]["url"].startswith("http://127.0.0.1:8188/view?")
     assert calls[0]["timeout"] is not None and calls[0]["timeout"] > 0
 
 

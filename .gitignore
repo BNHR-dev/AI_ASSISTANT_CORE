@@ -22,6 +22,8 @@ venv/
 /outputs/
 /sync_from_vm/
 /benchmarks/
+# untracked working artifacts, anywhere (repo root or core/) — never published
+local_artifacts/
 *.log
 *.db
 *.sqlite
@@ -38,6 +40,7 @@ Thumbs.db
 /core/.env.vm_runtime_snapshot
 /core/data/
 /core/outputs/
+/core/models/
 /core/backups/
 /core/sync_from_vm/
 /core/benchmarks/
@@ -45,10 +48,18 @@ Thumbs.db
 /core/searxng/settings.yml
 /core/docs/core.zip
 
+# --- internal context pack + VM-era runbook : kept locally, not published ---
+/core/docs/[0-9][0-9]_*_AI_ASSISTANT_CORE.txt
+/core/docs/RUNBOOK_POST_VM.md
+
 # keep safe example files tracked
 !core/.env.example
-!infra/vm/env_examples/
-!infra/vm/env_examples/.env.vm.example
+
+# --- legacy VM/Windows infra : kept locally, not published ---
+/infra/README.md
+/infra/host/
+/infra/vm/
+/core/scripts/deploy_vm/
 
 core/archive_notes/test_localsystem.txt
 core/tests/test_visual_pipeline (2).py
@@ -68,3 +79,7 @@ chat_image_response.json
 .claude/worktrees/
 
 prochaine_tache.md
+
+# legacy Windows helper scripts — kept locally, not published
+/core/scripts/docker_reset.bat
+/core/scripts/push_github_main.ps1
