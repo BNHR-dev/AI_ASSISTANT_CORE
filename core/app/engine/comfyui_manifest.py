@@ -167,10 +167,13 @@ def write_comfyui_manifest(
     Retourne le chemin absolu si succès, None sinon. Jamais bloquant : toute
     exception est swallowed et loggée sur stderr.
     """
+    # Repli sur le dossier de l'image. Garde-fou : on n'écrit QUE dans un chemin
+    # absolu — un chemin relatif polluerait le répertoire courant (mocks de tests,
+    # ou prod sans COMFYUI_OUTPUT_DIR). En prod réel, COMFYUI_OUTPUT_DIR est absolu.
     if not output_dir:
         primary = result.get("output_path")
         output_dir = str(Path(primary).parent) if primary else None
-    if not output_dir:
+    if not output_dir or not os.path.isabs(output_dir):
         return None
 
     manifest_path = Path(output_dir) / "manifest.json"

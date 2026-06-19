@@ -1,24 +1,26 @@
-﻿# ARCHITECTURE — AI_ASSISTANT_CORE
+# Architecture — AI_ASSISTANT_CORE
 
-## Lecture d’ensemble
+## Overview
 
-AI_ASSISTANT_CORE est un noyau d’orchestration local.
+AI_ASSISTANT_CORE is a local orchestration core.
 
-Le système prend une requête utilisateur, produit une **décision structurée**, la transforme en **plan d’exécution**, exécute ce plan étape par étape, puis renvoie une **sortie finale utile** avec une **surface d’observabilité** suffisante.
+The system takes a user request, produces a **structured decision**, turns it into an
+**execution plan**, runs that plan step by step, then returns a **useful final output**
+with enough of an **observability surface** to trace what happened.
 
-Le projet ne doit plus être décrit comme un simple backend de routing. Sa bonne abstraction est désormais :
-- décision
+The right abstraction for the project is not "a routing backend" but:
+- decision
 - plan
-- exécution
-- assemblage
-- observabilité
+- execution
+- assembly
+- observability
 
-## Schéma canonique du noyau
+## Canonical core diagram
 
 ```text
-Utilisateur
+User
 ↓
-OpenWebUI / client HTTP / OpenAI-compatible API
+Open-WebUI / HTTP client / OpenAI-compatible API
 ↓
 app/main.py
 ↓
@@ -40,133 +42,143 @@ step_executor
 ↓
 result_assembler
 ↓
-ExecuteResponse / réponse finale
+ExecuteResponse / final response
 ```
 
-## Couches réelles
+## The real layers
 
-### 1. Entrée API
+### 1. API entry
 - `app/main.py`
 - `openai_compat.py`
 
-Rôle : exposer la surface FastAPI et la compatibilité OpenAI minimale pour OpenWebUI.
+Role: expose the FastAPI surface and the minimal OpenAI compatibility for Open-WebUI.
 
-### 2. Compréhension et décision
+### 2. Understanding and decision
 - `app/task_classifier.py`
 - `app/tool_selector.py`
 - `app/engine/task_routing.py`
 - `app/engine/routing_conditions.py`
 - `app/engine/router_service.py`
 
-Rôle : reconnaître la tâche, sélectionner agent/modèle/tool, appliquer les règles hybrides limitées, et produire une décision finale lisible.
+Role: recognize the task, select agent/model/tool, apply the limited hybrid rules, and
+produce a readable final decision.
 
-### 3. Planification
+### 3. Planning
 - `app/engine/planner_types.py`
 - `app/engine/plan_builder.py`
 - `app/engine/planner_service.py`
 - `app/engine/state_store.py`
 
-Rôle : convertir la décision en `ExecutionPlan` explicite.
+Role: turn the decision into an explicit `ExecutionPlan`.
 
-### 4. Exécution
+### 4. Execution
 - `app/engine/step_executor.py`
 - `app/engine/executor.py`
 
-Rôle : exécuter les steps dans l’ordre, tracer les résultats et remonter les métadonnées utiles.
+Role: run the steps in order, trace results, and surface the useful metadata.
 
-### 5. Assemblage
+### 5. Assembly
 - `app/engine/result_assembler.py`
 - `app/engine/output_contracts.py`
 
-Rôle : garder la sortie finale utile et masquer le bruit technique intermédiaire côté utilisateur.
+Role: keep the final output useful and hide intermediate technical noise from the user.
 
-### 6. Runtime et observabilité
+### 6. Runtime and observability
 - `app/engine/runtime_debug.py`
 - `app/infra/tool_manager.py`
 
-Rôle : exposer la santé runtime et les frontières canoniques, sans rajouter une logique métier cachée.
+Role: expose runtime health and the canonical boundaries, without hiding business logic in them.
 
-## Stratégies d'exécution
+## Execution strategies
 
-Le planner produit actuellement cinq stratégies réelles :
+The planner currently produces five real strategies:
 - `single_step`
 - `two_step_llm`
 - `web_pipeline`
 - `visual_pipeline`
 - `blender_pipeline`
 
-## Architecture de déploiement post-VM
+## Deployment architecture (single-host)
 
-### Noyau produit
-Le noyau produit reste :
-- routeur
+### Product core
+The product core stays:
+- router
 - planner
 - executor
-- observabilité
+- observability
 
-Le déploiement single-host n'ajoute pas de logique métier. L'isolation de l'exécution du code généré reste un **objectif produit** (audit 2026-06-10, C1), aujourd'hui non livrée — à ne pas présenter comme une frontière déjà en place.
+The single-host deployment adds no business logic. Isolating the execution of generated
+code remains a **product goal** (internal audit, finding C1) — not yet shipped, and not to
+be presented as a boundary that is already in place.
 
-### Runtime produit (single-host, localhost)
-Tout le runtime canonique tourne sur une seule machine et communique en `localhost` (`127.0.0.1`). L'ancienne topologie — un invité Ubuntu/Linux sur hôte Windows (Hyper-V) — est archivée sous `infra/vm/`, hors runtime canonique.
+### Product runtime (single-host, localhost)
+The entire canonical runtime runs on a single machine and communicates over `localhost`
+(`127.0.0.1`). An older topology — an Ubuntu/Linux guest on a Windows host (Hyper-V) — is
+archived under `infra/vm/`, outside the canonical runtime.
 
-#### Sur le host
-- backend AI_ASSISTANT_CORE (FastAPI), bind `127.0.0.1:8000`
-- ComfyUI — supposé joignable en `127.0.0.1:8188`
-- Blender — exécuté headless directement sur le host (GPU NVIDIA)
+#### On the host
+- AI_ASSISTANT_CORE backend (FastAPI), bound to `127.0.0.1:8000`
+- ComfyUI — assumed reachable at `127.0.0.1:8188`
+- Blender — run headless directly on the host (NVIDIA GPU)
 
-#### En conteneur (`docker-compose.linux.yml`, ports bornés à `127.0.0.1`)
-- Ollama — LLM local (`127.0.0.1:${OLLAMA_PORT} -> 11434`)
-- SearXNG — recherche web (`127.0.0.1:8081 -> 8080`)
-- OpenWebUI (optionnel) — UI opérateur, **hors runtime canonique** (non requis pour le cœur du produit)
+#### In containers (`docker-compose.linux.yml`, ports bound to `127.0.0.1`)
+- Ollama — local LLM (`127.0.0.1:${OLLAMA_PORT} -> 11434`)
+- SearXNG — web search (`127.0.0.1:8081 -> 8080`)
+- Open-WebUI (optional) — operator UI, **outside the canonical runtime** (not required for the core)
 
-### Frontière de sécurité produit
-- déploiement single-host : pas de frontière d'isolation réseau dédiée aujourd'hui
-- l'isolation de l'exécution du code généré reste un **objectif produit** (audit 2026-06-10, C1), non livré — à ne pas surreprésenter comme acquis
-- **roadmap** : isoler l'exécution du code généré dans une **VM d'isolation dédiée** (Linux, sur le host), motivée par la confidentialité des assets studio — distincte de l'ancienne topologie Hyper-V archivée
+### Product security boundary
+- single-host deployment: no dedicated network isolation boundary today
+- isolating the execution of generated code remains a **product goal** (audit finding C1),
+  not yet shipped — not to be overstated as done
+- **roadmap**: isolate generated-code execution in a **dedicated isolation VM** (Linux, on
+  the host), driven by studio asset confidentiality — distinct from the archived Hyper-V topology
 
-Les ports/binds canoniques sont ceux listés ci-dessus ; tous les services écoutent sur `127.0.0.1` (backend `8000`, Ollama `12000`, SearXNG `8081`, ComfyUI `8188`, OpenWebUI optionnel `8088`).
+All services listen on `127.0.0.1` (backend `8000`, Ollama `12000`, SearXNG `8081`,
+ComfyUI `8188`, optional Open-WebUI `8088`).
 
-## Sous-système Blender (pipeline expérimental)
+## Blender subsystem (experimental pipeline)
 
-Le pipeline Blender est rattaché à la couche clients/tools sans modifier le noyau routeur + planner + executor.
+The Blender pipeline lives in the clients/tools layer without changing the router +
+planner + executor core.
 
-- `app/clients/blender_client.py` — exécution Blender headless sur le host
-- le planner/executor existant route vers `blender_pipeline` pour les demandes 3D
-- les fichiers sont produits sous `outputs/blender/<uuid>/` :
-  - `scene.py` — script bpy généré
-  - `scene.blend` — artefact canonique
-  - `preview.png` — rendu best-effort, généré dans un subprocess séparé
-- le rendu preview est isolé dans un second subprocess pour ne pas polluer le script principal et garantir que `scene.blend` reste l'artefact de référence
-- `preview.png` ne doit pas rendre le pipeline global bloquant
-- `/health/runtime` peut rester `partial` si ComfyUI est indisponible sans bloquer Blender
+- `app/clients/blender_client.py` — headless Blender execution on the host
+- the existing planner/executor routes to `blender_pipeline` for 3D requests
+- files are produced under `outputs/blender/<uuid>/`:
+  - `scene.py` — generated bpy script
+  - `scene.blend` — canonical artifact
+  - `preview.png` — best-effort render, produced in a separate subprocess
+- the preview render is isolated in a second subprocess so it cannot pollute the main
+  script and so `scene.blend` stays the reference artifact
+- `preview.png` must never make the overall pipeline blocking
+- `/health/runtime` may stay `partial` if ComfyUI is unavailable, without blocking Blender
 
-## Sous-système visuel après session 4
+## Visual subsystem
 
-La session 4 a raffiné le pipeline visuel sans modifier le noyau général.
+The visual pipeline was refined without changing the general core.
 
-### Analyse d’intention visuelle
-Le système analyse maintenant :
-- `subject_type` : `portrait`, `product`, `scene`
-- `render_intent` : `standard`, `packshot`, `poster`, `cover`, `key_visual`
-- `style_flags` : signaux de style utiles pour enrichir le prompt
+### Visual intent analysis
+The system analyzes:
+- `subject_type`: `portrait`, `product`, `scene`
+- `render_intent`: `standard`, `packshot`, `poster`, `cover`, `key_visual`
+- `style_flags`: style signals used to enrich the prompt
 
-### Sélection de workflow
-Mapping actuel :
+### Workflow selection
+Current mapping:
 - `portrait` → `portrait_basic_v1`
 - `product` → `object_basic_v1`
 - `scene` → `cinematic_scene_v1`
 
-### Enrichissement de prompt visuel
-`app/clients/comfyui_client.py` enrichit le prompt positif selon :
-- le sujet
-- l’intention de rendu
-- les flags de style
-- le workflow retenu
+### Visual prompt enrichment
+`app/clients/comfyui_client.py` enriches the positive prompt based on:
+- the subject
+- the render intent
+- the style flags
+- the chosen workflow
 
-### Variantes et succès partiel
-Le pipeline visuel remonte maintenant :
-- `artifact_path` et `artifact_filename`
-- `artifact_paths` et `artifact_filenames`
+### Variants and partial success
+The visual pipeline now surfaces:
+- `artifact_path` and `artifact_filename`
+- `artifact_paths` and `artifact_filenames`
 - `workflow_id`
 - `variants_count`
 - `completed_variants`
@@ -174,9 +186,9 @@ Le pipeline visuel remonte maintenant :
 - `comfyui_status`
 - `comfyui_prompt_id`
 
-## API et surface externe
+## API and external surface
 
-### FastAPI canonique
+### Canonical FastAPI
 - `GET /health`
 - `GET /health/runtime`
 - `GET /debug/canonical`
@@ -184,25 +196,26 @@ Le pipeline visuel remonte maintenant :
 - `POST /execute`
 
 ### OpenAI-compatible
-- `GET /v1/models` — 8 model cards statiques (`MODEL_TO_MODE`) ; model ID inconnu → fallback `auto`
-- `POST /v1/chat/completions` — `choices[0].message.content` est **toujours une string** (Phase 5)
+- `GET /v1/models` — static model cards (`MODEL_TO_MODE`); unknown model ID → `auto` fallback
+- `POST /v1/chat/completions` — `choices[0].message.content` is **always a string**
 
-La couche sert d’interface avec OpenWebUI sans couplage spécifique à l’outil.
+This layer interfaces with Open-WebUI without coupling to that specific tool.
 
-Pour les résultats `artifact_type == "image"`, le content est un markdown data-URI lorsque l’image est récupérable et son `Content-Type` est `image/*` :
-- **branche HTTP** (`artifact_view_url(s)`) : téléchargement depuis ComfyUI `/view` → `![filename](data:<mime>;base64,...)`
-- **branche locale** (`artifact_path(s)`) : lecture filesystem → même embed
-- `Content-Type` non-image → rejeté, fallback texte "non récupérable depuis ComfyUI"
-- `MAX_EMBED_IMAGES = 4` — `MAX_EMBED_BYTES_PER_IMAGE = 4 MiB` — `COMFYUI_VIEW_TIMEOUT` env var (défaut 15s)
+For `artifact_type == "image"` results, the content is a markdown data-URI when the image is
+retrievable and its `Content-Type` is `image/*`:
+- **HTTP branch** (`artifact_view_url(s)`): download from ComfyUI `/view` → `![filename](data:<mime>;base64,...)`
+- **local branch** (`artifact_path(s)`): filesystem read → same embed
+- non-image `Content-Type` → rejected, text fallback "not retrievable from ComfyUI"
+- `MAX_EMBED_IMAGES = 4` — `MAX_EMBED_BYTES_PER_IMAGE = 4 MiB` — `COMFYUI_VIEW_TIMEOUT` env var (default 15s)
 
-## Canonique vs legacy
+## Canonical vs legacy
 
-Source de vérité :
+Source of truth:
 1. `app/*`
 2. `openai_compat.py`
 3. docs `docs/*`
 
-Shims legacy confirmés à la racine :
+Confirmed legacy shims at the repo root:
 - `executor.py`
 - `router_service.py`
 - `task_classifier.py`
@@ -210,35 +223,43 @@ Shims legacy confirmés à la racine :
 - `task_routing.py`
 - `comfyui_client.py`
 
-Ces fichiers ne doivent pas redevenir des sources métier.
+These files must not become business sources again.
 
-## Gaps structurels encore réels
+## Known structural gaps
 
-- isolation/sandbox de l'exécution du code généré : **objectif produit** non livré (audit 2026-06-10, C1)
-- dette legacy encore présente même si contenue
-- OpenWebUI acté comme UI opérateur optionnelle côté host, non canonique et non requise pour le fonctionnement du cœur du produit
+- isolation/sandbox of generated-code execution: a **product goal**, not shipped (audit finding C1)
+- legacy debt still present, though contained
+- Open-WebUI is an optional operator UI on the host, non-canonical and not required for the core
 
-## Surface `/debug/canonical` et classification des modules
+## `/debug/canonical` surface and module classification
 
-La surface `/debug/canonical` expose la classification canonique du code `app/*` en trois listes :
-- `ACTIVE_RUNTIME_MODULES` — code qui porte le flux **décision → plan → exécution → sortie**
-- `ACTIVE_AUXILIARY_MODULES` — code technique de support utilisé **par** le runtime sans appartenir au flux (clients, healthchecks, URLs)
-- `DORMANT_MODULES` — présent dans le repo mais non importé par le flux réel (internes supplantés, snapshots legacy, helpers inutilisés)
+The `/debug/canonical` surface exposes the canonical classification of `app/*` code in three lists:
+- `ACTIVE_RUNTIME_MODULES` — code carrying the **decision → plan → execution → output** flow
+- `ACTIVE_AUXILIARY_MODULES` — technical support code used **by** the runtime but not part of
+  the flow (clients, health checks, URLs)
+- `DORMANT_MODULES` — present in the repo but not imported by the real flow (superseded
+  internals, legacy snapshots, unused helpers)
 
-Les trois listes sont définies dans `app/engine/runtime_debug.py` et doivent former un découpage **exhaustif et disjoint** de tous les `app/*.py` (hors `__init__.py`).
+The three lists are defined in `app/engine/runtime_debug.py` and must form an **exhaustive,
+disjoint** partition of every `app/*.py` (excluding `__init__.py`).
 
-### Verrouillage structurel
+### Structural lock
 
-Cette classification est verrouillée par `tests/test_runtime_debug_classification.py`, qui vérifie sans mock :
-- chaque module listé existe réellement sur le disque
-- les trois listes sont disjointes deux à deux
-- chaque `app/*.py` (hors `__init__.py`) figure dans **exactement une** des trois listes
-- les modules critiques du flux (`task_classifier`, `router_service`, `planner_service`, `plan_builder`, `executor`, `step_executor`, `result_assembler`, etc.) restent dans `ACTIVE_RUNTIME_MODULES`
-- les shims legacy de racine ne fuient pas dans les listes `app/*`
-- le payload de `get_canonical_boundaries()` expose bien les constantes du module
+This classification is locked by `tests/test_runtime_debug_classification.py`, which checks,
+without mocks:
+- every listed module actually exists on disk
+- the three lists are pairwise disjoint
+- every `app/*.py` (excluding `__init__.py`) appears in **exactly one** of the three lists
+- the critical flow modules (`task_classifier`, `router_service`, `planner_service`,
+  `plan_builder`, `executor`, `step_executor`, `result_assembler`, etc.) stay in `ACTIVE_RUNTIME_MODULES`
+- the root legacy shims do not leak into the `app/*` lists
+- the `get_canonical_boundaries()` payload exposes the module constants
 
-Conséquence : tout nouveau fichier sous `app/` qui n'est classifié ni runtime, ni auxiliaire, ni dormant fait échouer les tests avec un message clair nommant le fichier. Cela empêche la dérive silencieuse entre ce qui vit réellement dans le code et ce que la surface debug rapporte.
+Consequence: any new file under `app/` that is classified as neither runtime, auxiliary, nor
+dormant fails the tests with a clear message naming the file. This prevents silent drift
+between what actually lives in the code and what the debug surface reports.
 
-## Décision d’architecture à préserver
+## Architecture decision to preserve
 
-Le projet doit continuer à évoluer comme un noyau **routeur + planner + executor**, avec améliorations incrémentales, testables et visibles, plutôt que par grands refactors ou nouvelles surcouches prématurées.
+The project should keep evolving as a **router + planner + executor** core, through
+incremental, testable, visible improvements — rather than large refactors or premature new layers.
