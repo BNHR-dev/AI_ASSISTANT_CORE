@@ -56,17 +56,43 @@ est exposé sur l'hôte (`127.0.0.1:8000`).
   nœuds cœur). Wheels `cp314` présentes sur cpu **ET** cu128 + tout le requirements ComfyUI →
   Python 3.14 conservé (pas de 3.12). ⚠️ ComfyUI exige `--cpu` sans GPU (variable
   `COMFYUI_EXTRA_ARGS`, vidée par l'overlay GPU). E2E RealVisXL = avec le GPU (P3).
-- **P3 — Overlay GPU** : `docker-compose.gpu.yml`, validé sur Fedora, documenté Windows/WSL2.
-- **P4 — Validation cross-platform** : smoke `up` Linux (GPU + CPU), procédure Windows/WSL2.
+- **P3 — Overlay GPU** *(fait + validé 2026-06-19)* : `docker-compose.gpu.yml` (canal cu128 +
+  réservation NVIDIA + retrait de `--cpu`). Validé RTX 3060 : `cuda.is_available()=True`,
+  génération RealVisXL dans le conteneur.
+- **P4 — Validation cross-platform** *(smoke Linux GPU fait)* : stack complète `up`
+  (backend+comfyui+ollama **healthy**) + **round-trip backend→comfyui validé** (image
+  RealVisXL renvoyée par l'API en ~69 s à froid). Reste : rejeu CPU, procédure Windows/WSL2.
 - **P5 — DX & docs** : entrée une-commande, script de fetch modèles, doc des 4 tiers.
 
-## Lancer (état P1a)
+## Lancer la stack
 ```bash
 cd core
-cp env.docker.example .env.docker       # ajuster si besoin
+cp env.docker.example .env.docker        # ajuster si besoin (COMFYUI_MODELS_DIR…)
+
+# Base CPU-safe (tourne partout ; image lente sans GPU) :
 docker compose -f docker-compose.app.yml up --build
-curl -s http://127.0.0.1:8000/health    # -> {"status":"ok"}
+
+# Avec GPU NVIDIA (Linux natif, ou Windows + Docker Desktop/WSL2) — démo pleine :
+docker compose -f docker-compose.app.yml -f docker-compose.gpu.yml up --build
+
+curl -s http://127.0.0.1:8000/health     # -> {"status":"ok"}
 ```
+
+Générer une image bout en bout (API compatible OpenAI, backend → ComfyUI) :
+```bash
+curl -sN http://127.0.0.1:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"assistant-core-image","messages":[{"role":"user",
+       "content":"a cinematic photo of a red fox in a misty forest at golden hour"}]}'
+```
+Le backend force `image_generation`, appelle ComfyUI (`comfyui:8188`), récupère l'image
+via `/view` et la renvoie en data-URI. Validé RTX 3060 : ~45 s à froid (chargement
+RealVisXL + draft 30 pas).
+
+Chaque génération range image **et** `manifest.json` (traçabilité : route des étapes
+horodatée, paramètres, bloc `runtime`/OS) dans `core/outputs/comfyui/<request_id>/` sur
+l'hôte (bind mount). Les fichiers appartiennent à l'utilisateur hôte (`AAC_UID:AAC_GID`,
+défaut 1000 ; le backend root les `chown`).
 
 ## Risques connus
 - **Taille des modèles** = la vraie friction « ça marche tout de suite » (démo pleine).
@@ -74,3 +100,5 @@ curl -s http://127.0.0.1:8000/health    # -> {"status":"ok"}
   ET cu128 (`torch 2.11.0`), et tout le requirements ComfyUI a une wheel cp314 → aucune compilation.
 - **Prérequis GPU Windows** : Docker Desktop + backend WSL2 + driver NVIDIA (sinon CPU).
 - **bwrap imbriqué** = privilèges conteneur (sinon `auto`/`off` en démo).
+- **SearXNG** : `core/searxng/` n'a pas de `settings.yml` → le service boucle (exit 127).
+  Pré-existant (P1), **hors** chemin image-gen ; à corriger pour activer la recherche web.
