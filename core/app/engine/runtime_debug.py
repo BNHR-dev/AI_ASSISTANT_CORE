@@ -69,6 +69,7 @@ ACTIVE_RUNTIME_MODULES = [
 ]
 
 ACTIVE_AUXILIARY_MODULES = [
+    "app/auth.py",
     "app/clients/ollama_client.py",
     "app/clients/web_client.py",
     "app/clients/comfyui_client.py",
