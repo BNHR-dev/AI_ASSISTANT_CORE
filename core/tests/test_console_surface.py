@@ -280,6 +280,50 @@ def test_eval_page_multi_run(monkeypatch, tmp_path):
     assert "3/3" in body            # parse_ok_count / n_runs
 
 
+# --------------------------------------------------------------------------- #
+# Outputs — liste des runs sur disque + ouverture sécurisée du dossier
+# --------------------------------------------------------------------------- #
+def _make_run(base, sub, name, with_manifest=True):
+    d = base / sub / name
+    d.mkdir(parents=True)
+    png = (d / "preview.png") if sub == "blender" else (d / "out_00001_.png")
+    png.write_bytes(b"\x89PNG\r\n")
+    if with_manifest:
+        (d / "manifest.json").write_text(
+            json.dumps({"pipeline": sub, "request_id": name}), encoding="utf-8"
+        )
+    return d
+
+
+def test_outputs_lists_runs(monkeypatch, tmp_path):
+    monkeypatch.setattr(console, "OUTPUTS", tmp_path)
+    _make_run(tmp_path, "comfyui", "run-2d-abc")
+    _make_run(tmp_path, "blender", "run-3d-xyz", with_manifest=False)
+    body = client.get("/console/outputs").text
+    assert "run-2d-abc" in body and "run-3d-xyz" in body
+    assert "2 run(s)" in body
+
+
+def test_outputs_empty(monkeypatch, tmp_path):
+    monkeypatch.setattr(console, "OUTPUTS", tmp_path)
+    assert "No run yet" in client.get("/console/outputs").text
+
+
+def test_reveal_rejects_path_traversal(monkeypatch, tmp_path):
+    monkeypatch.setattr(console, "OUTPUTS", tmp_path)
+    assert client.post("/console/reveal", params={"path": "../../etc"}).status_code == 404
+
+
+def test_reveal_opens_folder(monkeypatch, tmp_path):
+    monkeypatch.setattr(console, "OUTPUTS", tmp_path)
+    _make_run(tmp_path, "comfyui", "run-open")
+    calls = []
+    monkeypatch.setattr(console.subprocess, "Popen", lambda args, **kw: calls.append(args))
+    r = client.post("/console/reveal", params={"path": "comfyui/run-open"})
+    assert r.status_code == 200
+    assert calls and calls[0][0] == "xdg-open" and "run-open" in calls[0][1]
+
+
 def test_eval_summary_handles_both_shapes():
     s1 = console.eval_summary(_SINGLE_RUN_REPORT)
     assert s1["parse_ok_rate"] == 1.0 and s1["n_cases"] == 2

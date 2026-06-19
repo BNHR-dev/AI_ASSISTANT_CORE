@@ -12,6 +12,8 @@ exposition internet. Voir la note portfolio « Console — UI dédiée ».
 from __future__ import annotations
 
 import json
+import subprocess
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, quote
 
@@ -217,6 +219,61 @@ def eval_summary(r: dict) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# Outputs — historique des runs sur disque (lecture du registre par run)
+# --------------------------------------------------------------------------- #
+RUN_SOURCES = (("comfyui", "2d"), ("blender", "3d"))
+
+
+def _describe_run(d: Path, kind: str) -> dict:
+    """Décrit un dossier de run : id, type, date, chemin, vignette, manifest.
+    Lecture seule ; tolérant aux dossiers incomplets."""
+    try:
+        mtime = d.stat().st_mtime
+    except OSError:
+        mtime = 0
+    manifest = None
+    mf = d / "manifest.json"
+    if mf.is_file():
+        try:
+            manifest = json.loads(mf.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            manifest = None
+    # Vignette : preview.png (3D) sinon la 1re image PNG du dossier.
+    img = None
+    if kind == "3d":
+        preview = d / "preview.png"
+        img = preview if preview.is_file() else None
+    if img is None:
+        pngs = sorted(d.glob("*.png"))
+        img = pngs[0] if pngs else None
+    return {
+        "id": d.name,
+        "kind": kind,
+        "path": str(d),
+        "rel": str(d.relative_to(OUTPUTS)),
+        "date": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime else "—",
+        "mtime": mtime,
+        "thumb_url": _artifact_url(str(img)) if img else None,
+        "manifest": manifest,
+    }
+
+
+def list_runs() -> list[dict]:
+    """Tous les runs (2D ComfyUI + 3D Blender), du plus récent au plus ancien.
+    Ignore les dossiers techniques (`_eval_reports`, `_trajectories`)."""
+    runs: list[dict] = []
+    for sub, kind in RUN_SOURCES:
+        base = OUTPUTS / sub
+        if not base.is_dir():
+            continue
+        for d in base.iterdir():
+            if d.is_dir() and not d.name.startswith("_"):
+                runs.append(_describe_run(d, kind))
+    runs.sort(key=lambda r: r["mtime"], reverse=True)
+    return runs
+
+
 def build_view(result: dict) -> dict:
     """Prépare une vue d'affichage à partir du dict renvoyé par le service.
 
@@ -302,8 +359,10 @@ def page_3d(request: Request):
 
 @router.get("/outputs", response_class=HTMLResponse)
 def page_outputs(request: Request):
-    """Section Outputs — historique des runs sur disque (à remplir)."""
-    return templates.TemplateResponse(request, "outputs.html", {"active": "outputs"})
+    """Section Outputs — historique des runs lus sur disque."""
+    return templates.TemplateResponse(
+        request, "outputs.html", {"active": "outputs", "runs": list_runs()}
+    )
 
 
 @router.get("/eval", response_class=HTMLResponse)
@@ -367,6 +426,30 @@ def artifact(path: str):
     if resolved is None or not resolved.is_file():
         raise HTTPException(status_code=404, detail="artifact not found")
     return FileResponse(resolved)
+
+
+@router.post("/reveal")
+def reveal(path: str):
+    """Ouvre le dossier d'un run dans le gestionnaire de fichiers (`xdg-open`).
+
+    Usage local uniquement (la console est en loopback). `_safe_resolve` interdit
+    toute sortie de `outputs/`. On ouvre toujours un DOSSIER (jamais un fichier
+    exécutable). Best-effort : un échec (pas de `DISPLAY`, conteneur, pas de
+    `xdg-open`) renvoie une erreur propre sans rien casser.
+    """
+    resolved = _safe_resolve(OUTPUTS, path)
+    if resolved is None or not resolved.exists():
+        raise HTTPException(status_code=404, detail="path not found")
+    target = resolved if resolved.is_dir() else resolved.parent
+    try:
+        subprocess.Popen(
+            ["xdg-open", str(target)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        raise HTTPException(status_code=501, detail=f"cannot open file manager: {exc}")
+    return {"opened": str(target)}
 
 
 @router.get("/static/{name}")
