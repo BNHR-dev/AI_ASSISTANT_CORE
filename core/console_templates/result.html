@@ -1,4 +1,4 @@
-{# Fragment de résultat — inséré par HTMX dans #resultat. Présentation pure. #}
+{# Result fragment — inserted by HTMX into #resultat. Pure presentation. #}
 {% if exception %}
   <div class="strip err">⚠️ {{ exception }}</div>
 {% elif r %}
@@ -6,7 +6,7 @@
   {% set summary = summary or {} %}
   <div class="strip{% if has_error %} err{% endif %}">
     <span class="badge">🧩 {{ r.task_type or "—" }}</span>
-    <span>modèle : {{ r.selected_model or "—" }}</span>
+    <span>model: {{ r.selected_model or "—" }}</span>
     {% if r.duration_ms is not none %}<span>⏱ {{ "%.1f"|format(r.duration_ms / 1000) }} s</span>{% endif %}
     <span class="{{ 'ko' if has_error else 'ok' }}">
       {{ "⚠️" if has_error else "✅" }} {{ summary.get("status") or "—" }}
@@ -15,12 +15,12 @@
 
   {% if semantic %}
     <div class="strip">
-      <span class="badge">🧬 Sujet</span>
-      {% if semantic.label %}<span>« {{ semantic.label }} »</span>{% endif %}
-      {% if semantic.kind %}<span>type : {{ semantic.kind }}</span>{% endif %}
+      <span class="badge">🧬 Subject</span>
+      {% if semantic.label %}<span>“{{ semantic.label }}”</span>{% endif %}
+      {% if semantic.kind %}<span>kind: {{ semantic.kind }}</span>{% endif %}
       {% if semantic.kind_fidelity %}
         <span class="{{ 'ok' if semantic.kind_fidelity == 'exact' else 'warn' }}">
-          fidélité : {{ semantic.kind_fidelity }}
+          fidelity: {{ semantic.kind_fidelity }}
         </span>
       {% endif %}
     </div>
@@ -29,7 +29,7 @@
   {% if has_error %}
     <div class="strip err">
       <div>
-        <strong>Erreur</strong>
+        <strong>Error</strong>
         <ul class="steps">
           {% for e in step_errors %}<li>• {{ e.step_id }} — {{ e.error }}</li>{% endfor %}
           {% if not step_errors and r.blender_error %}<li>• {{ r.blender_error }}</li>{% endif %}
@@ -39,13 +39,13 @@
   {% endif %}
 
   <details>
-    <summary>▸ Pourquoi cette pipeline ? (trace de décision)</summary>
+    <summary>▸ Why this pipeline? (decision trace)</summary>
     {% if r.reason %}<p>{{ r.reason }}</p>{% endif %}
     {% if r.decision_path %}<p><em>{{ r.decision_path | join(" → ") }}</em></p>{% endif %}
     {% if r.decision_trace %}<pre>{{ r.decision_trace | join("\n") }}</pre>{% endif %}
   </details>
 
-  <h3>Étapes</h3>
+  <h3>Steps</h3>
   {% if steps %}
     <ul class="steps">
       {% for s in steps %}
@@ -58,16 +58,16 @@
       {% endfor %}
     </ul>
   {% else %}
-    <p><em>Aucune étape.</em></p>
+    <p><em>No steps.</em></p>
   {% endif %}
 
-  {# Aperçu : rendu Blender OU galerie ComfyUI (normalisés séparément). #}
+  {# Preview: Blender render OR ComfyUI gallery (normalized separately). #}
   {% if render_url or gallery %}
     <details open>
-      <summary>▸ Aperçu</summary>
+      <summary>▸ Preview</summary>
       {% if render_url %}
         <div class="render-wrap">
-          <img class="render" src="{{ render_url }}" alt="rendu Blender">
+          <img class="render" src="{{ render_url }}" alt="Blender render">
           {% if framing %}
             <svg class="overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
               {% if framing.perceptual %}
@@ -85,16 +85,16 @@
         </div>
         {% if framing %}
           <p class="legend">
-            <span class="sw-red">▬</span> vu par la caméra (pixels) ·
-            <span class="sw-green">▬</span> calculé (géométrie)
+            <span class="sw-red">▬</span> seen by the camera (pixels) ·
+            <span class="sw-green">▬</span> computed (geometry)
             {% if framing.iou is not none %} · IoU {{ "%.2f"|format(framing.iou) }}{% endif %}
-            {% if framing.diverged is not none %} · diverge : {{ "oui" if framing.diverged else "non" }}{% endif %}
+            {% if framing.diverged is not none %} · diverged: {{ "yes" if framing.diverged else "no" }}{% endif %}
           </p>
         {% endif %}
       {% endif %}
       {% if gallery %}
         <div class="gallery">
-          {% for url in gallery %}<img src="{{ url }}" alt="image générée">{% endfor %}
+          {% for url in gallery %}<img src="{{ url }}" alt="generated image">{% endfor %}
         </div>
       {% endif %}
     </details>
@@ -102,7 +102,7 @@
 
   {% if r.blender_scene_report or r.blender_quality_report %}
     <details>
-      <summary>▸ Rapport qualité</summary>
+      <summary>▸ Quality report</summary>
       {% if r.blender_scene_report %}<pre>{{ r.blender_scene_report | tojson(indent=2) }}</pre>{% endif %}
       {% if r.blender_quality_report %}<pre>{{ r.blender_quality_report | tojson(indent=2) }}</pre>{% endif %}
     </details>
@@ -110,19 +110,19 @@
 
   {% if r.blender_manifest %}
     <details>
-      <summary>▸ Manifeste (+ intention)</summary>
+      <summary>▸ Manifest (+ intent)</summary>
       <pre>{{ r.blender_manifest | tojson(indent=2) }}</pre>
     </details>
   {% endif %}
 
-  {# Sortie texte (pipelines non visuelles). #}
+  {# Text output (non-visual pipelines). #}
   {% if r.output and not render_url and not gallery %}
     <details open>
-      <summary>▸ Réponse</summary>
+      <summary>▸ Response</summary>
       <pre>{{ r.output }}</pre>
     </details>
   {% endif %}
 
 {% else %}
-  <div class="strip err">⚠️ Réponse vide.</div>
+  <div class="strip err">⚠️ Empty response.</div>
 {% endif %}

@@ -98,7 +98,7 @@ def test_run_renders_error_result(monkeypatch):
     response = client.post("/console/run", data={"message": "scène qui casse"})
     assert response.status_code == 200
     body = response.text
-    assert "Erreur" in body
+    assert "Error" in body
     assert "Blender a échoué" in body
 
 
@@ -115,7 +115,7 @@ def test_run_handles_engine_exception(monkeypatch):
 def test_run_rejects_empty_message():
     response = client.post("/console/run", data={"message": "   "})
     assert response.status_code == 200
-    assert "vide" in response.text.lower()
+    assert "empty" in response.text.lower()
 
 
 # --------------------------------------------------------------------------- #
@@ -161,7 +161,7 @@ def test_run_renders_framing_overlay(monkeypatch):
     assert "#e5484d" in body and "#30a46c" in body
     assert "<svg" in body and "<rect" in body
     assert "IoU 0.11" in body
-    assert "diverge : oui" in body
+    assert "diverged: yes" in body
 
 
 def test_run_renders_semantic_fidelity(monkeypatch):
@@ -171,7 +171,7 @@ def test_run_renders_semantic_fidelity(monkeypatch):
     body = client.post("/console/run", data={"message": "flacon"}).text
     assert "flacon de parfum noir" in body
     assert "bottle" in body
-    assert "fidélité : exact" in body
+    assert "fidelity: exact" in body
 
 
 def test_framing_overlay_falls_back_to_pixel_bbox():
@@ -213,7 +213,7 @@ def test_health_strip_survives_probe_error(monkeypatch):
     monkeypatch.setattr(console, "get_runtime_health", _boom)
     response = client.get("/console/health")
     assert response.status_code == 200
-    assert "inconnu" in response.text
+    assert "unknown" in response.text
 
 
 # --------------------------------------------------------------------------- #
@@ -252,7 +252,7 @@ _MULTI_RUN_REPORT = {
 def test_eval_page_empty(monkeypatch, tmp_path):
     monkeypatch.setattr(console, "EVAL_DIR", tmp_path / "none")
     body = client.get("/console/eval").text
-    assert "Aucun rapport" in body
+    assert "No eval report" in body
     assert "product_render_eval_runner" in body  # commande pour en générer
 
 

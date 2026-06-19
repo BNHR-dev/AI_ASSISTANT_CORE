@@ -311,7 +311,7 @@ def health_strip(request: Request):
     try:
         health = get_runtime_health()
     except Exception as exc:  # noqa: BLE001 — un check qui échoue ne casse pas l'UI
-        health = {"status": "inconnu", "summary": str(exc), "services": {}}
+        health = {"status": "unknown", "summary": str(exc), "services": {}}
     return templates.TemplateResponse(request, "_health.html", {"health": health})
 
 
@@ -329,7 +329,7 @@ async def run(request: Request):
         return templates.TemplateResponse(
             request,
             "result.html",
-            {"exception": "Demande vide.", "r": None},
+            {"exception": "Empty request.", "r": None},
         )
     try:
         result = execute_request(message)
@@ -347,7 +347,7 @@ def artifact(path: str):
     """Sert un fichier local sous `outputs/` uniquement."""
     resolved = _safe_resolve(OUTPUTS, path)
     if resolved is None or not resolved.is_file():
-        raise HTTPException(status_code=404, detail="artefact introuvable")
+        raise HTTPException(status_code=404, detail="artifact not found")
     return FileResponse(resolved)
 
 
@@ -356,5 +356,5 @@ def static_file(name: str):
     """Sert les fichiers statiques locaux (HTMX vendorisé) — pas de CDN."""
     resolved = _safe_resolve(STATIC_DIR, name)
     if resolved is None or not resolved.is_file():
-        raise HTTPException(status_code=404, detail="statique introuvable")
+        raise HTTPException(status_code=404, detail="static file not found")
     return FileResponse(resolved)
