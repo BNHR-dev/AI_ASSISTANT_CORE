@@ -408,6 +408,10 @@ async def run(request: Request):
             "result.html",
             {"exception": "Empty request.", "r": None},
         )
+    # 2D quality toggle: a checked "final" box appends the --final token that the
+    # visual pipeline already understands (RealVisXL + refiner). No-op elsewhere.
+    if parsed.get("final", [""])[0] and "--final" not in message:
+        message = f"{message} --final"
     try:
         result = execute_request(message)
     except Exception as exc:  # noqa: BLE001 — la Console ne doit jamais planter

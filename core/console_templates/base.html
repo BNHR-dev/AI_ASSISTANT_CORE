@@ -28,5 +28,12 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+  <script>
+    // Clickable examples: fill the request box with a ready-made prompt.
+    function aacFill(p) {
+      const t = document.querySelector('textarea[name=message]');
+      if (t) { t.value = p; t.focus(); }
+    }
+  </script>
 </body>
 </html>

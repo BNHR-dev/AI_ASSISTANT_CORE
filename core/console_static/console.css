@@ -126,6 +126,11 @@ table.eval td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .example-chips { display: flex; flex-wrap: wrap; gap: .5rem; margin: .8rem 0; }
 .example-chips button { background: var(--panel); color: var(--text);
                         border: 1px solid var(--border); font-weight: 400; font-size: .9rem; }
+.example-chips button:hover { border-color: var(--accent); }
+.form-actions { display: flex; flex-direction: column; gap: .5rem; }
+.toggle { display: flex; align-items: center; gap: .4rem; font-size: .85rem; cursor: pointer; white-space: nowrap; }
+.toggle input { accent-color: var(--accent); }
+.toggle small { opacity: .7; }
 
 /* ---- Outputs grid ---- */
 .runs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

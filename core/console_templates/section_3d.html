@@ -3,20 +3,19 @@
 {% block content %}
   <h1>🧊 3D — Blender <small>— generate &amp; judge 3D scene outputs</small></h1>
 
+  <div class="example-chips">
+    <button type="button" data-p="a Blender 3D scene: a teapot on a dark pedestal" onclick="aacFill(this.dataset.p)">🫖 Teapot</button>
+    <button type="button" data-p="a product render: a glass perfume bottle on a stone pedestal, studio lighting" onclick="aacFill(this.dataset.p)">🧴 Perfume bottle</button>
+    <button type="button" data-p="a product render: a metallic watch on a dark pedestal, cinematic" onclick="aacFill(this.dataset.p)">⌚ Watch</button>
+  </div>
+
   <form hx-post="/console/run" hx-target="#resultat" hx-indicator="#spin" hx-disabled-elt="button">
-    <textarea name="message" placeholder="Describe a 3D scene… (e.g. a Blender 3D scene: a teapot on a dark pedestal)"></textarea>
+    <textarea name="message" placeholder="Describe a 3D scene…"></textarea>
     <button type="submit">Render ▶</button>
   </form>
   <p id="spin" class="htmx-indicator">⏳ rendering…</p>
+  <p class="muted">The framing overlay 🔴🟢 appears in the result · 📊 quality →
+    <a href="/console/eval">Eval / Benchmark</a>.</p>
 
   <div id="resultat"></div>
-
-  <p class="muted" style="margin-top:1rem">
-    📊 Quality measurement → <a href="/console/eval">Eval / Benchmark</a> (harness reports).
-  </p>
-
-  <div class="placeholder">
-    <strong>Next step here:</strong> example scenes, the framing overlay 🔴🟢 inline,
-    and the eval harness reports embedded directly under each 3D run.
-  </div>
 {% endblock %}

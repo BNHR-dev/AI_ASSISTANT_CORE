@@ -324,6 +324,32 @@ def test_reveal_opens_folder(monkeypatch, tmp_path):
     assert calls and calls[0][0] == "xdg-open" and "run-open" in calls[0][1]
 
 
+def test_run_final_toggle_appends_token(monkeypatch):
+    captured = {}
+    def _capture(message):
+        captured["msg"] = message
+        return _blender_result()
+    monkeypatch.setattr(console, "execute_request", _capture)
+    client.post("/console/run", data={"message": "a fox", "final": "on"})
+    assert captured["msg"].endswith("--final")
+
+
+def test_run_without_final_keeps_message(monkeypatch):
+    captured = {}
+    def _capture(message):
+        captured["msg"] = message
+        return _blender_result()
+    monkeypatch.setattr(console, "execute_request", _capture)
+    client.post("/console/run", data={"message": "a fox"})
+    assert "--final" not in captured["msg"]
+
+
+def test_sections_expose_examples():
+    body_2d = client.get("/console/2d").text
+    assert "🦊 Fox" in body_2d and "Final quality" in body_2d
+    assert "🫖 Teapot" in client.get("/console/3d").text
+
+
 def test_eval_summary_handles_both_shapes():
     s1 = console.eval_summary(_SINGLE_RUN_REPORT)
     assert s1["parse_ok_rate"] == 1.0 and s1["n_cases"] == 2
