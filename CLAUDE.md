@@ -1,67 +1,79 @@
-# AI_ASSISTANT_CORE — règles projet pour Claude Code
+# AI_ASSISTANT_CORE — project rules for Claude Code
 
-## Identité du projet
+## Project identity
 
-AI_ASSISTANT_CORE est un orchestrateur IA local orienté création numérique et exécution structurée.
+AI_ASSISTANT_CORE is a local AI orchestrator oriented toward digital creation and
+structured execution.
 
-Le noyau du produit est :
-- un routeur
-- un planner
-- un executor
-- une surface d’observabilité
+The product core is:
+- a router
+- a planner
+- an executor
+- an observability surface
 
-Le système prend une demande, produit une décision structurée, construit un plan d’exécution, exécute ce plan étape par étape, puis retourne une sortie utile et traçable.
+The system takes a request, produces a structured decision, builds an execution plan,
+runs that plan step by step, then returns a useful, traceable output.
 
-## Sécurité — règle absolue (clés privées)
+## Security — absolute rule (private keys)
 
-- **NE JAMAIS lire de clé SSH privée (ni aucune clé privée) sur cette machine.** Les fichiers de clés privées sous `~/.ssh/` (`id_ed25519`, `id_rsa`, etc. — tout sauf les `*.pub`) sont strictement hors limites. Les clés publiques (`*.pub`), `config`, `known_hosts` restent lisibles.
-- Invariant **non négociable**, **appliqué mécaniquement** par un hook `PreToolUse` global (`~/.claude/hooks/block-ssh-private-keys.sh`, déclaré dans `~/.claude/settings.json`) qui bloque tout appel `Read`/`Bash`/`Grep` ciblant une clé privée.
-- Raison : la clé privée prouve l'identité et l'autorité de l'auteur ; sa confidentialité ne doit jamais dépendre d'un outil tiers.
+- **NEVER read a private SSH key (or any private key) on this machine.** Private key
+  files under `~/.ssh/` (`id_ed25519`, `id_rsa`, etc. — everything except `*.pub`) are
+  strictly off limits. Public keys (`*.pub`), `config`, and `known_hosts` remain readable.
+- This is a **non-negotiable** invariant, **mechanically enforced** by a global
+  `PreToolUse` hook (`~/.claude/hooks/block-ssh-private-keys.sh`, declared in
+  `~/.claude/settings.json`) that blocks any `Read`/`Bash`/`Grep` call targeting a private key.
+- Rationale: a private key proves the author's identity and authority; its confidentiality
+  must never depend on a third-party tool.
 
 ## Invariants
 
-- Ne pas proposer de refonte d'architecture globale ni de réécriture from scratch
-- Ne pas casser le noyau `routeur + planner + executor`
-- Travailler à partir de l’état réel validé
-- Privilégier les phases courtes, concrètes, rentables et réversibles
-- Préserver la lisibilité, la robustesse et le déterminisme
-- Éviter la complexité prématurée
+- Do not propose a global architecture overhaul or a from-scratch rewrite
+- Do not break the `router + planner + executor` core
+- Work from the real, validated state
+- Favor short, concrete, high-value, reversible phases
+- Preserve readability, robustness, and determinism
+- Avoid premature complexity
 
 ## Architecture
 
-Trajectoire actuelle : Linux/Fedora natif (migration clôturée le 2026-05-30).
+Current trajectory: native Linux/Fedora (migration closed on 2026-05-30).
 
-- le host Fedora KDE est l'espace principal de travail ET le runtime principal
-- les services (Ollama, SearXNG, Open-WebUI) tournent en Docker via `docker-compose.linux.yml`, ports liés à 127.0.0.1
-- Blender s'exécute en headless directement sur le host (GPU NVIDIA RTX 3060 12 Go)
-- l'ancien contexte host Windows + VM Ubuntu est legacy/archivé (`infra/vm/`, `docker-compose.yml` Windows, scripts `.ps1`/`.bat`) — ne pas le traiter comme l'architecture courante
-- l'isolation de l'exécution du code généré reste un objectif produit (roadmap) ; elle n'est plus portée par une VM aujourd'hui
+- the Fedora KDE host is the main workspace AND the main runtime
+- services (Ollama, SearXNG, Open-WebUI) run in Docker via `docker-compose.linux.yml`,
+  with ports bound to 127.0.0.1
+- Blender runs headless directly on the host (NVIDIA RTX 3060 12 GB GPU)
+- the old Windows-host + Ubuntu-VM context is legacy/archived (`infra/vm/`, the Windows
+  `docker-compose.yml`, `.ps1`/`.bat` scripts) — do not treat it as the current architecture
+- isolating the execution of generated code remains a product goal (roadmap); it is no
+  longer carried by a VM today
 
-## Source de vérité
+## Source of truth
 
-Quand une information diverge, l’ordre de confiance est :
+When information diverges, the order of trust is:
 
 1. `core/app/*`
 2. `core/openai_compat.py`
-3. la documentation canonique du projet
-4. la config runtime réellement utilisée
+3. the project's canonical documentation
+4. the runtime config actually in use
 
-Ne traite pas les fichiers legacy racine comme source métier si `app/*` dit autre chose.
+Do not treat the legacy root files as a business source when `app/*` says otherwise.
 
-## Pipeline Blender
+## Blender pipeline
 
-Le pipeline Blender est expérimental mais fonctionnel. Il ne modifie pas les invariants du noyau routeur + planner + executor.
+The Blender pipeline is experimental but functional. It does not change the invariants of
+the router + planner + executor core.
 
-- client canonique : `core/app/clients/blender_client.py`
-- sorties validées : `scene.py`, `scene.blend`, `preview.png` sous `outputs/blender/<uuid>/`
-- `scene.blend` est l'artefact canonique
-- `preview.png` est best-effort et non bloquant
-- le rendu preview est produit dans un subprocess séparé, distinct du script principal
+- canonical client: `core/app/clients/blender_client.py`
+- validated outputs: `scene.py`, `scene.blend`, `preview.png` under `outputs/blender/<uuid>/`
+- `scene.blend` is the canonical artifact
+- `preview.png` is best-effort and non-blocking
+- the preview render runs in a separate subprocess, distinct from the main script
 
-## Règles de travail
+## Working rules
 
-- Distinguer clairement code, doc, runtime déclaré, sécurité déclarée et legacy (Windows/VM)
-- Ne pas prétendre vérifier l'état live du firewall, de systemd ou des services si ce n'est pas visible dans le repo ou via une commande exécutée
-- Signaler explicitement les ambiguïtés
-- Préférer les patchs courts et réversibles
-- Pour les tâches multi-fichiers ou ambiguës, commencer par un plan
+- Clearly distinguish code, docs, declared runtime, declared security, and legacy (Windows/VM)
+- Do not claim to have checked the live state of the firewall, systemd, or services unless
+  it is visible in the repo or via an executed command
+- Surface ambiguities explicitly
+- Prefer short, reversible patches
+- For multi-file or ambiguous tasks, start with a plan

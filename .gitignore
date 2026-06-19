@@ -66,6 +66,7 @@ core/tests/test_visual_pipeline (2).py
 core/phase5_v171_quality_visible.patch
 
 # --- local overrides ---
+CLAUDE.local.md
 .claude/settings.local.json
 .claude/agents/
 .claude/commands/
