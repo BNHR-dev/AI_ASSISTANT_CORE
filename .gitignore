@@ -40,6 +40,7 @@ Thumbs.db
 /core/.env.vm_runtime_snapshot
 /core/data/
 /core/outputs/
+/core/models/
 /core/backups/
 /core/sync_from_vm/
 /core/benchmarks/

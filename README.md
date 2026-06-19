@@ -72,7 +72,41 @@ Native surface:
 - `POST /execute` — run the full pipeline
 - `GET /health` · `GET /health/runtime` · `GET /debug/canonical`
 
-## Quickstart
+## Run the demo — one command, any OS
+
+No Linux box, no manual setup: the whole stack (FastAPI backend + Ollama + SearXNG +
+ComfyUI) ships as containers. From the repo:
+
+```bash
+cd core
+make demo-gpu     # NVIDIA GPU — Linux native, or Windows via Docker Desktop + WSL2
+make demo         # CPU-only fallback — runs anywhere, slower for images
+```
+
+`make demo` downloads the image models (RealVisXL + 4x-UltraSharp, ~6.6 GB, from
+HuggingFace), writes the config and brings the stack up. The backend is then on
+`http://127.0.0.1:8000` — generate straight through the OpenAI-compatible API:
+
+```bash
+curl -sN http://127.0.0.1:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"assistant-core-image","messages":[{"role":"user",
+       "content":"a tranquil japanese zen garden at dawn, cinematic"}]}'
+```
+
+**Four tiers of reachability** — pick the lowest-effort one that fits:
+
+| Tier | You run | Needs |
+|---|---|---|
+| Hosted video / demo | nothing, just watch | a browser |
+| **`make demo`** (this) | one command | Docker (+ NVIDIA toolkit for GPU) |
+| WSL2 | a full Linux env inside Windows | WSL2 |
+| Native | the production runtime | Linux + GPU |
+
+GPU prerequisites, the per-run output layout and the end-to-end flow →
+[`core/docs/DOCKER.md`](core/docs/DOCKER.md).
+
+## Quickstart — native services (development)
 
 ```bash
 cp core/.env.example core/.env

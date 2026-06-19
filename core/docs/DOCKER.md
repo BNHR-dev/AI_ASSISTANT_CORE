@@ -65,19 +65,25 @@ est exposé sur l'hôte (`127.0.0.1:8000`).
 - **P5 — DX & docs** : entrée une-commande, script de fetch modèles, doc des 4 tiers.
 
 ## Lancer la stack
+
+**Une commande** (fait tout : config SearXNG, téléchargement des modèles, build, up) :
 ```bash
 cd core
-cp env.docker.example .env.docker                       # ajuster si besoin (COMFYUI_MODELS_DIR…)
-cp searxng/settings.example.yml searxng/settings.yml    # config SearXNG (recherche web)
-
-# Base CPU-safe (tourne partout ; image lente sans GPU) :
-docker compose -f docker-compose.app.yml up --build
-
-# Avec GPU NVIDIA (Linux natif, ou Windows + Docker Desktop/WSL2) — démo pleine :
-docker compose -f docker-compose.app.yml -f docker-compose.gpu.yml up --build
-
-curl -s http://127.0.0.1:8000/health     # -> {"status":"ok"}
+make demo-gpu     # GPU NVIDIA (Linux natif, ou Windows + Docker Desktop/WSL2) — démo pleine
+make demo         # CPU seul — tourne partout, lent pour l'image
 ```
+`make demo` télécharge RealVisXL + 4x-UltraSharp (~6,6 Go, HuggingFace) si absents, puis
+monte la stack. Backend sur `http://127.0.0.1:8000`. `make down` arrête, `make logs` suit.
+
+Équivalent manuel (sous le capot) :
+```bash
+cp searxng/settings.example.yml searxng/settings.yml   # config SearXNG (requis)
+bash scripts/fetch-models.sh                            # modèles -> ./models (idempotent)
+docker compose -f docker-compose.app.yml -f docker-compose.gpu.yml up --build
+curl -s http://127.0.0.1:8000/health                   # -> {"status":"ok"}
+```
+Surcharges (ex. réutiliser des modèles déjà présents) : `cp env.docker.example .env`
+puis ajuster `COMFYUI_MODELS_DIR` / `COMFYUI_CHECKPOINT_NAME` (compose charge `.env`).
 
 Générer une image bout en bout (API compatible OpenAI, backend → ComfyUI) :
 ```bash
