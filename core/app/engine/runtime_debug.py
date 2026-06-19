@@ -95,6 +95,7 @@ ACTIVE_AUXILIARY_MODULES = [
     "app/engine/blender_model_config.py",
     "app/engine/llm_trajectory_log.py",
     "app/engine/artifact_manifest.py",
+    "app/engine/comfyui_manifest.py",
     "app/infra/runtime_urls.py",
     "app/infra/tool_manager.py",
 ]

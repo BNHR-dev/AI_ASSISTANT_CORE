@@ -22,4 +22,5 @@ jobs:
 
       - name: Run tests (fully hermetic — no external services required)
         working-directory: core
-        run: pytest -q
+        # `python -m pytest` (pas `pytest` nu) : ajoute core/ au sys.path -> `import app` OK.
+        run: python -m pytest -q
