@@ -427,6 +427,7 @@ def finalize_visual_request(request: VisualRequest) -> VisualRequest:
         cfg=request.cfg,
         variants_count=request.variants_count,
         quality=request.quality,
+        output_subfolder=request.output_subfolder,
     )
 
 
@@ -487,8 +488,14 @@ def inject_visual_request(
     for node_id in contract["cfg_nodes"]:
         _set_node_input(injected, node_id, "cfg", request.cfg, template_id)
 
+    # Dossier par run : regroupe l'image et le manifest dans <output>/<output_subfolder>/.
+    filename_prefix = (
+        f"{request.output_subfolder}/{request.workflow_id}"
+        if request.output_subfolder
+        else request.workflow_id
+    )
     _set_node_input(
-        injected, contract["save_node"], "filename_prefix", request.workflow_id, template_id
+        injected, contract["save_node"], "filename_prefix", filename_prefix, template_id
     )
 
     return injected
@@ -661,6 +668,7 @@ def _build_variant_request(base_request: VisualRequest, seed: int) -> VisualRequ
         cfg=base_request.cfg,
         variants_count=base_request.variants_count,
         quality=base_request.quality,
+        output_subfolder=base_request.output_subfolder,
     )
 
 

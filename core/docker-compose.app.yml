@@ -22,11 +22,16 @@ services:
       - COMFYUI_CHECKPOINT_NAME=realvisxlV50_v50Bakedvae.safetensors
       - COMFYUI_REFINER_CHECKPOINT_NAME=realvisxlV50_v50Bakedvae.safetensors
       - COMFYUI_UPSCALE_MODEL_NAME=4x-UltraSharp.pth
+      # Registre ComfyUI : OS hôte réel à stamper (le conteneur reste Linux). Vide -> Linux.
+      - AAC_HOST_OS=${AAC_HOST_OS:-}
+      # Le backend (root) écrit le manifest -> le redonne à l'UID hôte (fichiers non-root).
+      - AAC_OUTPUT_UID=${AAC_UID:-1000}
+      - AAC_OUTPUT_GID=${AAC_GID:-1000}
     ports:
       - "127.0.0.1:8000:8000"   # exposé seulement en local
     volumes:
       - aac-outputs:/outputs
-      - comfyui-output:/outputs/comfyui:ro   # sorties générées par le service comfyui
+      - ./outputs/comfyui:/outputs/comfyui   # lit les images comfyui + y écrit le registre (manifest)
     depends_on:
       - ollama
       - searxng
@@ -63,11 +68,11 @@ services:
       # Modèles existants (19 Go : RealVisXL + 4x-UltraSharp) en lecture seule —
       # JAMAIS recopiés dans l'image. Surchargeable via COMFYUI_MODELS_DIR.
       - ${COMFYUI_MODELS_DIR:-/home/BNHR/projects/ComfyUI/models}:/app/models:ro
-      - comfyui-output:/outputs/comfyui   # sorties partagées avec le backend
+      # Bind mount : images + manifests atterrissent dans core/outputs/comfyui/ sur l'hôte.
+      - ./outputs/comfyui:/outputs/comfyui
     restart: unless-stopped
     # GPU (réservation NVIDIA) ajouté par docker-compose.gpu.yml (P3).
 
 volumes:
   aac-outputs:
   ollama-models:
-  comfyui-output:

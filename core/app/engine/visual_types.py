@@ -19,6 +19,7 @@ class VisualRequest:
     cfg: float = 7.0
     variants_count: int = 1
     quality: str = "draft"
+    output_subfolder: str | None = None
 
     def __post_init__(self) -> None:
         if self.quality not in VALID_QUALITIES:
