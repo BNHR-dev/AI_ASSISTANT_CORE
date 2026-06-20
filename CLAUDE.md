@@ -42,10 +42,10 @@ Current trajectory: native Linux/Fedora (migration closed on 2026-05-30).
 - services (Ollama, SearXNG, Open-WebUI) run in Docker via `docker-compose.linux.yml`,
   with ports bound to 127.0.0.1
 - Blender runs headless directly on the host (NVIDIA RTX 3060 12 GB GPU)
-- the old Windows-host + Ubuntu-VM context is legacy/archived (`infra/vm/`, the Windows
-  `docker-compose.yml`, `.ps1`/`.bat` scripts) — do not treat it as the current architecture
-- isolating the execution of generated code remains a product goal (roadmap); it is no
-  longer carried by a VM today
+- the old Windows-host + Ubuntu-VM context is gone from the tree (git history only) — do
+  not treat it as the current architecture
+- generated code runs OS-confined via bubblewrap today (`AAC_BLENDER_SANDBOX`); a stronger
+  VM-grade isolation remains a product goal (roadmap)
 
 ## Source of truth
 

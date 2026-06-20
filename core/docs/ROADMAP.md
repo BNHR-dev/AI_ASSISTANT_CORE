@@ -46,12 +46,12 @@ hardening validated.**
 - backend (FastAPI) on the host, bound to `127.0.0.1:8000`
 - Ollama / SearXNG / Open-WebUI in containers (`docker-compose.linux.yml`), ports bound to `127.0.0.1`
 - ComfyUI and Blender run directly on the host
-- old VM/Windows topology archived (`infra/vm/`), outside the canonical runtime
+- old VM/Windows topology removed from the tree (git history only), outside the canonical runtime
 
 ### Hardening phase 1
 - safe hardening applied on the backend without breaking operations
-- isolating the execution of generated code remains a **product goal** (audit finding C1),
-  not shipped today — not to be presented as a boundary already in place
+- generated `bpy` code runs OS-confined via **bubblewrap** (modes `auto`/`require`/`off`);
+  a stronger **VM-grade isolation** remains a product goal, not shipped — not presented as if it were
 
 ## Reasonable near-term priorities
 

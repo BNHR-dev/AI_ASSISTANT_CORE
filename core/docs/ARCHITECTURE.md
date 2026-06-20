@@ -107,14 +107,14 @@ The product core stays:
 - executor
 - observability
 
-The single-host deployment adds no business logic. Isolating the execution of generated
-code remains a **product goal** (internal audit, finding C1) — not yet shipped, and not to
-be presented as a boundary that is already in place.
+The single-host deployment adds no business logic. Generated `bpy` code is confined at the
+OS level with **bubblewrap** (no network, no home, read-only system); a stronger
+**VM-grade isolation** remains a product goal — not yet shipped, and not presented as if it were.
 
 ### Product runtime (single-host, localhost)
 The entire canonical runtime runs on a single machine and communicates over `localhost`
-(`127.0.0.1`). An older topology — an Ubuntu/Linux guest on a Windows host (Hyper-V) — is
-archived under `infra/vm/`, outside the canonical runtime.
+(`127.0.0.1`). An older topology — an Ubuntu/Linux guest on a Windows host (Hyper-V) — was
+removed from the tree; only its history remains in git.
 
 #### On the host
 - AI_ASSISTANT_CORE backend (FastAPI), bound to `127.0.0.1:8000`
@@ -128,10 +128,10 @@ archived under `infra/vm/`, outside the canonical runtime.
 
 ### Product security boundary
 - single-host deployment: no dedicated network isolation boundary today
-- isolating the execution of generated code remains a **product goal** (audit finding C1),
-  not yet shipped — not to be overstated as done
-- **roadmap**: isolate generated-code execution in a **dedicated isolation VM** (Linux, on
-  the host), driven by studio asset confidentiality — distinct from the archived Hyper-V topology
+- generated `bpy` code runs OS-confined via **bubblewrap** (no network, no home, read-only
+  system; modes `auto`/`require`/`off` — see [`SECURITY.md`](../../SECURITY.md))
+- **roadmap**: a stronger **dedicated isolation VM** (Linux, on the host), driven by studio
+  asset confidentiality — distinct from the old, now-removed Hyper-V topology
 
 All services listen on `127.0.0.1` (backend `8000`, Ollama `12000`, SearXNG `8081`,
 ComfyUI `8188`, optional Open-WebUI `8088`).
@@ -227,7 +227,7 @@ These files must not become business sources again.
 
 ## Known structural gaps
 
-- isolation/sandbox of generated-code execution: a **product goal**, not shipped (audit finding C1)
+- OS-level sandbox of generated-code execution is shipped (bubblewrap); stronger VM-grade isolation is a **product goal**, not shipped
 - legacy debt still present, though contained
 - Open-WebUI is an optional operator UI on the host, non-canonical and not required for the core
 
