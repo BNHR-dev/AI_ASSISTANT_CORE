@@ -25,7 +25,7 @@
           </div>
           <div class="run-id" title="{{ run.path }}">{{ run.id }}</div>
           <button class="ghost"
-                  hx-post="/console/reveal?path={{ run.rel | urlencode }}"
+                  hx-post="/console/reveal?path={{ run.path | urlencode }}"
                   hx-swap="none">📂 Open folder</button>
           {% if run.manifest %}
             <details>

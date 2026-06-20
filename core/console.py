@@ -12,6 +12,7 @@ exposition internet. Voir la note portfolio « Console — UI dédiée ».
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -28,13 +29,31 @@ from app.engine.runtime_debug import get_runtime_health
 PROJECT_ROOT = Path(__file__).resolve().parent
 TEMPLATES_DIR = PROJECT_ROOT / "console_templates"
 STATIC_DIR = (PROJECT_ROOT / "console_static").resolve()
-# Racine autorisée pour servir des artefacts (rendus Blender, etc.).
+def _dir_from_env(var: str, default: Path) -> Path:
+    """Dossier depuis une variable d'env (chemin ABSOLU) ; sinon `default`."""
+    raw = os.getenv(var, "").strip()
+    return Path(raw).resolve() if raw and os.path.isabs(raw) else default.resolve()
+
+
+# Dossier outputs/ local du backend (rétrocompat / défaut).
 OUTPUTS = (PROJECT_ROOT / "outputs").resolve()
-# Rapports d'eval produits par les runners du harness (read-only ici).
-EVAL_DIR = (OUTPUTS / "blender" / "_eval_reports")
+# Dossiers de runs par pipeline = LES MÊMES que ceux où le backend écrit
+# (COMFYUI_OUTPUT_DIR / BLENDER_OUTPUT_DIR). Permet de pointer la Console sur une
+# archive rangée (ex. ~/projects/AAC_Outputs/ComfyUI/Linux).
+COMFYUI_RUNS_DIR = _dir_from_env("COMFYUI_OUTPUT_DIR", OUTPUTS / "comfyui")
+BLENDER_RUNS_DIR = _dir_from_env("BLENDER_OUTPUT_DIR", OUTPUTS / "blender")
+# Racines autorisées pour servir des fichiers (vignettes) et ouvrir des dossiers.
+_SERVE_ROOTS = list({OUTPUTS, COMFYUI_RUNS_DIR, BLENDER_RUNS_DIR})
+# Rapports d'eval (sous le dossier des runs Blender).
+EVAL_DIR = BLENDER_RUNS_DIR / "_eval_reports"
 
 router = APIRouter(prefix="/console", tags=["console"])
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+def _under_serve_roots(p: Path) -> bool:
+    """Le chemin résolu est-il sous une des racines servables ? (anti-traversal)"""
+    return any(p.is_relative_to(root) for root in _SERVE_ROOTS)
 
 
 def _safe_resolve(base: Path, raw: str) -> Path | None:
@@ -68,9 +87,9 @@ def _artifact_url(fs_path: str | None) -> str | None:
         resolved = p.resolve()
     except (OSError, RuntimeError, ValueError):
         return None
-    if not resolved.is_relative_to(OUTPUTS):
+    if not _under_serve_roots(resolved):
         return None
-    return "/console/artifact?path=" + quote(str(resolved.relative_to(OUTPUTS)))
+    return "/console/artifact?path=" + quote(str(resolved))
 
 
 def _bbox_pct(frac) -> dict | None:
@@ -222,9 +241,6 @@ def eval_summary(r: dict) -> dict:
 # --------------------------------------------------------------------------- #
 # Outputs — historique des runs sur disque (lecture du registre par run)
 # --------------------------------------------------------------------------- #
-RUN_SOURCES = (("comfyui", "2d"), ("blender", "3d"))
-
-
 def _describe_run(d: Path, kind: str) -> dict:
     """Décrit un dossier de run : id, type, date, chemin, vignette, manifest.
     Lecture seule ; tolérant aux dossiers incomplets."""
@@ -251,7 +267,6 @@ def _describe_run(d: Path, kind: str) -> dict:
         "id": d.name,
         "kind": kind,
         "path": str(d),
-        "rel": str(d.relative_to(OUTPUTS)),
         "date": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime else "—",
         "mtime": mtime,
         "thumb_url": _artifact_url(str(img)) if img else None,
@@ -263,8 +278,7 @@ def list_runs() -> list[dict]:
     """Tous les runs (2D ComfyUI + 3D Blender), du plus récent au plus ancien.
     Ignore les dossiers techniques (`_eval_reports`, `_trajectories`)."""
     runs: list[dict] = []
-    for sub, kind in RUN_SOURCES:
-        base = OUTPUTS / sub
+    for base, kind in ((COMFYUI_RUNS_DIR, "2d"), (BLENDER_RUNS_DIR, "3d")):
         if not base.is_dir():
             continue
         for d in base.iterdir():
@@ -416,9 +430,12 @@ async def run(request: Request):
 
 @router.get("/artifact")
 def artifact(path: str):
-    """Sert un fichier local sous `outputs/` uniquement."""
-    resolved = _safe_resolve(OUTPUTS, path)
-    if resolved is None or not resolved.is_file():
+    """Sert un fichier sous une des racines de sortie autorisées."""
+    try:
+        resolved = Path(path).resolve()
+    except (OSError, RuntimeError, ValueError):
+        raise HTTPException(status_code=404, detail="artifact not found")
+    if not _under_serve_roots(resolved) or not resolved.is_file():
         raise HTTPException(status_code=404, detail="artifact not found")
     return FileResponse(resolved)
 
@@ -432,8 +449,11 @@ def reveal(path: str):
     exécutable). Best-effort : un échec (pas de `DISPLAY`, conteneur, pas de
     `xdg-open`) renvoie une erreur propre sans rien casser.
     """
-    resolved = _safe_resolve(OUTPUTS, path)
-    if resolved is None or not resolved.exists():
+    try:
+        resolved = Path(path).resolve()
+    except (OSError, RuntimeError, ValueError):
+        raise HTTPException(status_code=404, detail="path not found")
+    if not _under_serve_roots(resolved) or not resolved.exists():
         raise HTTPException(status_code=404, detail="path not found")
     target = resolved if resolved.is_dir() else resolved.parent
     try:
