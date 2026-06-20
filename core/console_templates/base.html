@@ -49,6 +49,12 @@
       var t = document.querySelector('.panel:not([hidden]) textarea[name=message]');
       if (t) { t.value = p; t.focus(); }
     }
+    // Deep-link: open the tab named in the URL hash (e.g. /console#outputs).
+    window.addEventListener('DOMContentLoaded', function () {
+      var initial = (location.hash || '#run').slice(1);
+      var link = document.querySelector('.menu a[data-tab="' + initial + '"]');
+      if (link) link.click();
+    });
   </script>
 </body>
 </html>
