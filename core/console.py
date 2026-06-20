@@ -288,6 +288,62 @@ def list_runs() -> list[dict]:
     return runs
 
 
+def _load_json(p: Path) -> dict | None:
+    """Lecture JSON tolérante (fichier absent/corrompu -> None)."""
+    if not p.is_file():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def build_run_detail(run_dir: Path) -> dict | None:
+    """Vue détail d'un run sur disque (lecture seule).
+
+    Réutilise les helpers d'overlay de cadrage et de fidélité ; ne recalcule
+    aucune métrique. `run_dir` est supposé déjà validé sous une racine servie.
+    """
+    if not run_dir.is_dir():
+        return None
+    if run_dir.parent == BLENDER_RUNS_DIR:
+        kind = "3d"
+    elif run_dir.parent == COMFYUI_RUNS_DIR:
+        kind = "2d"
+    else:
+        has_3d = (run_dir / "scene.blend").exists() or (run_dir / "scene_report.json").exists()
+        kind = "3d" if has_3d else "2d"
+
+    manifest = _load_json(run_dir / "manifest.json")
+    scene_report = _load_json(run_dir / "scene_report.json")
+    intent = _load_json(run_dir / "intent.json")
+
+    preview = run_dir / "preview.png"
+    render_url = _artifact_url(str(preview)) if preview.is_file() else None
+    gallery = [
+        u for u in (_artifact_url(str(p)) for p in sorted(run_dir.glob("*.png")) if p != preview)
+        if u
+    ]
+    try:
+        mtime = run_dir.stat().st_mtime
+    except OSError:
+        mtime = 0
+
+    return {
+        "id": run_dir.name,
+        "kind": kind,
+        "path": str(run_dir),
+        "date": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime else "—",
+        "render_url": render_url,
+        "gallery": gallery,
+        "manifest": manifest,
+        "scene_report": scene_report,
+        "intent": intent,
+        "framing": _framing_overlay(scene_report),
+        "semantic": _semantic_fidelity(manifest),
+    }
+
+
 def build_view(result: dict) -> dict:
     """Prépare une vue d'affichage à partir du dict renvoyé par le service.
 
@@ -365,6 +421,25 @@ def page(request: Request):
 def outputs_fragment(request: Request):
     """Fragment Outputs (chargé par HTMX à l'ouverture de l'onglet)."""
     return templates.TemplateResponse(request, "_outputs.html", {"runs": list_runs()})
+
+
+@router.get("/run", response_class=HTMLResponse)
+def run_detail(request: Request, path: str):
+    """Détail d'un run (modale chargée par HTMX depuis les cartes Outputs).
+
+    `path` est résolu puis contraint aux racines de sortie servies (même garde
+    que /artifact et /reveal) : aucune lecture hors `outputs/`.
+    """
+    try:
+        resolved = Path(path).resolve()
+    except (OSError, RuntimeError, ValueError):
+        raise HTTPException(status_code=404, detail="run not found")
+    if not _under_serve_roots(resolved) or not resolved.is_dir():
+        raise HTTPException(status_code=404, detail="run not found")
+    detail = build_run_detail(resolved)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return templates.TemplateResponse(request, "_run_detail.html", detail)
 
 
 @router.get("/eval", response_class=HTMLResponse)

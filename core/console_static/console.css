@@ -149,6 +149,26 @@ table.eval td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .run-meta button { align-self: flex-start; font-size: .85rem; padding: .35rem .7rem; }
 .run-meta details pre { font-size: .7rem; max-height: 220px; }
 
+/* ---- Run detail modal ---- */
+.run-card { cursor: pointer; transition: border-color .12s ease; }
+.run-card:hover, .run-card:focus-visible { border-color: var(--accent); outline: none; }
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 50;
+  background: #000a; display: flex; justify-content: center;
+  align-items: flex-start; padding: 4vh 1rem; overflow-y: auto;
+}
+.modal {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.1rem 1.3rem;
+  width: 100%; max-width: 720px;
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.modal-close { padding: .2rem .55rem; line-height: 1; }
+.modal .render-wrap { margin: .8rem 0 .2rem; }
+.modal .render { max-width: 100%; }
+.modal .gallery { margin: .8rem 0; }
+.modal .gallery img { max-width: 320px; }
+
 /* ---- Responsive: collapse the sidebar to icons ---- */
 @media (max-width: 720px) {
   .layout { grid-template-columns: 56px 1fr; }

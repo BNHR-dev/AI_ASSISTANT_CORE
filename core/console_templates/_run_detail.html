@@ -1,0 +1,84 @@
+{# Run detail — modal loaded by HTMX into #run-detail from an Outputs card. #}
+<div class="modal-backdrop"
+     onclick="if(event.target===this)document.getElementById('run-detail').innerHTML=''">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="badge">{{ '🧊 3D — Blender' if kind == '3d' else '🖼 2D — Image' }}
+        <small class="muted">· {{ date }}</small></span>
+      <button class="ghost modal-close" title="Close"
+              onclick="document.getElementById('run-detail').innerHTML=''">✕</button>
+    </div>
+    <div class="run-id" title="{{ path }}">{{ id }}</div>
+
+    {% if semantic %}
+      <div class="strip">
+        <span class="badge">🧬 Subject</span>
+        {% if semantic.label %}<span>“{{ semantic.label }}”</span>{% endif %}
+        {% if semantic.kind %}<span>kind: {{ semantic.kind }}</span>{% endif %}
+        {% if semantic.kind_fidelity %}
+          <span class="{{ 'ok' if semantic.kind_fidelity == 'exact' else 'warn' }}">
+            fidelity: {{ semantic.kind_fidelity }}</span>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {# Main render (Blender preview) + framing overlay when the data exists. #}
+    {% if render_url %}
+      <div class="render-wrap">
+        <img class="render" src="{{ render_url }}" alt="{{ kind }} render">
+        {% if framing %}
+          <svg class="overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
+            {% if framing.perceptual %}
+              <rect x="{{ framing.perceptual.x }}" y="{{ framing.perceptual.y }}"
+                    width="{{ framing.perceptual.w }}" height="{{ framing.perceptual.h }}"
+                    fill="none" stroke="#e5484d" stroke-width="0.7"/>
+            {% endif %}
+            {% if framing.projected %}
+              <rect x="{{ framing.projected.x }}" y="{{ framing.projected.y }}"
+                    width="{{ framing.projected.w }}" height="{{ framing.projected.h }}"
+                    fill="none" stroke="#30a46c" stroke-width="0.7"/>
+            {% endif %}
+          </svg>
+        {% endif %}
+      </div>
+      {% if framing %}
+        <p class="legend">
+          <span class="sw-red">▬</span> seen by the camera (pixels) ·
+          <span class="sw-green">▬</span> computed (geometry)
+          {% if framing.iou is not none %} · IoU {{ "%.2f"|format(framing.iou) }}{% endif %}
+          {% if framing.diverged is not none %} · diverged: {{ "yes" if framing.diverged else "no" }}{% endif %}
+        </p>
+      {% elif kind == '3d' %}
+        <p class="legend muted">No framing overlay recorded for this run
+          (the camera-vs-geometry comparison wasn't computed).</p>
+      {% endif %}
+    {% endif %}
+
+    {% if gallery %}
+      <div class="gallery">
+        {% for url in gallery %}<img src="{{ url }}" alt="generated image">{% endfor %}
+      </div>
+    {% endif %}
+
+    {% if not render_url and not gallery %}
+      <p class="muted">No image file in this run folder.</p>
+    {% endif %}
+
+    {% if scene_report %}
+      <details>
+        <summary>▸ Quality report (scene_report.json)</summary>
+        <pre>{{ scene_report | tojson(indent=2) }}</pre>
+      </details>
+    {% endif %}
+    {% if manifest %}
+      <details><summary>▸ Manifest</summary><pre>{{ manifest | tojson(indent=2) }}</pre></details>
+    {% endif %}
+    {% if intent %}
+      <details><summary>▸ Intent</summary><pre>{{ intent | tojson(indent=2) }}</pre></details>
+    {% endif %}
+
+    <button class="ghost"
+            hx-post="/console/reveal?path={{ path | urlencode }}"
+            hx-swap="none">📂 Open folder</button>
+  </div>
+</div>

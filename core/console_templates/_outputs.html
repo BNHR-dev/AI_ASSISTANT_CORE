@@ -7,10 +7,12 @@
     with its files under <code>outputs/</code>.
   </div>
 {% else %}
-  <p class="muted">{{ runs|length }} run(s), newest first.</p>
+  <p class="muted">{{ runs|length }} run(s), newest first — click a card for details.</p>
   <div class="runs">
     {% for run in runs %}
-      <div class="run-card">
+      <div class="run-card" role="button" tabindex="0"
+           hx-get="/console/run?path={{ run.path | urlencode }}"
+           hx-target="#run-detail" hx-swap="innerHTML">
         <div class="run-thumb">
           {% if run.thumb_url %}
             <img src="{{ run.thumb_url }}" alt="{{ run.kind }} output" loading="lazy">
@@ -24,17 +26,11 @@
             <small class="muted">{{ run.date }}</small>
           </div>
           <div class="run-id" title="{{ run.path }}">{{ run.id }}</div>
-          <button class="ghost"
-                  hx-post="/console/reveal?path={{ run.path | urlencode }}"
-                  hx-swap="none">📂 Open folder</button>
-          {% if run.manifest %}
-            <details>
-              <summary>manifest</summary>
-              <pre>{{ run.manifest | tojson(indent=2) }}</pre>
-            </details>
-          {% endif %}
         </div>
       </div>
     {% endfor %}
   </div>
 {% endif %}
+
+{# Detail modal target — filled by HTMX with _run_detail.html on a card click. #}
+<div id="run-detail"></div>
