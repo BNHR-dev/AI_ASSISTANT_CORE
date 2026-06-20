@@ -59,6 +59,12 @@ is exposed on the host (`127.0.0.1:8000`).
    Windows. (The `docker-compose.yml` / `docker-compose.linux.yml` split is only the
    *native-services* path, kept in mirror and differing solely by SELinux `:z` volume tags.)
 
+## Prerequisites
+
+- **Docker** with the Compose plugin (`docker compose version` ≥ v2), plus `make`, `bash`, `curl`.
+- **~8 GB free disk** (≈6.6 GB of models + build layers) and an internet connection for the first run.
+- **GPU (optional, recommended for images):** NVIDIA driver + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). On Windows: Docker Desktop with the WSL2 backend. No GPU? Use `make demo` (CPU — works anywhere, slower).
+
 ## Run the stack
 
 **One command** (does everything: SearXNG config, model download, build, up):
