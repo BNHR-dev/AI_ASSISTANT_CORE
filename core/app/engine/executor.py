@@ -25,6 +25,7 @@ FORCED_MODE_TO_TASK_TYPE = {
     "critique": "critique",
     "vision": "vision",
     "image_generation": "image_generation",
+    "blender_script": "blender_script",
     "web_research": "web_research",
 }
 

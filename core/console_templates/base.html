@@ -15,8 +15,8 @@
         <a href="#run"     data-tab="run" class="active">▶ <span>Run</span></a>
         <a href="#2d"      data-tab="2d">🖼 <span>2D — Image</span></a>
         <a href="#3d"      data-tab="3d">🧊 <span>3D — Blender</span></a>
-        <a href="#outputs" data-tab="outputs" hx-get="/console/outputs" hx-target="#panel-outputs" hx-trigger="click">🗂 <span>Outputs</span></a>
-        <a href="#eval"    data-tab="eval" hx-get="/console/eval" hx-target="#panel-eval" hx-trigger="click">📊 <span>Eval</span></a>
+        <a href="#outputs" data-tab="outputs" data-load="/console/outputs">🗂 <span>Outputs</span></a>
+        <a href="#eval"    data-tab="eval" data-load="/console/eval">📊 <span>Eval</span></a>
       </nav>
       <div class="sidebar-foot">
         <div id="health" hx-get="/console/health" hx-trigger="load" hx-swap="innerHTML">
@@ -42,7 +42,14 @@
       });
     }
     document.querySelectorAll('.menu a[data-tab]').forEach(function (a) {
-      a.addEventListener('click', function (e) { e.preventDefault(); aacTab(a.dataset.tab); });
+      a.addEventListener('click', function (e) {
+        e.preventDefault();
+        var name = a.dataset.tab;
+        aacTab(name);
+        // Outputs/Eval are loaded fresh each time the tab is opened.
+        var url = a.getAttribute('data-load');
+        if (url && window.htmx) window.htmx.ajax('GET', url, '#panel-' + name);
+      });
     });
     // Clickable examples fill the request box of the *visible* panel.
     function aacFill(p) {

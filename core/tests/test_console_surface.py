@@ -82,7 +82,7 @@ def test_console_page_served():
 
 
 def test_run_renders_success_result(monkeypatch):
-    monkeypatch.setattr(console, "execute_request", lambda message: _blender_result())
+    monkeypatch.setattr(console, "execute_request", lambda message, **kw: _blender_result())
     response = client.post("/console/run", data={"message": "scène 3d blender : théière"})
     assert response.status_code == 200
     body = response.text
@@ -94,7 +94,7 @@ def test_run_renders_success_result(monkeypatch):
 
 
 def test_run_renders_error_result(monkeypatch):
-    monkeypatch.setattr(console, "execute_request", lambda message: _error_result())
+    monkeypatch.setattr(console, "execute_request", lambda message, **kw: _error_result())
     response = client.post("/console/run", data={"message": "scène qui casse"})
     assert response.status_code == 200
     body = response.text
@@ -103,7 +103,7 @@ def test_run_renders_error_result(monkeypatch):
 
 
 def test_run_handles_engine_exception(monkeypatch):
-    def _boom(message):
+    def _boom(message, **kw):
         raise RuntimeError("moteur indisponible")
 
     monkeypatch.setattr(console, "execute_request", _boom)
@@ -154,7 +154,7 @@ def _blender_result_with_observability():
 
 def test_run_renders_framing_overlay(monkeypatch):
     monkeypatch.setattr(
-        console, "execute_request", lambda message: _blender_result_with_observability()
+        console, "execute_request", lambda message, **kw: _blender_result_with_observability()
     )
     body = client.post("/console/run", data={"message": "flacon"}).text
     # deux rectangles colorés (perceptuel rouge / projeté vert) + score divergence
@@ -166,7 +166,7 @@ def test_run_renders_framing_overlay(monkeypatch):
 
 def test_run_renders_semantic_fidelity(monkeypatch):
     monkeypatch.setattr(
-        console, "execute_request", lambda message: _blender_result_with_observability()
+        console, "execute_request", lambda message, **kw: _blender_result_with_observability()
     )
     body = client.post("/console/run", data={"message": "flacon"}).text
     assert "flacon de parfum noir" in body
@@ -326,7 +326,7 @@ def test_reveal_opens_folder(monkeypatch, tmp_path):
 
 def test_run_final_toggle_appends_token(monkeypatch):
     captured = {}
-    def _capture(message):
+    def _capture(message, **kw):
         captured["msg"] = message
         return _blender_result()
     monkeypatch.setattr(console, "execute_request", _capture)
@@ -336,12 +336,30 @@ def test_run_final_toggle_appends_token(monkeypatch):
 
 def test_run_without_final_keeps_message(monkeypatch):
     captured = {}
-    def _capture(message):
+    def _capture(message, **kw):
         captured["msg"] = message
         return _blender_result()
     monkeypatch.setattr(console, "execute_request", _capture)
     client.post("/console/run", data={"message": "a fox"})
     assert "--final" not in captured["msg"]
+
+
+def test_run_forwards_forced_mode(monkeypatch):
+    captured = {}
+    def _capture(message, mode="auto", **kw):
+        captured["mode"] = mode
+        return _blender_result()
+    monkeypatch.setattr(console, "execute_request", _capture)
+    client.post("/console/run", data={"message": "a fox", "mode": "image_generation"})
+    assert captured["mode"] == "image_generation"   # 2D tab forces image
+    client.post("/console/run", data={"message": "whatever"})
+    assert captured["mode"] == "auto"               # Run tab lets the router decide
+
+
+def test_tabs_declare_their_mode():
+    body = client.get("/console").text
+    assert 'name="mode" value="image_generation"' in body   # 2D
+    assert 'name="mode" value="blender_script"' in body      # 3D
 
 
 def test_single_page_holds_all_sections():

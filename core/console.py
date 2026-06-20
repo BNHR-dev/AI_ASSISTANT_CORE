@@ -400,8 +400,11 @@ async def run(request: Request):
     # visual pipeline already understands (RealVisXL + refiner). No-op elsewhere.
     if parsed.get("final", [""])[0] and "--final" not in message:
         message = f"{message} --final"
+    # Forced mode from the active tab (2D -> image_generation, 3D -> blender_script).
+    # Absent/empty -> "auto" (the Run tab lets the router decide).
+    mode = (parsed.get("mode", ["auto"])[0]).strip() or "auto"
     try:
-        result = execute_request(message)
+        result = execute_request(message, mode=mode)
     except Exception as exc:  # noqa: BLE001 — la Console ne doit jamais planter
         return templates.TemplateResponse(
             request,

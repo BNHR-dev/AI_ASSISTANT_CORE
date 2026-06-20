@@ -23,6 +23,7 @@
     <form hx-post="/console/run" hx-target="#result-2d" hx-indicator="#spin-2d"
           hx-disabled-elt="find button[type='submit']">
       <textarea name="message" placeholder="Describe an image…"></textarea>
+      <input type="hidden" name="mode" value="image_generation">
       <div class="form-actions">
         <button type="submit">Generate ▶</button>
         <label class="muted toggle">
@@ -45,6 +46,7 @@
     <form hx-post="/console/run" hx-target="#result-3d" hx-indicator="#spin-3d"
           hx-disabled-elt="find button[type='submit']">
       <textarea name="message" placeholder="Describe a 3D scene…"></textarea>
+      <input type="hidden" name="mode" value="blender_script">
       <button type="submit">Render ▶</button>
     </form>
     <p id="spin-3d" class="htmx-indicator">⏳ rendering… (you can switch tabs — it keeps running)</p>
