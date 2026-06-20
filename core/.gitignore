@@ -39,8 +39,5 @@ build/
 **/*.pfx
 **/*secret*
 
-# Runtime snapshots / machine-specific deployment notes
-archive_notes/runtime_vm_snapshot/
-
 # Local archives
 core.zip

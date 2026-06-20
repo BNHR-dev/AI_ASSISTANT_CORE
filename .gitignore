@@ -61,7 +61,6 @@ Thumbs.db
 /infra/vm/
 /core/scripts/deploy_vm/
 
-core/archive_notes/test_localsystem.txt
 core/tests/test_visual_pipeline (2).py
 core/phase5_v171_quality_visible.patch
 
