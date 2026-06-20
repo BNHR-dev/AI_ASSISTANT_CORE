@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime, timezone
 
 from app.clients.blender_client import build_blender_script, run_blender_script
 from app.clients.comfyui_client import (
+    COMFYUI_OUTPUT_DIR,
     build_visual_request_from_text,
     run_comfyui_workflow,
 )
@@ -13,6 +15,7 @@ from app.clients.web_client import (
     prepare_search_query,
     search_web,
 )
+from app.engine.comfyui_manifest import write_comfyui_manifest
 from app.engine.fallbacks import fallback_text_for_step_error
 from app.engine.planner_types import ExecutionState, PlanStep, StepResult
 from app.engine.prompt_builder import (
@@ -612,9 +615,58 @@ def execute_step(state: ExecutionState, step: PlanStep) -> StepResult:
             if visual_request is None:
                 visual_request = build_visual_request_from_text(state.message)
 
+            # Dossier par run : image + manifest regroupés dans <output>/<request_id>/.
+            _run_subfolder = state.context.get("request_id") or "unknown"
+            visual_request = dataclasses.replace(visual_request, output_subfolder=_run_subfolder)
+
+            comfyui_started = datetime.now(timezone.utc)
             result = run_comfyui_workflow(visual_request)
+            comfyui_finished = datetime.now(timezone.utc)
             output_path = result.get("output_path") if isinstance(result, dict) else None
             meta = result if isinstance(result, dict) else {}
+
+            # Registre d'exécution ComfyUI dans le volume de sortie — analogue du
+            # manifest Blender : route des étapes (avec timings) + OS hôte. Non bloquant.
+            try:
+                _started_iso = comfyui_started.isoformat()
+                _finished_iso = comfyui_finished.isoformat()
+                _duration_ms = max(0, int((comfyui_finished - comfyui_started).total_seconds() * 1000))
+                _route = [
+                    {
+                        "step": r.step_id,
+                        "type": r.step_type,
+                        "status": r.status,
+                        "started_at": r.started_at,
+                        "finished_at": r.finished_at,
+                        "duration_ms": r.duration_ms,
+                    }
+                    for r in state.step_results
+                ]
+                _route.append(
+                    {
+                        "step": step.step_id,
+                        "type": step.step_type,
+                        "status": "success" if output_path else (meta.get("status") or "error"),
+                        "started_at": _started_iso,
+                        "finished_at": _finished_iso,
+                        "duration_ms": _duration_ms,
+                    }
+                )
+                _manifest_path = write_comfyui_manifest(
+                    _run_subfolder,
+                    meta,
+                    output_dir=(f"{COMFYUI_OUTPUT_DIR}/{_run_subfolder}" if COMFYUI_OUTPUT_DIR else None),
+                    timing={
+                        "started_at": _started_iso,
+                        "finished_at": _finished_iso,
+                        "duration_ms": _duration_ms,
+                    },
+                    route=_route,
+                )
+                if _manifest_path:
+                    meta = {**meta, "manifest_path": _manifest_path}
+            except Exception as _manifest_exc:  # noqa: BLE001
+                print(f"[comfyui_manifest] hook failed (non-blocking): {_manifest_exc}")
             completed_variants = meta.get("completed_variants") or (1 if output_path else 0)
             variants_count = meta.get("variants_count") or 1
             workflow_id = meta.get("workflow_id")

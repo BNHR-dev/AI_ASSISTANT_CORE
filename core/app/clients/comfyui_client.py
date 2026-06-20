@@ -20,7 +20,61 @@ from app.engine.visual_workflow_selector import analyze_visual_intent, select_vi
 COMFYUI_OUTPUT_DIR = os.getenv("COMFYUI_OUTPUT_DIR", "")
 COMFYUI_DEFAULT_WORKFLOW = os.getenv("COMFYUI_DEFAULT_WORKFLOW", "cinematic_scene_v1")
 COMFYUI_CHECKPOINT_NAME = os.getenv("COMFYUI_CHECKPOINT_NAME", "sd_xl_base_1.0.safetensors")
+COMFYUI_REFINER_CHECKPOINT_NAME = os.getenv(
+    "COMFYUI_REFINER_CHECKPOINT_NAME", "realvisxlV50_v50Bakedvae.safetensors"
+)
+COMFYUI_UPSCALE_MODEL_NAME = os.getenv("COMFYUI_UPSCALE_MODEL_NAME", "4x-UltraSharp.pth")
 WORKFLOWS_DIR = Path(__file__).resolve().parents[1] / "workflows" / "comfyui"
+
+# Per-quality graph templates. The category workflow_id (object/portrait/scene)
+# still drives prompt enrichment, dimensions and the output prefix, but the
+# actual ComfyUI graph that runs is selected by quality.
+QUALITY_TEMPLATES = {
+    "draft": "generic_draft_v1",
+    "final": "generic_final_v1",
+}
+
+# Single source of truth for the node-level injection contract of each template.
+# Centralising node IDs here avoids fragile, duplicated mutations across the code
+# base. If a template no longer matches its contract, injection fails loudly.
+WORKFLOW_CONTRACTS: dict[str, dict[str, Any]] = {
+    "generic_draft_v1": {
+        "base_ckpt_nodes": ["4"],
+        "refiner_ckpt_nodes": [],
+        "latent_node": "5",
+        "positive_nodes": ["6"],
+        "negative_nodes": ["7"],
+        "seed_nodes": [("3", "seed"), ("11", "seed")],
+        # The draft hires resample keeps a fixed, light step count (set in the
+        # template) so iteration stays fast; only the base sampler uses request.steps.
+        "steps_nodes": ["3"],
+        "cfg_nodes": ["3", "11"],
+        "save_node": "9",
+        "upscale_model_nodes": [],
+        "has_refiner": False,
+    },
+    "generic_final_v1": {
+        "base_ckpt_nodes": ["4"],
+        "refiner_ckpt_nodes": ["12"],
+        "latent_node": "5",
+        "positive_nodes": ["6", "15"],
+        "negative_nodes": ["7", "16"],
+        "seed_nodes": [("10", "noise_seed"), ("11", "noise_seed"), ("24", "seed")],
+        "steps_nodes": ["10", "11", "24"],
+        "cfg_nodes": ["10", "11", "24"],
+        "save_node": "9",
+        "upscale_model_nodes": ["20"],
+        "has_refiner": True,
+    },
+}
+
+
+def resolve_template_id(quality: str) -> str:
+    if quality not in QUALITY_TEMPLATES:
+        raise ComfyUIClientError(
+            f"Unknown quality {quality!r}; expected one of {tuple(QUALITY_TEMPLATES)}"
+        )
+    return QUALITY_TEMPLATES[quality]
 
 
 class ComfyUIClientError(RuntimeError):
@@ -273,6 +327,7 @@ def build_visual_request(
     workflow_id: str,
     variants_count: int = 1,
     analysis: VisualIntentAnalysis | None = None,
+    quality: str = "draft",
 ) -> VisualRequest:
     cleaned = " ".join(prompt.strip().split())
     if not cleaned:
@@ -292,11 +347,35 @@ def build_visual_request(
         width=width,
         height=height,
         variants_count=max(1, variants_count),
+        quality=quality,
     )
 
 
+# Matches `--final` only as a standalone token (preceded by start/space, followed
+# by end/space). Avoids false positives inside words like "finale" or "--finalize".
+_QUALITY_FINAL_RE = re.compile(r"(?:(?<=\s)|^)--final(?=\s|$)")
+
+
+def extract_quality_flag(prompt: str) -> tuple[str, str]:
+    """
+    Split a user prompt into (cleaned_prompt, quality).
+
+    Presence of the standalone ``--final`` token selects quality="final" and the
+    token is stripped from the prompt. Absence keeps the default quality="draft".
+    """
+    text = prompt or ""
+    if _QUALITY_FINAL_RE.search(text):
+        quality = "final"
+        text = _QUALITY_FINAL_RE.sub(" ", text)
+    else:
+        quality = "draft"
+
+    cleaned = " ".join(text.split())
+    return cleaned, quality
+
+
 def build_visual_request_from_text(prompt: str) -> VisualRequest:
-    cleaned = " ".join(prompt.strip().split())
+    cleaned, quality = extract_quality_flag(prompt)
     if not cleaned:
         cleaned = "image conceptuelle"
 
@@ -312,6 +391,7 @@ def build_visual_request_from_text(prompt: str) -> VisualRequest:
         width=width,
         height=height,
         variants_count=variants_count,
+        quality=quality,
     )
 
 
@@ -346,51 +426,85 @@ def finalize_visual_request(request: VisualRequest) -> VisualRequest:
         steps=request.steps,
         cfg=request.cfg,
         variants_count=request.variants_count,
+        quality=request.quality,
+        output_subfolder=request.output_subfolder,
     )
 
 
-def inject_visual_request(workflow: dict[str, Any], request: VisualRequest) -> dict[str, Any]:
+def _require_node(
+    workflow: dict[str, Any], node_id: str, template_id: str
+) -> dict[str, Any]:
+    node = workflow.get(node_id)
+    if not isinstance(node, dict) or "inputs" not in node:
+        raise WorkflowTemplateError(
+            f"Workflow template '{template_id}' is missing required node '{node_id}' "
+            "or its inputs; template no longer matches its injection contract."
+        )
+    return node["inputs"]
+
+
+def _set_node_input(
+    workflow: dict[str, Any], node_id: str, key: str, value: Any, template_id: str
+) -> None:
+    inputs = _require_node(workflow, node_id, template_id)
+    if key not in inputs:
+        raise WorkflowTemplateError(
+            f"Workflow template '{template_id}' node '{node_id}' is missing input "
+            f"'{key}'; template no longer matches its injection contract."
+        )
+    inputs[key] = value
+
+
+def inject_visual_request(
+    workflow: dict[str, Any], request: VisualRequest, template_id: str
+) -> dict[str, Any]:
+    contract = WORKFLOW_CONTRACTS.get(template_id)
+    if contract is None:
+        raise WorkflowTemplateError(f"No injection contract for template '{template_id}'")
+
     injected = copy.deepcopy(workflow)
 
-    try:
-        injected["4"]["inputs"]["ckpt_name"] = COMFYUI_CHECKPOINT_NAME
-        injected["5"]["inputs"]["width"] = request.width
-        injected["5"]["inputs"]["height"] = request.height
-        injected["6"]["inputs"]["text"] = request.positive_prompt
-        injected["7"]["inputs"]["text"] = request.negative_prompt
-        injected["3"]["inputs"]["seed"] = request.seed
-        injected["3"]["inputs"]["steps"] = request.steps
-        injected["3"]["inputs"]["cfg"] = request.cfg
-        injected["9"]["inputs"]["filename_prefix"] = request.workflow_id
-    except KeyError as exc:
-        raise WorkflowTemplateError(
-            f"Workflow template '{request.workflow_id}' missing expected node structure: {exc}"
-        ) from exc
+    for node_id in contract["base_ckpt_nodes"]:
+        _set_node_input(injected, node_id, "ckpt_name", COMFYUI_CHECKPOINT_NAME, template_id)
+    for node_id in contract["refiner_ckpt_nodes"]:
+        _set_node_input(
+            injected, node_id, "ckpt_name", COMFYUI_REFINER_CHECKPOINT_NAME, template_id
+        )
+    for node_id in contract["upscale_model_nodes"]:
+        _set_node_input(injected, node_id, "model_name", COMFYUI_UPSCALE_MODEL_NAME, template_id)
+
+    _set_node_input(injected, contract["latent_node"], "width", request.width, template_id)
+    _set_node_input(injected, contract["latent_node"], "height", request.height, template_id)
+
+    for node_id in contract["positive_nodes"]:
+        _set_node_input(injected, node_id, "text", request.positive_prompt, template_id)
+    for node_id in contract["negative_nodes"]:
+        _set_node_input(injected, node_id, "text", request.negative_prompt, template_id)
+
+    for node_id, key in contract["seed_nodes"]:
+        _set_node_input(injected, node_id, key, request.seed, template_id)
+    for node_id in contract["steps_nodes"]:
+        _set_node_input(injected, node_id, "steps", request.steps, template_id)
+    for node_id in contract["cfg_nodes"]:
+        _set_node_input(injected, node_id, "cfg", request.cfg, template_id)
+
+    # Dossier par run : regroupe l'image et le manifest dans <output>/<output_subfolder>/.
+    filename_prefix = (
+        f"{request.output_subfolder}/{request.workflow_id}"
+        if request.output_subfolder
+        else request.workflow_id
+    )
+    _set_node_input(
+        injected, contract["save_node"], "filename_prefix", filename_prefix, template_id
+    )
 
     return injected
 
 
 def build_comfyui_prompt_payload(request: VisualRequest) -> dict[str, Any]:
-    try:
-        workflow = load_workflow_template(request.workflow_id)
-    except WorkflowTemplateError:
-        if request.workflow_id != COMFYUI_DEFAULT_WORKFLOW:
-            workflow = load_workflow_template(COMFYUI_DEFAULT_WORKFLOW)
-            request = VisualRequest(
-                workflow_id=COMFYUI_DEFAULT_WORKFLOW,
-                positive_prompt=request.positive_prompt,
-                negative_prompt=request.negative_prompt,
-                seed=request.seed,
-                width=request.width,
-                height=request.height,
-                steps=request.steps,
-                cfg=request.cfg,
-                variants_count=request.variants_count,
-            )
-        else:
-            raise
-
-    return inject_visual_request(workflow, request)
+    template_id = resolve_template_id(request.quality)
+    workflow = load_workflow_template(template_id)
+    return inject_visual_request(workflow, request, template_id)
 
 
 def queue_prompt(workflow: dict[str, Any]) -> str:
@@ -477,8 +591,8 @@ def _build_view_url(filename: str, subfolder: str, image_type: str) -> str:
 
     The endpoint is the standard ComfyUI `/view` route, which serves the raw
     bytes of an output image identified by (filename, subfolder, type).
-    This URL is reachable from anywhere that can reach the ComfyUI HTTP API,
-    including the backend VM via the host bridge (e.g. 192.168.77.1:8188).
+    This URL is reachable from anywhere that can reach the ComfyUI HTTP API
+    (e.g. the local single-host endpoint 127.0.0.1:8188).
     """
     query = urlencode(
         {
@@ -553,6 +667,8 @@ def _build_variant_request(base_request: VisualRequest, seed: int) -> VisualRequ
         steps=base_request.steps,
         cfg=base_request.cfg,
         variants_count=base_request.variants_count,
+        quality=base_request.quality,
+        output_subfolder=base_request.output_subfolder,
     )
 
 
@@ -562,11 +678,17 @@ def run_comfyui_workflow(request_or_prompt: str | VisualRequest) -> dict[str, An
 
     ensure_comfyui_ready()
 
-    print("COMFYUI WORKFLOW:", request.workflow_id)
+    print(
+        "COMFYUI WORKFLOW:",
+        request.workflow_id,
+        f"(quality={request.quality}, template={resolve_template_id(request.quality)})",
+    )
     print(
         "COMFYUI PARAMETERS:",
         {
             "workflow_id": request.workflow_id,
+            "quality": request.quality,
+            "template_id": resolve_template_id(request.quality),
             "positive_prompt": request.positive_prompt,
             "negative_prompt": request.negative_prompt,
             "seed": request.seed,

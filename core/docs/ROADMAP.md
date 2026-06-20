@@ -1,119 +1,104 @@
-# ROADMAP — AI_ASSISTANT_CORE
+# Roadmap — AI_ASSISTANT_CORE
 
-## Ligne générale
+## General line
 
-Priorité actuelle :
-**stabiliser, clarifier et exposer proprement le noyau existant avant d’ajouter de nouvelles couches d’orchestration.**
+Current priority:
+**stabilize, clarify and cleanly expose the existing core before adding new orchestration layers.**
 
-Le projet a déjà franchi le cap critique :
-- routeur central lisible
-- planner explicite
-- executor multi-stratégie
-- pipelines web et visuel réels
-- observabilité exploitable
+The project has already passed the critical milestone:
+- a readable central router
+- an explicit planner
+- a multi-strategy executor
+- real web and visual pipelines
+- usable observability
 
-La vraie valeur à court terme n’est donc pas un grand refactor, mais un alignement serré entre code, runtime, API et docs.
+So the short-term value is not a big refactor, but a tight alignment between code, runtime,
+API and docs.
 
-## Baseline actuelle
+## Current baseline
 
-Lecture correcte du snapshot :
-**V1.7.0 stable / proto V2 contrôlé, avec session 4 visuelle intégrée, runtime post-VM stabilisé et phase 1 de hardening safe backend validée.**
+Correct reading of the snapshot:
+**V1.7.0 stable / controlled V2 proto, with the visual subsystem integrated, a stabilized
+single-host (localhost) runtime after the VM migration closed, and phase 1 of safe backend
+hardening validated.**
 
-## Ce qui est déjà verrouillé
+## What is already locked
 
-### Noyau
-- décision centrale unique
-- planner actif
-- traces lisibles
-- `build` simple en `single_step`
-- web pipeline propre
-- visual pipeline propre
-- surface `/execute` cohérente
-- contrats ComfyUI préservés
+### Core
+- a single central decision
+- an active planner
+- readable traces
+- simple `build` via `single_step`
+- a clean web pipeline
+- a clean visual pipeline
+- a coherent `/execute` surface
+- preserved ComfyUI contracts
 
-### Pipeline Blender
-- pipeline Blender fonctionnel côté VM
-- génération de `scene.py`, `scene.blend` et `preview.png`
-- `scene.blend` comme artefact canonique
-- `preview.png` best-effort, produit dans un subprocess séparé
-- preview PNG lisible ; qualité visuelle encore améliorable
+### Blender pipeline
+- functional Blender pipeline, headless on the host
+- generation of `scene.py`, `scene.blend` and `preview.png`
+- `scene.blend` as the canonical artifact
+- `preview.png` best-effort, produced in a separate subprocess
+- readable preview PNG; visual quality still improvable
 
-### Runtime post-VM
-- backend canonisé dans la VM via `systemd`
-- SearXNG canonisé dans la VM via `systemd` + Docker
-- checks runtime réalignés sur la topologie réelle host + VM
-- validation reboot de la VM
-- répartition runtime clarifiée entre host Windows et VM Hyper-V
+### Single-host runtime
+- Hyper-V VM migration closed: the whole canonical runtime runs on the host, over `localhost`
+- backend (FastAPI) on the host, bound to `127.0.0.1:8000`
+- Ollama / SearXNG / Open-WebUI in containers (`docker-compose.linux.yml`), ports bound to `127.0.0.1`
+- ComfyUI and Blender run directly on the host
+- old VM/Windows topology archived (`infra/vm/`), outside the canonical runtime
 
 ### Hardening phase 1
-- backend durci via un drop-in `systemd` léger et validé
-- hardening safe appliqué sans casser l’exploitation
-- sécurité structurelle déjà renforcée par la VM comme frontière produit
+- safe hardening applied on the backend without breaking operations
+- isolating the execution of generated code remains a **product goal** (audit finding C1),
+  not shipped today — not to be presented as a boundary already in place
 
-## Priorités raisonnables à très court terme
+## Reasonable near-term priorities
 
-1. **Docs canoniques alignées**
-   - `README.md` au root ; `ARCHITECTURE.md`, `ROADMAP.md`, `RUNBOOK_POST_VM.md` dans `docs/`
-   - cohérence entre root/README et docs (pas de duplicata des 3 autres fichiers)
-   - pack `docs/*` régénéré
+1. **Aligned canonical docs**
+   - `README.md` at the root; `ARCHITECTURE.md`, `ROADMAP.md`, `SETUP_LINUX.md` in `docs/`
+   - consistency between the root README and `docs/` (no duplication)
 
-2. **Consolidation runtime honnête**
-   - documenter le bridge Ollama réel `12001` comme dépendance canonique à court terme
-   - garder le firewall host minimal et borné à la VM
-   - OpenWebUI acté côté host comme UI opérateur optionnelle, hors runtime canonique (voir `docs/RUNBOOK_POST_VM.md`)
+2. **Honest runtime consolidation**
+   - keep the canonical `localhost` endpoints (backend `8000`, Ollama `12000`,
+     SearXNG `8081`, ComfyUI `8188`) consistent across code, compose and docs
+   - Open-WebUI as an optional operator UI, outside the canonical runtime
 
-3. **Surface debug plus propre**
-   - garder `/health/runtime` comme vue utile
-   - nettoyer à terme le marquage “dormant” quand il ne reflète plus l’usage réel
+3. **A cleaner debug surface**
+   - keep `/health/runtime` as a useful view
+   - eventually clean up the "dormant" labeling when it no longer reflects real usage
 
-4. **Qualité visible sans refondre le noyau**
-   - améliorer prompts et output contracts
-   - affiner la sortie build
-   - garder la synthèse web nette
-   - améliorer encore le confort du pipeline visuel
+4. **Visible quality without rebuilding the core**
+   - improve prompts and output contracts
+   - refine the build output
+   - keep web synthesis clean
+   - further improve the visual pipeline's ergonomics
 
-5. **Legacy sous contrôle**
-   - conserver les shims racine passifs
-   - éviter toute logique métier nouvelle hors `app/*`
+5. **Legacy under control**
+   - keep the root shims passive
+   - avoid any new business logic outside `app/*`
 
-## Étape rentable suivante
+## Possible Blender improvements
 
-Le meilleur prochain move n’est pas une nouvelle couche externe.
-C’est une **consolidation documentaire finale + normalisation légère du runtime déclaré** :
-- runbook host / VM
-- clarification runtime debug
-- nettoyage documentaire final
-- cohérence des endpoints et exemples de config
-- neutralisation des anciens snapshots qui racontent encore `12000`
+Once the Blender pipeline is stable in use, the most natural improvements are:
+- preview PNG visual quality
+- better bpy templates (materials, lighting, composition)
+- inspection and validation of generated scenes
+- opening toward more advanced 3D workflows (multi-object, animation, exports)
 
-## Petite phase 2 raisonnable après ça
+## Controlled V2 proto
 
-Une fois la consolidation documentaire terminée, la phase suivante la plus rentable est :
-- clarification des profils runtime (`host-only`, `VM canonique`, `UI opérateur host`)
-- amélioration légère de la surface debug/runtime si nécessaire
-- meilleure lisibilité des exemples `.env` sans refondre le code
+What the V2 proto can target without breaking the core:
+- better visible output quality
+- more robust prompts
+- more homogeneous outputs
+- better UI exposure of agents and visual capabilities
+- greater comfort for creative workflows
 
-## Améliorations Blender possibles
+## What not to do too early
 
-Une fois le pipeline Blender stabilisé en usage, les améliorations les plus naturelles sont :
-- qualité visuelle du preview PNG
-- meilleurs templates bpy (matériaux, éclairage, composition)
-- inspection et validation des scènes générées
-- ouverture vers des workflows 3D plus avancés (multi-objets, animations, exports)
-
-## Proto V2 contrôlé
-
-Ce que peut viser le proto V2 sans casser le noyau :
-- meilleure qualité visible des sorties
-- prompts plus robustes
-- outputs plus homogènes
-- meilleure exposition UI des agents et des capacités visuelles
-- confort supérieur pour les workflows créatifs
-
-## Ce qu’il ne faut pas faire trop tôt
-
-- brancher une nouvelle surcouche d’orchestration avant stabilisation interne
-- introduire une mémoire longue non contractée
-- multiplier les sélecteurs si `router + planner` suffit déjà
-- masquer la dette legacy sous une nouvelle abstraction
-- relancer un grand chantier d’architecture alors que le besoin actuel est surtout la cohérence réelle
+- wiring a new orchestration layer before internal stabilization
+- introducing uncontracted long-term memory
+- multiplying selectors when `router + planner` already suffices
+- hiding legacy debt under a new abstraction
+- starting a large architecture effort when the current need is mostly real consistency

@@ -1,0 +1,33 @@
+# Overlay sandbox durci (C1c) — à composer SUR la base (et l'overlay GPU au besoin) :
+#   docker compose -f docker-compose.app.yml -f docker-compose.sandbox.yml up
+#   docker compose -f docker-compose.app.yml -f docker-compose.gpu.yml -f docker-compose.sandbox.yml up
+#
+# But : faire fonctionner bwrap À L'INTÉRIEUR du conteneur backend, et EXIGER
+# l'isolation (mode `require` = échec franc si bwrap indisponible) — au lieu de la
+# dégradation silencieuse du mode `auto` par défaut, où le code Blender tournerait
+# sans aucun sandbox (seule la frontière du conteneur l'isolerait alors).
+#
+# Privilèges = MINIMUM vérifié empiriquement (Docker 29.x, noyau Linux 7.x ;
+# transférable à WSL2 car même mécanisme de namespaces). Validé par élimination :
+#   - seccomp=unconfined : débloque les syscalls de namespaces/mount/loopback de bwrap
+#   - cap SYS_ADMIN      : création des user/mount/pid namespaces imbriqués
+#   - cap NET_ADMIN      : configuration de la loopback dans le netns (--unshare-net)
+# Retirer l'un des trois fait échouer le self-check bwrap (testé). Ce n'est PAS
+# `--privileged`.
+#
+# ⚠️ ARBITRAGE DE SÉCURITÉ ASSUMÉ : on élargit les privilèges du CONTENEUR (qui
+# n'exécute QUE notre backend de confiance) pour permettre à bwrap de RESSERRER
+# l'isolation autour du code Blender NON fiable (pas de réseau, pas de home, FS
+# read-only, écriture limitée au dossier de sortie). Bilan net : le code hostile est
+# PLUS confiné qu'en mode `auto` dégradé, où il ne le serait pas du tout.
+
+services:
+  aac-backend:
+    environment:
+      # Échec franc si l'isolation n'est pas réellement active (pas de dégradation).
+      - AAC_BLENDER_SANDBOX=require
+    security_opt:
+      - seccomp=unconfined
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN

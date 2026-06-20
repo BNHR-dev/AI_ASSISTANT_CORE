@@ -1,0 +1,40 @@
+{# Outputs fragment — loaded by HTMX into #panel-outputs when the tab is opened. #}
+<h1>🗂 Outputs <small>— every run, kept with its files on disk</small></h1>
+
+{% if not runs %}
+  <div class="placeholder">
+    No run yet. Generate an image (2D) or a 3D scene — they'll appear here, each
+    with its files under <code>outputs/</code>.
+  </div>
+{% else %}
+  <p class="muted">{{ runs|length }} run(s), newest first.</p>
+  <div class="runs">
+    {% for run in runs %}
+      <div class="run-card">
+        <div class="run-thumb">
+          {% if run.thumb_url %}
+            <img src="{{ run.thumb_url }}" alt="{{ run.kind }} output" loading="lazy">
+          {% else %}
+            <span class="no-thumb">{{ '🧊' if run.kind == '3d' else '🖼' }}</span>
+          {% endif %}
+        </div>
+        <div class="run-meta">
+          <div class="run-head">
+            <span class="badge">{{ '🧊 3D' if run.kind == '3d' else '🖼 2D' }}</span>
+            <small class="muted">{{ run.date }}</small>
+          </div>
+          <div class="run-id" title="{{ run.path }}">{{ run.id }}</div>
+          <button class="ghost"
+                  hx-post="/console/reveal?path={{ run.path | urlencode }}"
+                  hx-swap="none">📂 Open folder</button>
+          {% if run.manifest %}
+            <details>
+              <summary>manifest</summary>
+              <pre>{{ run.manifest | tojson(indent=2) }}</pre>
+            </details>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}

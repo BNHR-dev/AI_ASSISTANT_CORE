@@ -8,6 +8,12 @@ import textwrap
 from pathlib import Path
 
 from app.clients.ollama_client import generate_with_ollama
+from app.clients.blender_sandbox import (
+    build_sandbox_plan,
+    SandboxError,
+    PROFILE_STRICT,
+    PROFILE_RENDER,
+)
 from app.engine.artifact_manifest import write_blender_manifest
 from app.engine.artistic_intent import parse_artistic_intent, write_intent_json
 from app.engine.blender_ast_guard import analyze_scene_py, analyze_security_gate
@@ -663,11 +669,19 @@ def _render_preview(exe: str, request: BlenderRequest) -> str | None:
     )
     try:
         render_script_path.write_text(render_script, encoding="utf-8")
-        proc = subprocess.run(
-            # C1b — --factory-startup + --disable-autoexec : le .blend rendu
-            # provient de code généré, ne pas exécuter ses scripts embarqués.
+        # C1b — --factory-startup + --disable-autoexec conservés dans l'argv.
+        # C1c — profil `render` : rendu GPU EEVEE confiné (sans réseau, sans home,
+        # seuls /sys + devices GPU exposés). Best-effort : SandboxError (mode
+        # require sans bwrap) tombe dans l'except plus bas → preview ignorée.
+        sandbox_plan = build_sandbox_plan(
             [exe, "--background", "--factory-startup", "--disable-autoexec",
              request.output_path, "--python", str(render_script_path)],
+            output_dir=request.output_dir,
+            profile=PROFILE_RENDER,
+        )
+        print(sandbox_plan.log_line())
+        proc = subprocess.run(
+            sandbox_plan.argv,
             capture_output=True,
             text=True,
             timeout=request.timeout,
@@ -736,11 +750,33 @@ def _run_blender_script_inner(request: BlenderRequest) -> BlenderResult:
             error="Blender executable not found. Set BLENDER_EXE or install Blender.",
         )
 
+    # C1c — profil `strict` : ce subprocess exécute le scene.py GÉNÉRÉ (risque
+    # le plus élevé). Confinement maximal, aucun GPU. Fail-closed : si le sandbox
+    # est requis (mode require) mais indisponible, on refuse l'exécution.
+    try:
+        sandbox_plan = build_sandbox_plan(
+            # C1b — --factory-startup conservé dans l'argv.
+            [exe, "--background", "--factory-startup", "--python", request.script_path],
+            output_dir=request.output_dir,
+            profile=PROFILE_STRICT,
+        )
+    except SandboxError as exc:
+        return BlenderResult(
+            status="blocked_security",
+            request_id=request.request_id,
+            script_path=request.script_path,
+            output_path=None,
+            render_path=None,
+            output_dir=request.output_dir,
+            returncode=None,
+            stdout=None,
+            stderr=None,
+            error=f"C1c sandbox required but unavailable: {exc}",
+        )
+    print(sandbox_plan.log_line())
     try:
         proc = subprocess.run(
-            # C1b — --factory-startup : pas de prefs/addons utilisateur
-            # chargés dans le process qui exécute du code généré.
-            [exe, "--background", "--factory-startup", "--python", request.script_path],
+            sandbox_plan.argv,
             capture_output=True,
             text=True,
             timeout=request.timeout,
