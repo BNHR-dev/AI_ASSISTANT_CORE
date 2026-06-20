@@ -341,28 +341,16 @@ def build_view(result: dict) -> dict:
 
 @router.get("", response_class=HTMLResponse)
 def page(request: Request):
-    """Section Run : entrée universelle (auto-routing) + zone de résultat."""
-    return templates.TemplateResponse(request, "index.html", {"active": "run"})
-
-
-@router.get("/2d", response_class=HTMLResponse)
-def page_2d(request: Request):
-    """Section 2D — génération et jugement des images (ComfyUI)."""
-    return templates.TemplateResponse(request, "section_2d.html", {"active": "2d"})
-
-
-@router.get("/3d", response_class=HTMLResponse)
-def page_3d(request: Request):
-    """Section 3D — génération et jugement des scènes Blender."""
-    return templates.TemplateResponse(request, "section_3d.html", {"active": "3d"})
+    """Console single-page : toutes les sections vivent dans le DOM et sont
+    basculées en JS (onglets). Aucun rechargement -> une génération en cours ou
+    un résultat affiché n'est jamais perdu en changeant de menu."""
+    return templates.TemplateResponse(request, "index.html", {})
 
 
 @router.get("/outputs", response_class=HTMLResponse)
-def page_outputs(request: Request):
-    """Section Outputs — historique des runs lus sur disque."""
-    return templates.TemplateResponse(
-        request, "outputs.html", {"active": "outputs", "runs": list_runs()}
-    )
+def outputs_fragment(request: Request):
+    """Fragment Outputs (chargé par HTMX à l'ouverture de l'onglet)."""
+    return templates.TemplateResponse(request, "_outputs.html", {"runs": list_runs()})
 
 
 @router.get("/eval", response_class=HTMLResponse)
@@ -377,8 +365,8 @@ def eval_view(request: Request, file: str | None = None):
         summary = eval_summary(raw) if raw else None
     return templates.TemplateResponse(
         request,
-        "eval.html",
-        {"reports": reports, "selected": selected, "summary": summary, "active": "3d"},
+        "_eval.html",
+        {"reports": reports, "selected": selected, "summary": summary},
     )
 
 

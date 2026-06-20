@@ -344,10 +344,22 @@ def test_run_without_final_keeps_message(monkeypatch):
     assert "--final" not in captured["msg"]
 
 
-def test_sections_expose_examples():
-    body_2d = client.get("/console/2d").text
-    assert "🦊 Fox" in body_2d and "Final quality" in body_2d
-    assert "🫖 Teapot" in client.get("/console/3d").text
+def test_single_page_holds_all_sections():
+    # All sections live in one page (tabs) so navigation never reloads/loses state.
+    body = client.get("/console").text
+    assert "🦊 Fox" in body and "Final quality" in body   # 2D panel inline
+    assert "🫖 Teapot" in body                             # 3D panel inline
+    for panel in ('data-panel="run"', 'data-panel="2d"', 'data-panel="3d"',
+                  'data-panel="outputs"', 'data-panel="eval"'):
+        assert panel in body
+    # separate result zones so each section keeps its own output
+    assert 'id="result-2d"' in body and 'id="result-3d"' in body
+
+
+def test_outputs_and_eval_are_fragments():
+    # Loaded into the page by HTMX -> no full <html>/sidebar wrapper.
+    out = client.get("/console/outputs").text
+    assert "<aside" not in out and "🗂 Outputs" in out
 
 
 def test_eval_summary_handles_both_shapes():

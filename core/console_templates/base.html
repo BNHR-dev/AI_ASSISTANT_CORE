@@ -12,10 +12,11 @@
     <aside class="sidebar">
       <div class="brand">◆ AAC <span>Console</span></div>
       <nav class="menu">
-        <a href="/console"         class="{% if active == 'run' %}active{% endif %}">▶ <span>Run</span></a>
-        <a href="/console/2d"      class="{% if active == '2d' %}active{% endif %}">🖼 <span>2D — Image</span></a>
-        <a href="/console/3d"      class="{% if active == '3d' %}active{% endif %}">🧊 <span>3D — Blender</span></a>
-        <a href="/console/outputs" class="{% if active == 'outputs' %}active{% endif %}">🗂 <span>Outputs</span></a>
+        <a href="#run"     data-tab="run" class="active">▶ <span>Run</span></a>
+        <a href="#2d"      data-tab="2d">🖼 <span>2D — Image</span></a>
+        <a href="#3d"      data-tab="3d">🧊 <span>3D — Blender</span></a>
+        <a href="#outputs" data-tab="outputs" hx-get="/console/outputs" hx-target="#panel-outputs" hx-trigger="click">🗂 <span>Outputs</span></a>
+        <a href="#eval"    data-tab="eval" hx-get="/console/eval" hx-target="#panel-eval" hx-trigger="click">📊 <span>Eval</span></a>
       </nav>
       <div class="sidebar-foot">
         <div id="health" hx-get="/console/health" hx-trigger="load" hx-swap="innerHTML">
@@ -28,10 +29,24 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+
   <script>
-    // Clickable examples: fill the request box with a ready-made prompt.
+    // Single-page tabs: switch sections WITHOUT reloading, so in-flight work
+    // (a running generation, a result) is never lost when changing menu.
+    function aacTab(name) {
+      document.querySelectorAll('.panel').forEach(function (p) {
+        p.hidden = (p.dataset.panel !== name);
+      });
+      document.querySelectorAll('.menu a[data-tab]').forEach(function (a) {
+        a.classList.toggle('active', a.dataset.tab === name);
+      });
+    }
+    document.querySelectorAll('.menu a[data-tab]').forEach(function (a) {
+      a.addEventListener('click', function (e) { e.preventDefault(); aacTab(a.dataset.tab); });
+    });
+    // Clickable examples fill the request box of the *visible* panel.
     function aacFill(p) {
-      const t = document.querySelector('textarea[name=message]');
+      var t = document.querySelector('.panel:not([hidden]) textarea[name=message]');
       if (t) { t.value = p; t.focus(); }
     }
   </script>
