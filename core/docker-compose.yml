@@ -1,7 +1,20 @@
+# docker-compose.yml — variante Windows/macOS du stack (services natifs).
+#
+# Tenu en MIROIR de docker-compose.linux.yml. Différences assumées (et uniquement
+# celles-ci) :
+#   - pas de suffixe SELinux ":z" sur les volumes (inutile/nuisible hors Fedora).
+#   - GPU via Docker Desktop + backend WSL2 (pas de nvidia-container-toolkit natif).
+# Tout le reste (images, ports, env) reste ALIGNÉ sur la variante Linux : si l'un
+# bouge, l'autre suit.
+#
+# Usage :  docker compose up   (ou docker compose -f docker-compose.yml up)
+#   Fichier AUTONOME (pas un override) — ne pas combiner avec docker-compose.linux.yml,
+#   sinon les volumes seraient déclarés en double.
+
 services:
 
   ollama:
-    image: ollama/ollama:0.5.7
+    image: ollama/ollama:0.24.0
     container_name: ollama
     runtime: nvidia
     gpus: all
@@ -13,7 +26,9 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES}
       - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES}
-      - OLLAMA_NUM_PARALLEL=7
+      # Baseline RTX 3060 12 Go : valeur conservative. 3-4 envisageable après bench.
+      - OLLAMA_NUM_PARALLEL=2
+
   open-webui:
     image: ghcr.io/open-webui/open-webui:v0.9.5
     container_name: open-webui
@@ -25,7 +40,7 @@ services:
     environment:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - SEARXNG_BASE_URL=${SEARXNG_BASE_URL}
-      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY} 
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
     volumes:
       - "${OPENWEBUI_DATA_PATH}:/app/backend/data"
     restart: unless-stopped

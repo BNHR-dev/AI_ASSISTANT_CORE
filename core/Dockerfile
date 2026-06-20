@@ -10,10 +10,12 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
-# --- P1b : Blender 5.1.1 (rendu) + bubblewrap (sandbox, prêt pour C1c) ---
+# --- P1b : Blender 5.1.1 (rendu) + bubblewrap (sandbox C1c) ---
 # Le pipeline génère du bpy ciblant l'API Blender 5.1.x -> on épingle 5.1.1.
-# bubblewrap est installé mais l'enveloppe applicative (C1c) n'est pas sur cette
-# branche : en démo, le conteneur fait l'isolation (voir docs/DOCKER.md).
+# Le wrapper sandbox C1c est présent et câblé (app/clients/blender_sandbox.py) :
+# avec AAC_BLENDER_SANDBOX=auto (ci-dessous), bwrap confine l'exécution Blender s'il
+# est utilisable dans le conteneur, sinon dégradation gracieuse. Durcissement du
+# bwrap imbriqué (capacités conteneur) -> voir docs/DOCKER.md.
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \

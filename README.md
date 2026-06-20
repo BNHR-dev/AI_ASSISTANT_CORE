@@ -15,7 +15,7 @@ It is not a thin wrapper around a chat model. The core is a real orchestration l
 AAC targets **3D animation studios** and creative pipelines, where the material is confidential by default: unreleased films, client assets, work under NDA and content-security regimes (MPA/TPN-style). That constraint drives the design:
 
 - **Inference and generation stay on the host.** LLM, vision and image/3D generation all run locally; the only outbound path is the optional web-search pipeline.
-- **Generated code is treated as untrusted.** AAC writes and runs code (e.g. `bpy` scripts for Blender). Isolating that execution from confidential assets — in a dedicated VM — is on the [roadmap](#roadmap), not yet shipped, and not presented as if it were.
+- **Generated code is treated as untrusted.** AAC writes and runs code (`bpy` scripts for Blender). That execution is confined at the OS level with [bubblewrap](https://github.com/containers/bubblewrap): no network, no access to your home directory, a read-only system, and writes restricted to a single canonical output directory. Confinement is on by default and can be made mandatory (`AAC_BLENDER_SANDBOX=require`, fail-closed if the sandbox is unavailable). On Windows the same applies unchanged — AAC runs inside the Linux container (WSL2 backend), so the sandbox is the Linux one, not a reimplementation. The scope is deliberate: only the LLM-generated Blender code is treated as hostile; ComfyUI runs fixed, user-authored workflows on the host. Stronger isolation — a dedicated VM, ComfyUI confinement and CPU/RAM quotas — is on the [roadmap](#roadmap), not yet shipped, and not presented as if it were.
 
 ## How it works
 
@@ -123,7 +123,7 @@ Full setup → [`core/docs/SETUP_LINUX.md`](core/docs/SETUP_LINUX.md) · Archite
 
 ## Roadmap
 
-- **Isolation VM** — run generated code (`bpy`/Blender) in a dedicated, sandboxed VM so untrusted code never touches confidential assets. The studio-confidentiality requirement made concrete — a goal, not a shipped guarantee.
+- **Stronger isolation** — generated `bpy`/Blender code already runs OS-confined (bubblewrap: no network, no home, read-only system). Next hardening steps: a dedicated VM, ComfyUI confinement, and CPU/RAM quotas — so untrusted code can never touch confidential assets and can't exhaust the host. The studio-confidentiality requirement, taken further — a goal, not a shipped guarantee.
 - Output quality — stronger prompts, more consistent results across pipelines
 - Richer Blender templates (materials, lighting, composition) and multi-object / animation workflows
 

@@ -36,11 +36,28 @@ is exposed on the host (`127.0.0.1:8000`).
    it locally (as in native mode). No refactor into a network service.
 2. **In-container rendering = Cycles** (CPU/GPU). EEVEE-headless-GPU stays a
    **native Linux-host** capability; the Docker demo renders with Cycles.
-3. **bwrap inside a container**: the container **already is** an isolation boundary.
-   Demo → `AAC_BLENDER_SANDBOX=auto` (graceful degradation). Hardening → a container with
-   the capabilities for nested bwrap (documented). We do not claim "container == bwrap".
+3. **bwrap inside a container** — two modes, no hand-waving:
+   - **Demo (default)** → `AAC_BLENDER_SANDBOX=auto`: bwrap confines Blender if the container
+     allows nested namespaces, otherwise it degrades gracefully (Blender still runs, but only
+     the container boundary isolates it). We do **not** claim "container == bwrap".
+   - **Enforced** → the `docker-compose.sandbox.yml` overlay (`make demo-secure` /
+     `make demo-gpu-secure`): grants the *empirically verified minimal* privileges for nested
+     bwrap — `security_opt: seccomp=unconfined` + `cap_add: [SYS_ADMIN, NET_ADMIN]` — and sets
+     `AAC_BLENDER_SANDBOX=require` (fail-closed). Each of the three is necessary (removing any
+     one makes the bwrap self-check fail). This is **not** `--privileged`.
+
+   Stated tradeoff: the overlay widens the **container's** privileges (the container runs only
+   our *trusted* backend) so that bwrap can **tighten** isolation around the *untrusted* `bpy`
+   code — no network, no home, read-only FS, writes confined to the output dir. Net effect:
+   hostile code is *more* confined than in degraded `auto` mode, where it would run with no
+   sandbox at all.
 4. **Models outside the image** (RealVisXL ~7 GB, ESRGAN, Ollama models): mounted as
    volumes, never baked into the image. **Full** demo: RealVisXL + refiner + ESRGAN.
+5. **No separate Windows architecture.** Windows runs the *exact same* Linux containers
+   through Docker Desktop's WSL2 backend — same `Dockerfile`, same `docker-compose.app.yml`,
+   same in-container `bwrap`. WSL2 *is* the translation layer; nothing is reimplemented for
+   Windows. (The `docker-compose.yml` / `docker-compose.linux.yml` split is only the
+   *native-services* path, kept in mirror and differing solely by SELinux `:z` volume tags.)
 
 ## Run the stack
 
