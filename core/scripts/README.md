@@ -1,6 +1,9 @@
-Development utilities for local validation and maintenance.
+# Scripts
 
-- `release_gate_v17.py`: smoke/core validation bundles
-- `manual_runner.py`: manual execution sanity checks
-- `manual_runner_safe.py`: reduced-risk manual runner
-- `init_local_config.py`: creates local `.env` and `searxng/settings.yml` from examples, with generated secrets when missing
+Operational helpers for the AAC stack.
+
+- `fetch-models.sh` — downloads the demo models (RealVisXL V5.0 + 4x-UltraSharp) from
+  HuggingFace into `$COMFYUI_MODELS_DIR` (default `./models`). Public models, no token,
+  idempotent. Invoked automatically by `make demo` / `make fetch-models`.
+- `init_local_config.py` — creates a local `core/.env` and `searxng/settings.yml` from the
+  committed examples, generating secrets when missing.
