@@ -8,7 +8,7 @@ COMPOSE_GPU        := docker compose -f docker-compose.app.yml -f docker-compose
 COMPOSE_SECURE     := docker compose -f docker-compose.app.yml -f docker-compose.sandbox.yml
 COMPOSE_GPU_SECURE := docker compose -f docker-compose.app.yml -f docker-compose.gpu.yml -f docker-compose.sandbox.yml
 
-.PHONY: help setup fetch-models demo demo-gpu demo-secure demo-gpu-secure down logs
+.PHONY: help setup fetch-models pull-llms deps doctor demo demo-gpu demo-secure demo-gpu-secure down logs
 
 help:
 	@echo "AAC — démo Docker cross-platform (Linux / macOS / Windows+WSL2)"
@@ -17,7 +17,10 @@ help:
 	@echo "  make demo-gpu     lance la stack avec GPU NVIDIA (démo pleine)"
 	@echo "  make demo-secure  comme demo + sandbox bwrap EXIGÉ (overlay durci, mode require)"
 	@echo "  make demo-gpu-secure  demo-gpu + sandbox bwrap EXIGÉ"
-	@echo "  make fetch-models télécharge RealVisXL + 4x-UltraSharp (HuggingFace, idempotent)"
+	@echo "  make fetch-models télécharge les modèles image RealVisXL + 4x-UltraSharp (idempotent)"
+	@echo "  make pull-llms    télécharge les modèles Ollama (qwen3 / coder / vl, idempotent)"
+	@echo "  make deps         fetch-models + pull-llms (toutes les dépendances de modèles)"
+	@echo "  make doctor       preflight : vérifie Docker / Ollama / modèles / Blender / SearXNG"
 	@echo "  make down         arrête la stack"
 	@echo "  make logs         suit les logs"
 	@echo
@@ -30,6 +33,17 @@ setup:
 
 fetch-models:
 	@bash scripts/fetch-models.sh
+
+# Modèles LLM Ollama (natif ou conteneur démo, auto-détecté). Idempotent.
+pull-llms:
+	@bash scripts/fetch-ollama-models.sh
+
+# Toutes les dépendances de modèles en une fois (image + LLM).
+deps: fetch-models pull-llms
+
+# Preflight : détecte ce qui manque, n'installe rien.
+doctor:
+	@bash scripts/check-deps.sh
 
 demo: setup
 	$(COMPOSE) up --build

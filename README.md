@@ -121,6 +121,30 @@ docker compose -f core/docker-compose.yml up -d
 Then start the FastAPI backend on `127.0.0.1:8000`.
 Full setup → [`core/docs/SETUP_LINUX.md`](core/docs/SETUP_LINUX.md) · Architecture → [`core/docs/ARCHITECTURE.md`](core/docs/ARCHITECTURE.md)
 
+## Dependencies
+
+Services come as containers with `make demo`; you only fetch the **models**. Everything is
+idempotent and a single preflight tells you exactly what is missing:
+
+```bash
+cd core
+make deps        # download all models: ComfyUI (RealVisXL + 4x-UltraSharp) + Ollama LLMs
+make doctor      # preflight — checks Docker / Ollama models / image models / Blender / SearXNG
+```
+
+| Group | Command | Notes |
+|---|---|---|
+| LLM models | `make pull-llms` | `qwen3:8b`, `qwen2.5-coder:7b`, `qwen2.5vl:3b` — native `ollama` or demo container, auto-detected |
+| Image models | `make fetch-models` | RealVisXL V5.0 + 4x-UltraSharp from HuggingFace (no token) |
+| Blender (3D, optional) | host install | set `BLENDER_EXE`; the core runs without it |
+
+**Virgin Windows machine?** `core\scripts\windows\Install-AAC.bat` installs *everything*
+natively (winget: Ollama + models, Blender, ComfyUI, Python venv) — no Docker. Run it with
+`-CheckOnly` to use it as a doctor.
+
+What each pipeline needs, native service installs, the Windows one-click and the Blender
+per-OS guide → [`core/docs/DEPENDENCIES.md`](core/docs/DEPENDENCIES.md).
+
 ## Roadmap
 
 - **Stronger isolation** — generated `bpy`/Blender code already runs OS-confined (bubblewrap: no network, no home, read-only system). Next hardening steps: a dedicated VM, ComfyUI confinement, and CPU/RAM quotas — so untrusted code can never touch confidential assets and can't exhaust the host. The studio-confidentiality requirement, taken further — a goal, not a shipped guarantee.
