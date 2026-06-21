@@ -26,6 +26,7 @@ duplique le minimum nécessaire à l'écriture du script bpy de re-render
 """
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -425,12 +426,16 @@ def build_correction_script(
     #    H.6.11 (env directionnel + ray tracing + réfraction) est appliquée via le
     #    bloc partagé, aligné à l'identique avec _render_preview de blender_client.py.
     if has_rerender:
+        # Même invariant que _render_preview : Blender résout un render.filepath
+        # RELATIF par rapport au .blend (pas au CWD) -> échec silencieux (preview
+        # hors cible, returncode 0). On force donc l'absolu. No-op si déjà absolu.
+        render_filepath = os.path.abspath(render_path)
         lines += [
             f'scene.render.resolution_x = {CORRECTION_RENDER_RESOLUTION_X}',
             f'scene.render.resolution_y = {CORRECTION_RENDER_RESOLUTION_Y}',
             'scene.render.resolution_percentage = 100',
             'scene.render.image_settings.file_format = "PNG"',
-            f'scene.render.filepath = r"{render_path}"',
+            f'scene.render.filepath = r"{render_filepath}"',
             '_eevee_engines = ["BLENDER_EEVEE", "BLENDER_EEVEE_NEXT"]',
             '_avail = scene.render.bl_rna.properties["engine"].enum_items.keys()',
             'for _eng in _eevee_engines:',

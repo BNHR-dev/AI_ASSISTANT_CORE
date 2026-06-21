@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import dataclasses
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 
-from app.clients.blender_client import build_blender_script, run_blender_script
+from app.clients.blender_client import (
+    PIPELINE_PATH_LEGACY,
+    build_blender_script,
+    run_blender_script,
+)
 from app.clients.comfyui_client import (
     COMFYUI_OUTPUT_DIR,
     build_visual_request_from_text,
@@ -30,6 +36,31 @@ from app.engine.visual_workflow_selector import analyze_visual_intent
 
 FALLBACK_RECENT_NEWS_MAX_AGE_DAYS = 30
 MIN_RECENT_NEWS_RESULTS = 2
+
+
+def _blender_runtime_max_attempts() -> int:
+    """Nombre total d'exécutions Blender pour un step tool_blender (1 + retries).
+    Le chemin legacy LLM peut produire du code qui PARSE mais crashe à l'exécution
+    (mauvais kwargs bpy) ; on régénère + ré-exécute. Configurable via
+    BLENDER_RUNTIME_MAX_ATTEMPTS (défaut 3)."""
+    raw = (os.getenv("BLENDER_RUNTIME_MAX_ATTEMPTS") or "3").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 3
+
+
+def _is_llm_runtime_failure(request, result) -> bool:
+    """True si un script du chemin LEGACY a crashé à l'exécution Blender (returncode
+    != 0 grâce à --python-exit-code). Régénérer peut alors aider (tirage LLM différent).
+    Exclut : le builder déterministe (même IR → même crash), les refus security
+    (blocked_security, déjà couvert par le retry de parse), les timeouts, et
+    'blender_not_found'."""
+    return (
+        getattr(request, "pipeline_path", None) == PIPELINE_PATH_LEGACY
+        and result.status == "error"
+        and result.returncode not in (None, 0)
+    )
 
 STEP_EXECUTOR_LABELS = {
     "fr": {
@@ -655,7 +686,7 @@ def execute_step(state: ExecutionState, step: PlanStep) -> StepResult:
                 _manifest_path = write_comfyui_manifest(
                     _run_subfolder,
                     meta,
-                    output_dir=(f"{COMFYUI_OUTPUT_DIR}/{_run_subfolder}" if COMFYUI_OUTPUT_DIR else None),
+                    output_dir=(str(Path(COMFYUI_OUTPUT_DIR) / _run_subfolder) if COMFYUI_OUTPUT_DIR else None),
                     timing={
                         "started_at": _started_iso,
                         "finished_at": _finished_iso,
@@ -748,6 +779,27 @@ def execute_step(state: ExecutionState, step: PlanStep) -> StepResult:
                 )
 
             result = run_blender_script(blender_request)
+
+            # Retry runtime (chemin LEGACY uniquement) : le script généré peut
+            # PARSER mais crasher à l'exécution (mauvais kwargs bpy). Avec
+            # --python-exit-code 1, un crash donne result.status="error" +
+            # returncode != 0 ; on régénère un nouveau script (même request_id ->
+            # écrase proprement le run) puis on ré-exécute, borné. Le builder
+            # déterministe (product_render) re-crasherait à l'identique -> exclu.
+            _max_runtime = _blender_runtime_max_attempts()
+            _attempt = 1
+            while _attempt < _max_runtime and _is_llm_runtime_failure(blender_request, result):
+                _attempt += 1
+                print(
+                    f"[step_executor] tool_blender: crash runtime legacy "
+                    f"(returncode={result.returncode}) -> regen+rerun {_attempt}/{_max_runtime}"
+                )
+                blender_request = build_blender_script(
+                    state.message, state.context, blender_request.request_id
+                )
+                state.context["blender_request"] = blender_request
+                result = run_blender_script(blender_request)
+
             status = "success" if result.status == "success" else "error"
 
             if result.status == "success":

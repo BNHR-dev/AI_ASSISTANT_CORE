@@ -4,6 +4,7 @@ Conventions alignées sur `tests/test_fastapi_surface.py` : TestClient(app) et
 mock de `execute_request` via monkeypatch. Aucun appel réel au moteur.
 """
 import json
+import sys
 
 from fastapi.testclient import TestClient
 
@@ -329,10 +330,18 @@ def test_reveal_opens_folder(monkeypatch, tmp_path):
     comfy, _ = _point_runs(monkeypatch, tmp_path)
     d = _make_run(comfy, "run-open")
     calls = []
-    monkeypatch.setattr(console.subprocess, "Popen", lambda args, **kw: calls.append(args))
+    # Le reveal dispatch selon l'OS : os.startfile (Windows) vs Popen (Linux/macOS).
+    if sys.platform.startswith("win"):
+        monkeypatch.setattr(
+            console.os, "startfile", lambda p: calls.append(p), raising=False
+        )
+    else:
+        monkeypatch.setattr(
+            console.subprocess, "Popen", lambda args, **kw: calls.append(args)
+        )
     r = client.post("/console/reveal", params={"path": str(d)})
     assert r.status_code == 200
-    assert calls and calls[0][0] == "xdg-open" and "run-open" in calls[0][1]
+    assert calls and "run-open" in str(calls[0])
 
 
 def test_run_final_toggle_appends_token(monkeypatch):

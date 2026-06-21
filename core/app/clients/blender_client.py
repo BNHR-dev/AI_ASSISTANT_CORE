@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import os
 import re
 import shutil
@@ -37,6 +38,28 @@ from app.engine.product_render_extractor import extract_product_render_intent
 BLENDER_EXE = os.getenv("BLENDER_EXE", "").strip()
 BLENDER_TIMEOUT = int(os.getenv("BLENDER_TIMEOUT", "60"))
 BLENDER_OUTPUT_DIR = os.getenv("BLENDER_OUTPUT_DIR", "outputs/blender").strip()
+
+
+def _script_gen_max_attempts() -> int:
+    """Nombre total de tentatives de génération du script bpy legacy (1 + retries).
+    Le chemin LLM legacy peut émettre du Python invalide (indentation, etc.) qui
+    serait bloqué par le security gate ; on régénère tant que le code n'est pas
+    AST-parsable. Configurable via BLENDER_SCRIPT_GEN_MAX_ATTEMPTS (défaut 3)."""
+    raw = (os.getenv("BLENDER_SCRIPT_GEN_MAX_ATTEMPTS") or "3").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 3
+
+
+def _is_python_parsable(code: str) -> bool:
+    """True si `code` est du Python syntaxiquement valide (même critère que le
+    security gate `security_ast_unparseable`). Sert de garde au retry de gen."""
+    try:
+        ast.parse(code or "")
+        return True
+    except SyntaxError:
+        return False
 
 # H.5.3 — Feature flag pour le chemin Product Render IR + builder déterministe.
 # Lu au module load. Activé par défaut (= "1"). Désactivable runtime via
@@ -179,6 +202,28 @@ Recette obligatoire :
    bpy.ops.object.light_add(type='SUN', location=(4, 4, 6))
 7. Nommer les objets clairement : ex. "Cube_Metal", "Camera", "Key_Light"
 8. Terminer par : bpy.ops.wm.save_as_mainfile(filepath=OUTPUT_BLEND_PATH)
+
+Primitives bpy.ops.mesh DISPONIBLES (ce sont les SEULES qui existent) :
+- bpy.ops.mesh.primitive_cube_add(size=, location=)
+- bpy.ops.mesh.primitive_uv_sphere_add(radius=, location=)
+- bpy.ops.mesh.primitive_ico_sphere_add(radius=, location=)
+- bpy.ops.mesh.primitive_cylinder_add(radius=, depth=, location=)
+- bpy.ops.mesh.primitive_cone_add(radius1=, depth=, location=)
+- bpy.ops.mesh.primitive_torus_add(major_radius=, minor_radius=, location=)
+- bpy.ops.mesh.primitive_plane_add(size=, location=)
+
+Règles d'usage des primitives (CRITIQUE — une erreur ici fait échouer tout le script) :
+- INTERDIT d'inventer un opérateur qui n'existe pas (ex. primitive_teapot_add,
+  primitive_mesh_add, primitive_pot_add, primitive_vase_add). Blender n'a AUCUNE
+  primitive pour les objets nommés complexes.
+- Utiliser EXACTEMENT les kwargs ci-dessus (ex. torus = major_radius/minor_radius,
+  JAMAIS radius=/depth= ; un kwarg inconnu lève une TypeError).
+- bpy.ops.* renvoie un set (ex. {'FINISHED'}), PAS un objet. Ne JAMAIS écrire
+  `mesh, obj = bpy.ops.mesh.primitive_..._add(...)`. Récupérer l'objet créé via
+  bpy.context.object juste APRÈS l'appel.
+- Pour un objet complexe sans primitive dédiée (théière, vase, tasse, animal, etc.),
+  l'APPROXIMER en combinant plusieurs primitives autorisées (ex. théière ≈ sphère
+  aplatie pour le corps + tore pour l'anse + cône/cylindre pour le bec).
 
 Interdits stricts :
 - Ne jamais définir ni réassigner OUTPUT_BLEND_PATH. Cette variable est injectée par le pipeline avant ton script.
@@ -516,18 +561,32 @@ def build_blender_script(
         )
 
         _script_model = get_blender_llm_model()
-        raw_response = generate_with_ollama(_script_model, prompt)
-        raw_code = _extract_python_from_markdown(raw_response)
+        # Retry borné (choix produit : on garde la température, on régénère si le
+        # code extrait n'est pas AST-parsable). Le dernier essai est conservé quoi
+        # qu'il arrive : si toutes les tentatives échouent, le security gate bloque
+        # comme avant — aucune régression, juste de meilleures chances de succès.
+        _max_attempts = _script_gen_max_attempts()
+        raw_response = ""
+        raw_code = ""
+        _parse_ok = False
+        for _attempt in range(1, _max_attempts + 1):
+            raw_response = generate_with_ollama(_script_model, prompt)
+            raw_code = _extract_python_from_markdown(raw_response)
+            _parse_ok = _is_python_parsable(raw_code)
+            if _parse_ok:
+                break
+            print(
+                f"[blender_client] script_gen tentative {_attempt}/{_max_attempts} "
+                f"non parsable (regen)"
+            )
         # H.6.1 — capture passive (non-bloquante) de la trajectoire script-gen.
-        # parse_ok / ir ne sont pas pertinents ici : le LLM produit du Python,
-        # pas une IR. Les signaux qualité (ast_guard) sont déjà tracés en aval
-        # via scene_report et pourront être agrégés dans une phase ultérieure.
+        # parse_ok reflète désormais la parsabilité AST du code finalement retenu.
         log_trajectory(
             stage="script_gen",
             model=_script_model,
             prompt=prompt,
             raw_response=raw_response,
-            parse_ok=None,
+            parse_ok=_parse_ok,
             ir=None,
             fallback=False,
             error=None,
@@ -589,6 +648,11 @@ def _render_preview(exe: str, request: BlenderRequest) -> str | None:
     (fallback : origine) via mathutils, pour éviter un rendu vide/gris.
     """
     render_script_path = Path(request.output_dir) / "render_preview.py"
+    # Blender résout un `render.filepath` RELATIF par rapport au .blend (et non au
+    # CWD comme save_as_mainfile) : un chemin relatif fait atterrir la preview hors
+    # cible, avec returncode 0 et sans erreur (échec silencieux). On force donc un
+    # chemin ABSOLU. No-op quand request.render_path est déjà absolu (cas Linux).
+    render_filepath = os.path.abspath(request.render_path)
     # H.6.11 — politique de fidélité matière partagée (source unique) avec le
     # re-rendu du runtime corrector, qui est le dernier writer pour product_render.
     _fidelity_block = preview_fidelity_script_block()
@@ -664,7 +728,7 @@ def _render_preview(exe: str, request: BlenderRequest) -> str | None:
         f'\n'
         f'# -- Rendu PNG --\n'
         f'bpy.context.scene.render.image_settings.file_format = "PNG"\n'
-        f'bpy.context.scene.render.filepath = r"{request.render_path}"\n'
+        f'bpy.context.scene.render.filepath = r"{render_filepath}"\n'
         f'bpy.ops.render.render(write_still=True)\n'
     )
     try:
@@ -756,7 +820,13 @@ def _run_blender_script_inner(request: BlenderRequest) -> BlenderResult:
     try:
         sandbox_plan = build_sandbox_plan(
             # C1b — --factory-startup conservé dans l'argv.
-            [exe, "--background", "--factory-startup", "--python", request.script_path],
+            # --python-exit-code 1 : sans ce flag, Blender sort en code 0 même quand
+            # le script Python lève → un script LLM cassé serait rapporté en faux
+            # "success" (le try/finally du scaffold sauvegarde un .blend de secours).
+            # Avec le flag, un crash runtime donne returncode != 0 → run honnêtement
+            # en erreur, ce qui déclenche le retry runtime côté step_executor (legacy).
+            [exe, "--background", "--factory-startup", "--python-exit-code", "1",
+             "--python", request.script_path],
             output_dir=request.output_dir,
             profile=PROFILE_STRICT,
         )

@@ -1065,6 +1065,15 @@ def format_summary_cross_model(payload: dict[str, Any], path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 def _main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover
+    # Lancé en standalone (hors backend), ce runner ne bénéficie pas du
+    # load_dotenv() de app/main.py : sans ça, get_ollama_generate_url() retombe
+    # sur le défaut localhost:12000 → ConnectionError. On charge donc le .env ici.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
     parser = argparse.ArgumentParser(
         description="Bench réel Ollama du harness Product Render IR avec "
                     "persistance JSON sous outputs/blender/_eval_reports/. "

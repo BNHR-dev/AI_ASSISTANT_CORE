@@ -688,6 +688,15 @@ def _print_multi_summary(payload: dict[str, Any], path: Path) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # Lancé en standalone (hors backend), ce runner ne bénéficie pas du
+    # load_dotenv() de app/main.py : sans ça, get_ollama_generate_url() retombe
+    # sur le défaut localhost:12000 → ConnectionError. On charge donc le .env ici.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     model = args.model if args.model else get_blender_llm_model()
     base_dir = Path(args.base_dir)

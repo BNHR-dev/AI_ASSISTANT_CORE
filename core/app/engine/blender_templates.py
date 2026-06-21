@@ -79,6 +79,36 @@ _PRODUCT_KEYWORDS = (
     "prévisualisation cinématographique",
     "previsualisation cinematographique",
     "bloc produit",
+    # Objet présenté sur un socle / support — composition packshot typique.
+    # "X sur un socle / piédestal / podium" est exactement la mise en scène que
+    # le builder déterministe (Backdrop + Pedestal + Product_Subject) compose bien.
+    # NB : product_render est prioritaire sur interior_space (cf. select_template),
+    # donc ces tokens routent vers le rendu produit même si la phrase est générique.
+    "pedestal",
+    "piédestal",
+    "piedestal",
+    "socle",
+    "podium",
+    "plinth",
+    "présentoir",
+    "presentoir",
+    "display stand",
+    "product stand",
+    "on a stand",
+    "sur un support",
+    "turntable",
+    "plateau tournant",
+    # Formulations « photo / rendu produit » courantes.
+    "product shot",
+    "product photo",
+    "product photography",
+    "photo produit",
+    "photographie produit",
+    "studio product",
+    "produit en studio",
+    "hero shot",
+    "studio backdrop",
+    "seamless backdrop",
 )
 
 

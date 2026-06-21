@@ -6,6 +6,7 @@ Tests purs (plan_corrections, build_correction_script) + tests mockés
 """
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -244,7 +245,9 @@ class TestBuildCorrectionScript:
             [CORRECTION_REFRAME_CAMERA, CORRECTION_RERENDER_PREVIEW],
         )
         assert "render.render(write_still=True)" in script
-        assert "/tmp/preview.png" in script
+        # render.filepath est absolutisé (Blender résout un relatif contre le .blend) :
+        # no-op sur Linux (/tmp déjà absolu), abspath(CWD) sur Windows.
+        assert os.path.abspath("/tmp/preview.png") in script
         assert "EEVEE" in script  # branche moteur
 
     def test_no_rerender_when_render_path_none(self):

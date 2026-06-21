@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, quote
@@ -517,12 +518,13 @@ def artifact(path: str):
 
 @router.post("/reveal")
 def reveal(path: str):
-    """Ouvre le dossier d'un run dans le gestionnaire de fichiers (`xdg-open`).
+    """Ouvre le dossier d'un run dans le gestionnaire de fichiers de l'OS.
 
     Usage local uniquement (la console est en loopback). `_safe_resolve` interdit
     toute sortie de `outputs/`. On ouvre toujours un DOSSIER (jamais un fichier
-    exécutable). Best-effort : un échec (pas de `DISPLAY`, conteneur, pas de
-    `xdg-open`) renvoie une erreur propre sans rien casser.
+    exécutable). Cross-OS : `explorer`/`os.startfile` (Windows), `open` (macOS),
+    `xdg-open` (Linux). Best-effort : un échec (pas de `DISPLAY`, conteneur, pas
+    de gestionnaire de fichiers) renvoie une erreur propre sans rien casser.
     """
     try:
         resolved = Path(path).resolve()
@@ -532,11 +534,20 @@ def reveal(path: str):
         raise HTTPException(status_code=404, detail="path not found")
     target = resolved if resolved.is_dir() else resolved.parent
     try:
-        subprocess.Popen(
-            ["xdg-open", str(target)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        if sys.platform.startswith("win"):
+            os.startfile(str(target))  # noqa: S606  (chemin validé sous outputs/)
+        elif sys.platform == "darwin":
+            subprocess.Popen(
+                ["open", str(target)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            subprocess.Popen(
+                ["xdg-open", str(target)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
     except OSError as exc:
         raise HTTPException(status_code=501, detail=f"cannot open file manager: {exc}")
     return {"opened": str(target)}

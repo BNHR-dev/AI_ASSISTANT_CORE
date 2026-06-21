@@ -115,6 +115,26 @@ class TestProductRenderMessageFallback:
         assert select_template(message) is TEMPLATE_PRODUCT_RENDER
 
     @pytest.mark.parametrize("message", [
+        # Objet présenté sur un socle / support → composition packshot.
+        "a teapot on a dark pedestal",
+        "a Blender 3D scene: a teapot on a dark pedestal",
+        "une théière sur un socle sombre",
+        "un objet sur un piédestal",
+        "vase sur un podium",
+        "a watch on a plinth",
+        "objet sur un présentoir",
+        "a sculpture on a stand",
+        # Formulations photo / rendu produit.
+        "product shot of a sneaker",
+        "studio product photography",
+        "photo produit d'une montre",
+        "hero shot of a bottle",
+    ])
+    def test_pedestal_and_product_phrasings_trigger_product_render(self, message):
+        assert get_template_name(message) == "product_render"
+        assert select_template(message) is TEMPLATE_PRODUCT_RENDER
+
+    @pytest.mark.parametrize("message", [
         "studio",
         "éclairage studio",
         "scène avec lumière studio douce",
