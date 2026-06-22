@@ -425,22 +425,13 @@ if [[ -f "$ENV_PATH" ]]; then
 elif [[ $CHECK_ONLY -eq 1 ]]; then
   miss ".env absent"
 else
-  {
-    echo "# core/.env — généré par bootstrap.sh (runtime Linux natif)."
-    echo "OLLAMA_BASE_URL=http://127.0.0.1:11434"
-    echo "OLLAMA_URL=http://127.0.0.1:11434/api/generate"
-    echo "OLLAMA_TAGS_URL=http://127.0.0.1:11434/api/tags"
-    echo "SEARXNG_SEARCH_URL=http://127.0.0.1:8081/search"
-    echo "COMFYUI_URL=http://127.0.0.1:8188"
-    echo "COMFYUI_AUTO_START=false"
-    echo "COMFYUI_CHECKPOINT_NAME=RealVisXL_V5.0_fp16.safetensors"
-    echo "COMFYUI_REFINER_CHECKPOINT_NAME=RealVisXL_V5.0_fp16.safetensors"
-    echo "COMFYUI_UPSCALE_MODEL_NAME=4x-UltraSharp.pth"
-    [[ -n "${COMFY_MODELS_DIR:-}" ]] && echo "COMFYUI_MODELS_DIR=$COMFY_MODELS_DIR"
-    [[ -n "$BLENDER_EXE" ]]          && echo "BLENDER_EXE=$BLENDER_EXE"
-    [[ -n "${OLLAMA_MODELS:-}" ]]     && echo "OLLAMA_MODELS=$OLLAMA_MODELS"
-  } > "$ENV_PATH"
-  ok ".env écrit : $ENV_PATH"
+  # Part du template canonique (secret-free), puis substitue les valeurs détectées
+  # (sed sur place = pas de clé dupliquée). OLLAMA_MODELS n'est pas dans le template -> append.
+  cp "$CORE_DIR/.env.example" "$ENV_PATH"
+  [[ -n "${COMFY_MODELS_DIR:-}" ]] && sed -i "s#^COMFYUI_MODELS_DIR=.*#COMFYUI_MODELS_DIR=$COMFY_MODELS_DIR#" "$ENV_PATH"
+  [[ -n "$BLENDER_EXE" ]]          && sed -i "s#^BLENDER_EXE=.*#BLENDER_EXE=$BLENDER_EXE#" "$ENV_PATH"
+  [[ -n "${OLLAMA_MODELS:-}" ]]    && printf 'OLLAMA_MODELS=%s\n' "$OLLAMA_MODELS" >> "$ENV_PATH"
+  ok ".env généré depuis .env.example : $ENV_PATH"
 fi
 
 # =============================================================================
