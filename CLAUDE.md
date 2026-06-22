@@ -36,12 +36,13 @@ runs that plan step by step, then returns a useful, traceable output.
 
 ## Architecture
 
-Current trajectory: native Linux/Fedora (migration closed on 2026-05-30).
+Single repo, two runtimes. **Recommended secure path = the hardened Docker stack** (`docker/`,
+via `./run.sh` / `run.bat`): rootful Docker, `cap_drop: ALL`, **no `SYS_ADMIN`**,
+`AAC_BLENDER_SANDBOX=off` — the container is the confinement boundary (not bubblewrap).
 
-- the Fedora KDE host is the main workspace AND the main runtime
-- services (Ollama, SearXNG, Open-WebUI) run in Docker via `docker-compose.linux.yml`,
-  with ports bound to 127.0.0.1
-- Blender runs headless directly on the host (NVIDIA RTX 3060 12 GB GPU)
+- **Native Linux/Fedora** stays available: the Fedora KDE host as workspace + runtime, host
+  `bubblewrap` confining the generated code, Blender headless on the host GPU (RTX 3060),
+  services via `docker/docker-compose.linux.yml`, ports bound to 127.0.0.1.
 - the old Windows-host + Ubuntu-VM context is gone from the tree (git history only) — do
   not treat it as the current architecture
 - generated code runs OS-confined via bubblewrap today (`AAC_BLENDER_SANDBOX`); a stronger

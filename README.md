@@ -15,7 +15,7 @@ It is not a thin wrapper around a chat model. The core is a real orchestration l
 AAC targets **3D animation studios** and creative pipelines, where the material is confidential by default: unreleased films, client assets, work under NDA and content-security regimes (MPA/TPN-style). That constraint drives the design:
 
 - **Inference and generation stay on the host.** LLM, vision and image/3D generation all run locally; the only outbound path is the optional web-search pipeline.
-- **Generated code is treated as untrusted.** AAC writes and runs code (`bpy` scripts for Blender). That execution is confined at the OS level with [bubblewrap](https://github.com/containers/bubblewrap): no network, no access to your home directory, a read-only system, and writes restricted to a single canonical output directory. Confinement is on by default and can be made mandatory (`AAC_BLENDER_SANDBOX=require`, fail-closed if the sandbox is unavailable). On Windows the same applies unchanged — AAC runs inside the Linux container (WSL2 backend), so the sandbox is the Linux one, not a reimplementation. The scope is deliberate: only the LLM-generated Blender code is treated as hostile; ComfyUI runs fixed, user-authored workflows on the host. Stronger isolation — a dedicated VM, ComfyUI confinement and CPU/RAM quotas — is on the [roadmap](#roadmap), not yet shipped, and not presented as if it were.
+- **Generated code is treated as untrusted.** AAC writes and runs code (`bpy` scripts for Blender), and confines that execution at the OS level. **Native Linux** uses [bubblewrap](https://github.com/containers/bubblewrap): no network, no home, a read-only system, writes restricted to a single output directory; it can be made mandatory (`AAC_BLENDER_SANDBOX=require`, fail-closed). The **recommended cross-platform path is Docker** (incl. Windows via the WSL2 backend): there the **hardened container itself is the confinement boundary** — `cap_drop: ALL`, `no-new-privileges`, read-only rootfs, no extra privileges (`AAC_BLENDER_SANDBOX=off`) — the Docker confinement *replaces* bubblewrap in that mode, rather than running it. (A bubblewrap-without-`SYS_ADMIN` path is proven under rootless Podman and documented in [`SECURITY.md`](SECURITY.md), but not yet wired in.) The scope is deliberate: only the LLM-generated Blender code is treated as hostile; ComfyUI runs fixed, user-authored workflows on the host. Stronger isolation — a dedicated VM, ComfyUI confinement and CPU/RAM quotas — is on the [roadmap](#roadmap), not yet shipped, and not presented as if it were.
 
 ## How it works
 
@@ -78,14 +78,14 @@ No Linux box, no manual setup: the whole stack (FastAPI backend + Ollama + SearX
 ComfyUI) ships as containers. From the repo:
 
 ```bash
-cd core
-make demo-gpu     # NVIDIA GPU — Linux native, or Windows via Docker Desktop + WSL2
-make demo         # CPU-only fallback — runs anywhere, slower for images
+./run.sh          # Linux / WSL2 / macOS — hardened, GPU autodetect, honest health gate
+run.bat           # Windows — Docker Desktop + WSL2 (delegates to run.ps1)
 ```
 
-`make demo` downloads the image models (RealVisXL + 4x-UltraSharp, ~6.6 GB, from
-HuggingFace), writes the config and brings the stack up. The backend is then on
-`http://127.0.0.1:8000` — generate straight through the OpenAI-compatible API:
+`run.sh` downloads the image models (RealVisXL + 4x-UltraSharp, ~6.6 GB, from HuggingFace),
+writes the config, brings the **hardened** stack up, and verifies every service is *actually*
+healthy before opening the Console. The backend is then on `http://127.0.0.1:8000` —
+generate straight through the OpenAI-compatible API:
 
 ```bash
 curl -sN http://127.0.0.1:8000/v1/chat/completions \
@@ -99,27 +99,24 @@ curl -sN http://127.0.0.1:8000/v1/chat/completions \
 | Tier | You run | Needs |
 |---|---|---|
 | Hosted video / demo | nothing, just watch | a browser |
-| **`make demo`** (this) | one command | Docker (+ NVIDIA toolkit for GPU) |
+| **`./run.sh`** (this) | one command | Docker (+ NVIDIA toolkit for GPU) |
 | WSL2 | a full Linux env inside Windows | WSL2 |
 | Native | the production runtime | Linux + GPU |
 
-GPU prerequisites, the per-run output layout and the end-to-end flow →
-[`core/docs/DOCKER.md`](core/docs/DOCKER.md).
+GPU prerequisites, the hardened-container security model, the per-run output layout and the
+end-to-end flow → [`docs/DOCKER.md`](docs/DOCKER.md) · security → [`SECURITY.md`](SECURITY.md).
 
 ## Quickstart — native services (development)
 
 ```bash
 cp core/.env.example core/.env
 
-# Linux (Fedora — validated): native GPU via nvidia-container-toolkit
-docker compose -f core/docker-compose.linux.yml up -d
-
-# Windows (Docker Desktop): same localhost endpoints, GPU through the WSL2 backend
-docker compose -f core/docker-compose.yml up -d
+# Native-services stack (Fedora — SELinux :z labels, host GPU via nvidia-container-toolkit)
+docker compose -f docker/docker-compose.linux.yml up -d
 ```
 
 Then start the FastAPI backend on `127.0.0.1:8000`.
-Full setup → [`core/docs/SETUP_LINUX.md`](core/docs/SETUP_LINUX.md) · Architecture → [`core/docs/ARCHITECTURE.md`](core/docs/ARCHITECTURE.md)
+Full setup → [`docs/SETUP_LINUX.md`](docs/SETUP_LINUX.md) · Windows → [`docs/SETUP_WINDOWS.md`](docs/SETUP_WINDOWS.md)
 
 ## Dependencies
 
