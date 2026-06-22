@@ -1,0 +1,40 @@
+# Overlay sandbox durci (C1c) — à composer SUR la base (+ overlay GPU au besoin) :
+#   docker compose -f docker/docker-compose.app.yml -f docker/docker-compose.sandbox.yml up
+#   docker compose -f docker/docker-compose.app.yml -f docker/docker-compose.gpu.yml \
+#                  -f docker/docker-compose.sandbox.yml up
+#
+# POLITIQUE DE DURCISSEMENT (2026-06-22) : on part du conteneur le PLUS restreint
+# possible et on N'ASSOUPLIT qu'après un échec REPRODUIT ET EXPLIQUÉ. Interdits par
+# principe : `privileged`, montage du socket Docker, `cap_add: SYS_ADMIN` "par facilité".
+#
+# bwrap n'est PAS une garantie suffisante à lui seul : il vient EN PLUS du durcissement
+# du conteneur ci-dessous. Son fonctionnement DANS le conteneur doit être PROUVÉ sous
+# Fedora ET WSL2 (Phase C). Avec cette baseline stricte, la création de namespaces par
+# bwrap échouera probablement ("Creating new namespace failed") ; comme
+# AAC_BLENDER_SANDBOX=require, le backend échoue FRANCHEMENT (pas de dégradation
+# silencieuse) — c'est l'échec attendu à partir duquel on décidera, PREUVE à l'appui,
+# de la capacité MINIMALE à réintroduire (jamais SYS_ADMIN ni seccomp=unconfined par défaut).
+
+services:
+  aac-backend:
+    # Isolation EXIGÉE : échec franc si le sandbox n'est pas réellement actif.
+    environment:
+      - AAC_BLENDER_SANDBOX=require
+    # --- Durcissement conteneur (défense de base, indépendante de bwrap) ---
+    cap_drop:
+      - ALL                      # aucune capability ; réintroduire SEULEMENT le minimum PROUVÉ
+    security_opt:
+      - no-new-privileges:true   # pas d'escalade de privilèges via setuid
+      # PAS de `seccomp=unconfined` : à n'ajouter qu'après un échec bwrap reproduit + expliqué.
+    read_only: true              # racine en lecture seule
+    tmpfs:
+      - /tmp                     # scratch éphémère (les sorties vont dans le volume /outputs)
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 6G
+          pids: 512
+    # Pas de socket Docker monté (volontaire). Le réseau INTERNE compose reste nécessaire
+    # (ollama/searxng/comfyui) ; l'isolation réseau du code Blender NON fiable est faite
+    # PAR bwrap (--unshare-net), pas en coupant le réseau du conteneur.

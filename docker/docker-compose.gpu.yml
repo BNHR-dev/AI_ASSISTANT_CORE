@@ -1,0 +1,41 @@
+# Overlay GPU (P3) — à composer SUR la base CPU-safe :
+#   docker compose -f docker-compose.app.yml -f docker-compose.gpu.yml up --build
+#
+# Active CUDA pour les services qui en profitent. Sans cet overlay, la base tourne
+# en CPU partout (macOS, Windows sans NVIDIA…). Prérequis : driver NVIDIA + NVIDIA
+# Container Toolkit (Linux natif validé sur RTX 3060 ; Windows = Docker Desktop + WSL2).
+#
+# NB : ComfyUI est rebâti sur le canal cu128 -> la 1re fois après bascule cpu<->gpu,
+# garder `--build` (l'image `aac-comfyui` est retaguée selon le dernier canal construit).
+
+services:
+  comfyui:
+    build:
+      # Canal CUDA cu128 — trio cohérent résolu par pip (dry-run 2026-06-19) :
+      # torch 2.11.0 / torchvision 0.26.0 / torchaudio 2.11.0 (cp314). NB torchvision
+      # 0.26.0 épingle torch==2.11.0 -> les 3 versions doivent rester alignées.
+      args:
+        TORCH_CHANNEL: cu128
+        TORCH_VERSION: "2.11.0"
+        TORCHVISION_VERSION: "0.26.0"
+        TORCHAUDIO_VERSION: "2.11.0"
+    environment:
+      # Vide => retire le `--cpu` de la base : ComfyUI bascule sur le GPU.
+      - COMFYUI_EXTRA_ARGS=
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ollama:
+    # LLM sur GPU (génération nettement plus rapide qu'en CPU).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
