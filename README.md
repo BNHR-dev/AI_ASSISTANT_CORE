@@ -10,6 +10,22 @@ It is not a thin wrapper around a chat model. The core is a real orchestration l
 
 > **Status.** The core (routing, planning, execution, OpenAI-compatible API) is stable and test-covered. The Blender pipeline is experimental but functional. Limitations are stated plainly under [Roadmap](#roadmap) — nothing here is oversold.
 
+## Quickstart — from zero to running, one command
+
+**The only thing you install yourself is [Docker](https://docs.docker.com/get-docker/)** (with the Compose v2 plugin). No Python, no models, no manual setup — the launcher fetches and builds everything.
+
+```bash
+git clone https://github.com/BNHR-dev/AI_ASSISTANT_CORE.git aac
+cd aac
+./run.sh          # Linux / WSL2 / macOS    —    Windows: run.bat (Docker Desktop + WSL2)
+```
+
+`run.sh` writes the SearXNG config, downloads the models (~20 GB on first run), builds the images, brings up the **hardened** stack, then verifies every service is *actually* healthy before opening the Console. The NVIDIA GPU is auto-detected (CPU fallback otherwise).
+
+When you see `== OK — stack ready ==`, open **<http://127.0.0.1:8000/console>** and try a prompt, an image, or *"create a Blender scene with a cube"* (3D → `scene.blend` + `preview.png`). Stop with `./run.sh --down`.
+
+> Validated end to end from a **bare clone with only Docker installed** — models downloaded, images built, hardened stack healthy, a real Blender render — nothing pre-staged.
+
 ## Why local-first
 
 AAC targets **3D animation studios** and creative pipelines, where the material is confidential by default: unreleased films, client assets, work under NDA and content-security regimes (MPA/TPN-style). That constraint drives the design:
