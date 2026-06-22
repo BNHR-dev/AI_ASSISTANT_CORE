@@ -46,6 +46,7 @@ Thumbs.db
 /core/benchmarks/
 /core/.pytest_cache/
 /core/searxng/settings.yml
+/docker/searxng/settings.yml
 /core/docs/core.zip
 
 # --- internal context pack + VM-era runbook : kept locally, not published ---

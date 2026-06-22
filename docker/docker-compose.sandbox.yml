@@ -1,0 +1,39 @@
+# Overlay « confinement durci » (Y) — chemin SÉCURISÉ CANONIQUE de cette consolidation.
+#   docker compose -f docker/docker-compose.app.yml -f docker/docker-compose.sandbox.yml up
+#   (+ docker/docker-compose.gpu.yml pour le GPU)
+#
+# MODÈLE DE CONFINEMENT = LE CONTENEUR LUI-MÊME, PAS bwrap. En Docker rootful, exécuter
+# bwrap exigerait d'élargir le conteneur (SYS_ADMIN) — REFUSÉ ici. À la place, on durcit
+# le conteneur au maximum et on y exécute le code Blender SANS bwrap :
+# `AAC_BLENDER_SANDBOX=off` explicite, car la frontière du conteneur EST le confinement.
+#
+# Aucune escalade : pas de `privileged`, pas de socket Docker, pas de `SYS_ADMIN`/
+# `NET_ADMIN`, pas de `seccomp=unconfined`. Aucun repli silencieux vers un conteneur plus
+# privilégié. Si `AAC_BLENDER_SANDBOX=require` est forcé dans ce chemin (bwrap inutilisable
+# sans SYS_ADMIN), le backend DOIT échouer franchement (SandboxError) — c'est voulu.
+#
+# (La piste bwrap-sans-SYS_ADMIN existe et est PROUVÉE en rootless Podman — voir
+#  docs/SECURITY.md, « Piste Z » — mais elle n'est PAS le chemin canonique de cette
+#  consolidation.)
+
+services:
+  aac-backend:
+    environment:
+      # Le conteneur durci EST le sandbox -> pas de bwrap dans ce chemin Docker.
+      - AAC_BLENDER_SANDBOX=off
+    cap_drop:
+      - ALL                      # aucune capability
+    security_opt:
+      - no-new-privileges:true   # pas d'escalade de privilèges via setuid
+      # PAS de seccomp=unconfined : profil seccomp Docker par défaut conservé.
+    read_only: true              # racine en lecture seule
+    tmpfs:
+      - /tmp                     # scratch éphémère (les sorties vont dans le volume /outputs)
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 6G
+          pids: 512
+    # Pas de socket Docker monté (volontaire). Réseau INTERNE compose conservé
+    # (le backend joint ollama/searxng/comfyui) ; limites de ressources ci-dessus.

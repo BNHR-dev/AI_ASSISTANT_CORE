@@ -43,6 +43,10 @@ TRAJECTORY_LOG_DIR_ENV = "AAC_TRAJECTORY_LOG_DIR"
 DEFAULT_TRAJECTORY_LOG_DIR = "outputs/blender/_trajectories"
 TRAJECTORY_RETENTION_DAYS_ENV = "AAC_TRAJECTORY_RETENTION_DAYS"
 DEFAULT_TRAJECTORY_RETENTION_DAYS = 30
+# Dossier de sortie Blender (writable — p.ex. le volume /outputs/blender en conteneur
+# read_only). Sert de base au DÉFAUT du journal de trajectoires, pour ne pas viser un
+# chemin relatif qui tomberait sur un rootfs en lecture seule (EROFS).
+BLENDER_OUTPUT_DIR_ENV = "BLENDER_OUTPUT_DIR"
 
 # Valeurs reconnues comme "désactivé". Casse-insensible.
 _DISABLED_VALUES: frozenset[str] = frozenset({"0", "false", "no", "off"})
@@ -60,10 +64,18 @@ def is_trajectory_logging_enabled() -> bool:
 
 
 def get_trajectory_log_dir() -> Path:
+    # 1) Override explicite (gagne toujours).
     raw = os.environ.get(TRAJECTORY_LOG_DIR_ENV)
-    if raw is None or raw.strip() == "":
-        return Path(DEFAULT_TRAJECTORY_LOG_DIR)
-    return Path(raw.strip())
+    if raw is not None and raw.strip() != "":
+        return Path(raw.strip())
+    # 2) Défaut : sous le dossier de sortie Blender (writable — volume /outputs/blender
+    #    en conteneur read_only), plutôt qu'un chemin RELATIF qui viserait le rootfs en
+    #    lecture seule (EROFS sous le mode Y durci).
+    blender_out = os.environ.get(BLENDER_OUTPUT_DIR_ENV)
+    if blender_out is not None and blender_out.strip() != "":
+        return Path(blender_out.strip()) / "_trajectories"
+    # 3) Repli historique (chemin relatif, writable en natif).
+    return Path(DEFAULT_TRAJECTORY_LOG_DIR)
 
 
 def _utc_now() -> datetime:

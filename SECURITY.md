@@ -39,15 +39,23 @@ project: triage is best-effort. Fixes land on `main`; there are no backport guar
      degradation** with a startup warning;
    - `require` — **fail-closed** (no sandbox → the pipeline errors out);
    - `off` — passthrough (debug/CI).
-3. **Container boundary** — the cross-platform Docker stack runs the backend (Blender
-   included) inside a Linux container; on Windows this is Docker Desktop's WSL2 backend
-   (the same Linux stack, not a reimplementation). Nested bubblewrap needs extra
-   container privileges, provided by the **opt-in** `docker-compose.sandbox.yml` overlay
-   (`security_opt: seccomp=unconfined` + `cap_add: SYS_ADMIN, NET_ADMIN` — the
-   empirically verified minimal set) together with `AAC_BLENDER_SANDBOX=require`. This is
-   a deliberate tradeoff: a more-privileged container (which runs only the *trusted*
-   backend) so that bubblewrap can *tighten* isolation around the *untrusted* code. It is
-   **not** `--privileged`.
+3. **Container boundary (the canonical secure path).** The cross-platform Docker stack runs
+   the backend (Blender included) inside a Linux container; on Windows this is Docker
+   Desktop's WSL2 backend (the same Linux stack, not a reimplementation). The secure overlay
+   `docker/docker-compose.sandbox.yml` **hardens the container** — `cap_drop: ALL`,
+   `no-new-privileges`, `read_only` rootfs + `tmpfs /tmp`, cpu/mem/pids limits, no Docker
+   socket, and **no** `SYS_ADMIN` / `NET_ADMIN` / `seccomp=unconfined` / `privileged` — and
+   sets `AAC_BLENDER_SANDBOX=off` **explicitly**. On rootful Docker the **container itself is
+   the confinement boundary** for the generated code; bubblewrap is not run there and we do
+   not claim "container == bubblewrap". No silent escalation: forcing `require` on this path
+   fails closed.
+
+   > **Track Z (proven, non-canonical).** Under **rootless Podman**, bubblewrap nests
+   > *without* granting the container any capability: `--security-opt seccomp=unconfined`
+   > (no `SYS_ADMIN`), bwrap with `--unshare-user`, `/proc` bind-mounted. That would give
+   > defense-in-depth (container **and** bwrap) with no `SYS_ADMIN` — but it needs Podman (a
+   > `blender_sandbox.py` rootless adaptation + Windows `podman machine` validation are
+   > pending), so it is documented and proven but **not** wired as the canonical path.
 
 ### Deliberately out of scope
 - **ComfyUI** runs fixed, **operator-authored** workflows on the host — not LLM-authored
@@ -77,8 +85,8 @@ The token is never logged; comparison is constant-time; failures return `401` +
 ## Hardening checklist — before exposing beyond loopback
 
 - [ ] `AAC_API_AUTH_MODE=required` + a strong `AAC_API_TOKEN`.
-- [ ] `AAC_BLENDER_SANDBOX=require` (plus the `docker-compose.sandbox.yml` overlay if
-      running in containers).
+- [ ] **Native Linux**: `AAC_BLENDER_SANDBOX=require` (host bubblewrap). **Docker**: use the
+      `docker/docker-compose.sandbox.yml` overlay (hardened container, `sandbox=off`).
 - [ ] `AAC_CONSOLE_ENABLED=0` (the console is unauthenticated).
 - [ ] Keep service ports bound to `127.0.0.1`, or front them with an authenticating
       reverse proxy.
@@ -89,7 +97,9 @@ The token is never logged; comparison is constant-time; failures return `401` +
 - **No CPU/RAM quota** on sandboxed execution: a script that passes the guard can still
   exhaust resources up to the timeout. Resource quotas (cgroups / `systemd-run`) are a
   separate hardening, not yet shipped.
-- Nested bubblewrap requires elevated **container** privileges (see the overlay above).
+- On the canonical **Docker** path the confinement is the hardened container, not bubblewrap
+  (`sandbox=off`); bubblewrap-without-`SYS_ADMIN` is proven only under rootless Podman
+  (Track Z), which is not yet wired in.
 - ComfyUI and the host runtime are **not** OS-isolated from each other.
 - **Full VM-grade isolation** of generated code is on the roadmap, **not shipped**, and
   not presented as if it were.

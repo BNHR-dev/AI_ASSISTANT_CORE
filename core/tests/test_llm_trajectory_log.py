@@ -57,6 +57,7 @@ def test_other_values_enable(monkeypatch: pytest.MonkeyPatch, value: str) -> Non
 
 def test_default_log_dir(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(tlog.TRAJECTORY_LOG_DIR_ENV, raising=False)
+    monkeypatch.delenv(tlog.BLENDER_OUTPUT_DIR_ENV, raising=False)
     assert tlog.get_trajectory_log_dir() == Path(tlog.DEFAULT_TRAJECTORY_LOG_DIR)
 
 
@@ -65,6 +66,45 @@ def test_log_dir_env_override(
 ) -> None:
     monkeypatch.setenv(tlog.TRAJECTORY_LOG_DIR_ENV, str(tmp_path / "x"))
     assert tlog.get_trajectory_log_dir() == tmp_path / "x"
+
+
+def test_default_log_dir_derives_from_blender_output_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Mode Y (conteneur read_only), sans override explicite : le défaut doit viser le
+    # volume writable BLENDER_OUTPUT_DIR (/outputs/blender), pas un chemin relatif qui
+    # tomberait sur le rootfs en lecture seule (EROFS).
+    monkeypatch.delenv(tlog.TRAJECTORY_LOG_DIR_ENV, raising=False)
+    monkeypatch.setenv(tlog.BLENDER_OUTPUT_DIR_ENV, str(tmp_path / "outputs" / "blender"))
+    assert (
+        tlog.get_trajectory_log_dir()
+        == tmp_path / "outputs" / "blender" / "_trajectories"
+    )
+
+
+def test_explicit_log_dir_beats_blender_output_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(tlog.TRAJECTORY_LOG_DIR_ENV, str(tmp_path / "explicit"))
+    monkeypatch.setenv(tlog.BLENDER_OUTPUT_DIR_ENV, str(tmp_path / "blender"))
+    assert tlog.get_trajectory_log_dir() == tmp_path / "explicit"
+
+
+def test_write_lands_under_blender_output_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Écriture réelle : avec BLENDER_OUTPUT_DIR seul, la ligne JSONL atterrit sous
+    # <BLENDER_OUTPUT_DIR>/_trajectories (writable) — prouve l'absence d'EROFS.
+    monkeypatch.delenv(tlog.TRAJECTORY_LOG_DIR_ENV, raising=False)
+    monkeypatch.delenv(tlog.TRAJECTORY_LOG_ENABLED_ENV, raising=False)
+    out = tmp_path / "outputs" / "blender"
+    monkeypatch.setenv(tlog.BLENDER_OUTPUT_DIR_ENV, str(out))
+    tlog.log_trajectory(
+        stage="script_gen", model="qwen2.5-coder:7b", prompt="p", raw_response="r"
+    )
+    files = list((out / "_trajectories").glob("*.jsonl"))
+    assert len(files) == 1
+    assert files[0].read_text(encoding="utf-8").strip()
 
 
 # ---------------------------------------------------------------------------
