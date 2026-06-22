@@ -3,8 +3,9 @@
 > Goal: `docker compose up` brings up the full AAC stack on **Windows / macOS / Linux**,
 > so an evaluator can run the project **without a Linux environment and without manual setup**.
 >
-> The **production / dev** runtime stays **native Linux** (faster, `bwrap` isolation,
-> EEVEE GPU rendering). Docker is the **reachability** path, not the production runtime.
+> Docker (rootful, **hardened** — see `SECURITY.md`) is the **recommended secure path** and
+> behaves the same on every OS. Native Linux stays available (host `bwrap` isolation, EEVEE
+> GPU rendering) for those who prefer it.
 
 ## The four reachability tiers
 1. **Hosted video / demo** — the reviewer runs nothing, they just see it works.
@@ -25,9 +26,9 @@ Internal compose network: the backend reaches the others by **service name**
 is exposed on the host (`127.0.0.1:8000`).
 
 ## Optional GPU, CPU fallback (the cross-platform key)
-- **Base** (`docker-compose.app.yml`) = **CPU-safe**, runs everywhere (even without a GPU).
-- **Overlay** (`docker-compose.gpu.yml`) = adds the NVIDIA reservations.
-  - Linux + NVIDIA → `docker compose -f docker-compose.app.yml -f docker-compose.gpu.yml up`
+- **Base** (`docker/docker-compose.app.yml`) = **CPU-safe**, runs everywhere (even without a GPU).
+- **Overlay** (`docker/docker-compose.gpu.yml`) = adds the NVIDIA reservations.
+  - Linux + NVIDIA → `docker compose -f docker/docker-compose.app.yml -f docker/docker-compose.gpu.yml up`
   - Windows + NVIDIA (Docker Desktop, WSL2 backend) → same overlay (CUDA via WSL2)
   - macOS / no GPU → base only = CPU (slow but functional)
 
@@ -36,21 +37,19 @@ is exposed on the host (`127.0.0.1:8000`).
    it locally (as in native mode). No refactor into a network service.
 2. **In-container rendering = Cycles** (CPU/GPU). EEVEE-headless-GPU stays a
    **native Linux-host** capability; the Docker demo renders with Cycles.
-3. **bwrap inside a container** — two modes, no hand-waving:
-   - **Demo (default)** → `AAC_BLENDER_SANDBOX=auto`: bwrap confines Blender if the container
-     allows nested namespaces, otherwise it degrades gracefully (Blender still runs, but only
-     the container boundary isolates it). We do **not** claim "container == bwrap".
-   - **Enforced** → the `docker-compose.sandbox.yml` overlay (`make demo-secure` /
-     `make demo-gpu-secure`): grants the *empirically verified minimal* privileges for nested
-     bwrap — `security_opt: seccomp=unconfined` + `cap_add: [SYS_ADMIN, NET_ADMIN]` — and sets
-     `AAC_BLENDER_SANDBOX=require` (fail-closed). Each of the three is necessary (removing any
-     one makes the bwrap self-check fail). This is **not** `--privileged`.
+3. **Confinement = the hardened container itself, NOT bwrap.** On rootful Docker, running
+   bwrap would require widening the container with `SYS_ADMIN` — which we refuse. Instead the
+   secure overlay (`docker/docker-compose.sandbox.yml`, used by `./run.sh` and
+   `make demo-secure`) **hardens the container**: `cap_drop: ALL`, `no-new-privileges`,
+   `read_only` rootfs + `tmpfs /tmp`, cpu/mem/pids limits, no Docker socket, and **no**
+   `SYS_ADMIN` / `NET_ADMIN` / `seccomp=unconfined` / `privileged`. It sets
+   `AAC_BLENDER_SANDBOX=off` **explicitly**: in this mode the **container boundary IS the
+   confinement** for the untrusted generated `bpy` code — the Docker confinement *replaces*
+   bwrap here (we neither run nor claim bwrap). No silent fallback to a more privileged
+   container; if `require` is forced on this bwrap-less path, it fails closed by design.
 
-   Stated tradeoff: the overlay widens the **container's** privileges (the container runs only
-   our *trusted* backend) so that bwrap can **tighten** isolation around the *untrusted* `bpy`
-   code — no network, no home, read-only FS, writes confined to the output dir. Net effect:
-   hostile code is *more* confined than in degraded `auto` mode, where it would run with no
-   sandbox at all.
+   > A bwrap-without-`SYS_ADMIN` path exists and is **proven** under **rootless Podman**
+   > (see `SECURITY.md`, "Track Z") — but it is **not** the canonical path of this build.
 4. **Models outside the image** (RealVisXL ~7 GB, ESRGAN, Ollama models): mounted as
    volumes, never baked into the image. **Full** demo: RealVisXL + refiner + ESRGAN.
 5. **No separate Windows architecture.** Windows runs the *exact same* Linux containers
@@ -67,25 +66,31 @@ is exposed on the host (`127.0.0.1:8000`).
 
 ## Run the stack
 
-**One command** (does everything: SearXNG config, model download, build, up):
+**One command** (recommended — hardened by default, honest health gate), from the repo root:
 ```bash
-cd core
-make demo-gpu     # NVIDIA GPU (native Linux, or Windows + Docker Desktop/WSL2) — full demo
-make demo         # CPU only — runs anywhere, slow for image generation
+./run.sh          # Linux / WSL2 / macOS — Docker + hardened overlay + GPU autodetect
+run.bat           # Windows — Docker Desktop + WSL2 (delegates to run.ps1)
 ```
-`make demo` downloads RealVisXL + 4x-UltraSharp (~6.6 GB, from HuggingFace) if missing,
-then brings the stack up. Backend on `http://127.0.0.1:8000`. `make down` stops it,
-`make logs` follows the logs.
+`run.sh` writes the SearXNG config, fetches models (idempotent), builds, brings the stack up
+with the **hardened** overlay, then checks every service is *actually* healthy before opening
+the Console. `./run.sh --down` stops it, `./run.sh --logs` follows the logs.
 
+Lower-level (`make`, from the repo root — no health gate):
+```bash
+make demo-gpu-secure   # GPU + hardened container (recommended)
+make demo-secure       # CPU + hardened container
+make demo / make demo-gpu   # base only, NOT hardened (quick test)
+```
 Manual equivalent (under the hood):
 ```bash
-cp searxng/settings.example.yml searxng/settings.yml   # SearXNG config (required)
-bash scripts/fetch-models.sh                            # models -> ./models (idempotent)
-docker compose -f docker-compose.app.yml -f docker-compose.gpu.yml up --build
-curl -s http://127.0.0.1:8000/health                   # -> {"status":"ok"}
+cp docker/searxng/settings.example.yml docker/searxng/settings.yml   # SearXNG config (required)
+bash scripts/linux/fetch-models.sh                                   # models -> docker/models
+docker compose -f docker/docker-compose.app.yml -f docker/docker-compose.gpu.yml \
+               -f docker/docker-compose.sandbox.yml up --build
+curl -s http://127.0.0.1:8000/health                                 # -> {"status":"ok"}
 ```
-Overrides (e.g. reuse models you already have): `cp env.docker.example .env`,
-then adjust `COMFYUI_MODELS_DIR` / `COMFYUI_CHECKPOINT_NAME` (compose loads `.env`).
+Overrides (e.g. reuse models you already have): `cp core/.env.example core/.env`,
+then adjust `COMFYUI_MODELS_DIR` / `COMFYUI_CHECKPOINT_NAME`.
 
 Generate an image end to end (OpenAI-compatible API, backend → ComfyUI):
 ```bash
@@ -122,8 +127,10 @@ root backend `chown`s them).
 - **PyTorch on Python 3.14** — resolved: `cp314` wheels on cpu (`torch 2.12.1`) and cu128
   (`torch 2.11.0`), and every ComfyUI requirement has a cp314 wheel → no compilation.
 - **Windows GPU prerequisites**: Docker Desktop + WSL2 backend + NVIDIA driver (else CPU).
-- **Nested bwrap** = needs container privileges (otherwise `auto`/`off` in the demo).
-- **SearXNG**: requires `core/searxng/settings.yml` (gitignored because it holds a secret) —
-  `cp` it from `settings.example.yml`. The template enables `format: json` (required by the
+- **Confinement on Docker** = the hardened container (no bwrap on the rootful path;
+  `AAC_BLENDER_SANDBOX=off`). bwrap-without-`SYS_ADMIN` is proven under rootless Podman
+  (`SECURITY.md`, Track Z), non-canonical here.
+- **SearXNG**: requires `docker/searxng/settings.yml` (gitignored) — `cp` it from
+  `docker/searxng/settings.example.yml`. The template enables `format: json` (required by the
   backend) and `limiter: false` (internal access). Without the file, the service crash-loops
   (exit 127).

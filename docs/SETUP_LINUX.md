@@ -8,27 +8,29 @@
 > anything touching disk / boot / Secure Boot stays manual.
 
 ## What gets installed
-- `scripts/setup-fedora.sh` — installs the dev toolchain on Fedora (idempotent).
-- `core/env.linux.example` — env template for the single-host topology.
-- `core/docker-compose.linux.yml` — service stack with SELinux `:z` labels.
+- `scripts/linux/bootstrap.sh` — cross-distro native installer (idempotent): system packages
+  + **bubblewrap**, Docker, **nvidia-container-toolkit** (GPU in containers), Ollama + models,
+  Blender, ComfyUI, the Python venv, and `core/.env` (generated from `core/.env.example`).
+- `core/.env.example` — the single, canonical, secret-free env template.
+- `docker/docker-compose.linux.yml` — native-services stack with SELinux `:z` labels.
 
 ---
 
 ## Installation
 
-### 1. Dev toolchain
+### 1. Native install (one script)
 ```bash
-cd scripts
-chmod +x setup-fedora.sh
-./setup-fedora.sh            # interactive; --dry-run to preview
+./scripts/linux/bootstrap.sh                 # full install; --check-only previews (doctor)
+./scripts/linux/bootstrap.sh --skip-comfyui  # skip the heaviest phase
 ```
-The script installs: RPM Fusion, git/zsh/modern CLI tools, Docker CE,
-`nvidia-container-toolkit`, and creates the Python venv. It does **not** install the
-NVIDIA driver by default (see the dedicated section below).
+It installs system packages + **bubblewrap** (the native Blender sandbox), Docker,
+`nvidia-container-toolkit`, Ollama + the LLM models, Blender, ComfyUI, the Python venv, and
+generates `core/.env` from `core/.env.example`. It does **not** install the NVIDIA *driver*
+(see the dedicated section below).
 
 ### 2. Project environment
 ```bash
-cp core/env.linux.example core/.env   # then adjust values (secrets, ports)
+cp core/.env.example core/.env   # bootstrap.sh already does this; adjust values if needed
 ```
 > Never commit the real `.env`.
 
@@ -38,7 +40,7 @@ cp core/env.linux.example core/.env   # then adjust values (secrets, ports)
 sudo nvidia-ctk runtime configure --runtime=docker
 sudo systemctl restart docker
 
-docker compose -f core/docker-compose.linux.yml up
+docker compose -f docker/docker-compose.linux.yml up
 ```
 
 ---
@@ -98,8 +100,8 @@ constant-time.
 
 > ⚠️ Sensitive step: nothing irreversible is forced. Adapt to the actual state of your machine.
 
-1. Install the driver via RPM Fusion (reversible):
-   `./scripts/setup-fedora.sh --with-nvidia-driver`
+1. Install the driver via RPM Fusion (reversible, **manual** — bootstrap.sh does not touch the driver):
+   `sudo dnf install akmod-nvidia xorg-x11-drv-nvidia-cuda`
 2. Check Secure Boot: `mokutil --sb-state`
    - **enabled** → **MOK** enrollment at reboot (blue MOK Manager screen, password to enter).
    - **disabled** → no MOK.
@@ -116,5 +118,5 @@ Until `nvidia-smi` responds, **do not move on**.
 
 ## End-to-end check
 - `nvtop` shows the GPU active.
-- `docker compose -f core/docker-compose.linux.yml up` → Ollama responds; backend `/health` OK.
+- `docker compose -f docker/docker-compose.linux.yml up` → Ollama responds; backend `/health` OK.
 - A Blender render produces `scene.blend` + `preview.png`.

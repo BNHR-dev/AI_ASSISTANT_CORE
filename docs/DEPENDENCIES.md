@@ -8,7 +8,7 @@ Everything AAC needs, what installs it, and how to check it. Three paths:
 
 ## Virgin Windows machine — one click
 
-On a fresh Windows 10/11, run `core\scripts\windows\Install-AAC.bat` (double-click, or from
+On a fresh Windows 10/11, run `scripts\windows\Install-AAC.bat` (double-click, or from
 a terminal). It self-elevates and installs **everything natively, no Docker**, idempotently:
 
 | Installed | Via |
@@ -20,22 +20,23 @@ a terminal). It self-elevates and installs **everything natively, no Docker**, i
 | Backend venv + `core\.env` | `python -m venv` + `pip` |
 
 ```bat
-core\scripts\windows\Install-AAC.bat              REM full install
-core\scripts\windows\Install-AAC.bat -CheckOnly   REM "doctor" — checks only, installs nothing
-core\scripts\windows\Install-AAC.bat -SkipComfyUI REM skip the heaviest phase
+scripts\windows\Install-AAC.bat              REM full install
+scripts\windows\Install-AAC.bat -CheckOnly   REM "doctor" — checks only, installs nothing
+scripts\windows\Install-AAC.bat -SkipComfyUI REM skip the heaviest phase
 ```
 
-Honest limits: **SearXNG** has no clean native Windows install (web pipeline stays off — use
-Docker Desktop for it); **GPU drivers** are assumed already present; ComfyUI is best-effort
-(its failure does not block the core). When done, the script prints the backend start command.
+Honest limits: this native path is **not sandboxed** (no bubblewrap on Windows) — for the
+hardened/secure path use **Docker Desktop + WSL2** (`run.bat`). **SearXNG** has no clean
+native Windows install (web pipeline stays off — use Docker Desktop for it); **GPU drivers**
+are assumed already present; ComfyUI is best-effort (its failure does not block the core).
+When done, the script prints the backend start command.
 
 The model-only helpers below (`make …`) are the Linux / WSL2 / macOS path.
 
 Run the preflight any time to see exactly what is present or missing:
 
 ```bash
-cd core
-make doctor      # ✓ present  ✗ missing (blocking)  ~ optional/degraded — installs nothing
+make doctor      # ✓ present  ✗ missing  ~ optional/degraded — from the repo root, installs nothing
 ```
 
 ## The four dependency groups
@@ -63,16 +64,16 @@ The router needs three models — source of truth is `app/engine/task_routing.py
 | `qwen2.5-coder:7b` | code build + Blender `bpy` generation |
 | `qwen2.5vl:3b` | vision (VLM) |
 
-`scripts/fetch-ollama-models.sh` auto-detects the mode:
+`scripts/linux/fetch-ollama-models.sh` auto-detects the mode:
 
 - **native** — uses the host `ollama` binary (install: <https://ollama.com/download>)
-- **docker** — pulls into the running demo container (`docker-compose.app.yml`)
+- **docker** — pulls into the running demo container (`docker/docker-compose.app.yml`)
 
 Force a mode with `AAC_OLLAMA_MODE=native|docker make pull-llms`. Already-present models are skipped.
 
 ## Image models (ComfyUI) — `make fetch-models`
 
-Public HuggingFace models, no token, into `$COMFYUI_MODELS_DIR` (default `core/models/`):
+Public HuggingFace models, no token, into `$COMFYUI_MODELS_DIR` (default `docker/models/`):
 
 - `checkpoints/RealVisXL_V5.0_fp16.safetensors` (~6.5 GB)
 - `upscale_models/4x-UltraSharp.pth` (~64 MB)
@@ -106,6 +107,6 @@ For a full native runtime (no Docker), see [`SETUP_LINUX.md`](SETUP_LINUX.md). I
 
 - **Ollama** — <https://ollama.com/download>, then `make pull-llms`
 - **ComfyUI** — clone + install from <https://github.com/comfyanonymous/ComfyUI>, then `make fetch-models`
-- **SearXNG** — `make setup` writes `searxng/settings.yml` from the committed example
+- **SearXNG** — `make setup` writes `docker/searxng/settings.yml` from the committed example
 
 The default topology binds every service to `127.0.0.1` — see [`ARCHITECTURE.md`](ARCHITECTURE.md).
