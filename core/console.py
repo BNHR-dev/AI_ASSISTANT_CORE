@@ -548,13 +548,21 @@ def reveal(path: str) -> HTMLResponse:
             opened = True
     except OSError:
         opened = False  # pas de GUI (conteneur) -> on se contente d'afficher le chemin
-    # Chemin lisible côté HÔTE : dans un conteneur, /outputs est monté sous
-    # docker/outputs/ sur la machine (cf. docker/docker-compose.app.yml).
+    # Chemin lisible côté HÔTE. En conteneur, /outputs est monté sur le disque hôte ;
+    # run.sh passe le chemin ABSOLU via AAC_HOST_OUTPUTS_DIR (sinon repli relatif).
     disp = str(target)
-    if os.path.exists("/.dockerenv") and disp.startswith("/outputs"):
-        disp = "docker/outputs" + disp[len("/outputs"):]
-    label = "📂 Opened" if opened else "📁 On disk at"
-    return HTMLResponse(f'<span class="reveal-out">{label} <code>{html.escape(disp)}</code></span>')
+    host_root = os.getenv("AAC_HOST_OUTPUTS_DIR", "").strip()
+    if disp.startswith("/outputs"):
+        if host_root:
+            disp = host_root.rstrip("/") + disp[len("/outputs"):]
+        elif os.path.exists("/.dockerenv"):
+            disp = "docker/outputs" + disp[len("/outputs"):]
+    label = "📂 Opened it —" if opened else "📁 On disk —"
+    return HTMLResponse(
+        f'<span class="reveal-out">{label} <code>{html.escape(disp)}</code> '
+        f'<button type="button" class="ghost copy-btn" data-p="{html.escape(disp, quote=True)}" '
+        f'onclick="navigator.clipboard.writeText(this.dataset.p)">📋 copy</button></span>'
+    )
 
 
 @router.get("/static/{name}")

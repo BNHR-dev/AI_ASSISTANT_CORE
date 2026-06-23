@@ -18,6 +18,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER_DIR="$REPO_ROOT/docker"
 export COMFYUI_MODELS_DIR="${COMFYUI_MODELS_DIR:-$DOCKER_DIR/models}"
+# Chemin absolu hôte des outputs -> la Console l'affiche (copiable) pour ouvrir le dossier.
+export AAC_HOST_OUTPUTS_DIR="$DOCKER_DIR/outputs"
 
 OPEN=1; MODELS=1; ACTION=up
 for a in "$@"; do
