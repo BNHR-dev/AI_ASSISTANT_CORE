@@ -13,6 +13,13 @@
     </span>
   </div>
 
+  {# Signature: the execution route, made visible (router ▸ planner ▸ executor). #}
+  {% if r.decision_path %}
+    <div class="route" aria-label="execution route">
+      {% for stage in r.decision_path %}<span class="route-stage">{{ stage }}</span>{% if not loop.last %}<span class="route-sep">▸</span>{% endif %}{% endfor %}
+    </div>
+  {% endif %}
+
   {% if semantic %}
     <div class="strip">
       <span class="badge">🧬 Subject</span>

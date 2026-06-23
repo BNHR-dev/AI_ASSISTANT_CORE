@@ -47,6 +47,9 @@ Thumbs.db
 /core/.pytest_cache/
 /core/searxng/settings.yml
 /docker/searxng/settings.yml
+# runtime under docker/ (models downloaded by run.sh + generated outputs) — never commit
+/docker/models/
+/docker/outputs/
 /core/docs/core.zip
 
 # --- internal context pack + VM-era runbook : kept locally, not published ---
