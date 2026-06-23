@@ -28,11 +28,13 @@ services:
       # Le backend (root) écrit le manifest -> le redonne à l'UID hôte (fichiers non-root).
       - AAC_OUTPUT_UID=${AAC_UID:-1000}
       - AAC_OUTPUT_GID=${AAC_GID:-1000}
+      # Chemin ABSOLU des outputs sur l'HÔTE (renseigné par run.sh) -> la Console affiche
+      # un chemin copiable (le conteneur ne peut pas ouvrir le gestionnaire de fichiers hôte).
+      - AAC_HOST_OUTPUTS_DIR=${AAC_HOST_OUTPUTS_DIR:-}
     ports:
       - "127.0.0.1:8000:8000"   # exposé seulement en local
     volumes:
-      - aac-outputs:/outputs
-      - ./outputs/comfyui:/outputs/comfyui   # lit les images comfyui + y écrit le registre (manifest)
+      - ./outputs:/outputs   # bind hôte : TOUS les runs (blender + comfyui) visibles dans docker/outputs/
     depends_on:
       - ollama
       - searxng
@@ -75,5 +77,4 @@ services:
     # GPU (réservation NVIDIA) ajouté par docker-compose.gpu.yml (P3).
 
 volumes:
-  aac-outputs:
   ollama-models:

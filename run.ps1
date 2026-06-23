@@ -15,6 +15,8 @@ $ErrorActionPreference = "Stop"
 $RepoRoot  = $PSScriptRoot
 $DockerDir = Join-Path $RepoRoot "docker"
 if (-not $env:COMFYUI_MODELS_DIR) { $env:COMFYUI_MODELS_DIR = (Join-Path $DockerDir "models") }
+# Chemin absolu hôte des outputs -> la Console l'affiche (copiable) pour ouvrir le dossier.
+$env:AAC_HOST_OUTPUTS_DIR = (Join-Path $DockerDir "outputs")
 
 $Open = $true; $Models = $true; $Action = "up"
 foreach ($a in $args) {
