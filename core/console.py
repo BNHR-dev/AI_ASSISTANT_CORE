@@ -11,6 +11,7 @@ exposition internet. Voir la note portfolio « Console — UI dédiée ».
 """
 from __future__ import annotations
 
+import html
 import json
 import os
 import subprocess
@@ -360,17 +361,17 @@ def build_view(result: dict) -> dict:
         steps.append({**sr, "goal": plan_step.get("goal")})
 
     # Normalisation séparée : images ComfyUI vs artefacts locaux Blender.
-    view_urls = result.get("artifact_view_urls") or []
-    if view_urls:
-        gallery = list(view_urls)
-    else:
-        gallery = [
-            url
-            for url in (
-                _artifact_url(p) for p in (result.get("artifact_paths") or [])
-            )
-            if url
-        ]
+    # Prefer serving the local files through the Console (/console/artifact): the raw
+    # ComfyUI view URLs point at the internal service name (e.g. comfyui:8188), which
+    # the host browser cannot reach on the Docker path. The PNGs live under
+    # COMFYUI_OUTPUT_DIR (a serve root), so the Console serves them same-origin.
+    gallery = [
+        url
+        for url in (_artifact_url(p) for p in (result.get("artifact_paths") or []))
+        if url
+    ]
+    if not gallery:
+        gallery = list(result.get("artifact_view_urls") or [])
 
     render_url = _artifact_url(result.get("blender_render_path"))
 
@@ -516,15 +517,16 @@ def artifact(path: str):
     return FileResponse(resolved)
 
 
-@router.post("/reveal")
-def reveal(path: str):
-    """Ouvre le dossier d'un run dans le gestionnaire de fichiers de l'OS.
+@router.post("/reveal", response_class=HTMLResponse)
+def reveal(path: str) -> HTMLResponse:
+    """Localise le dossier d'un run, et l'ouvre si l'hôte a un GUI.
 
-    Usage local uniquement (la console est en loopback). `_safe_resolve` interdit
-    toute sortie de `outputs/`. On ouvre toujours un DOSSIER (jamais un fichier
-    exécutable). Cross-OS : `explorer`/`os.startfile` (Windows), `open` (macOS),
-    `xdg-open` (Linux). Best-effort : un échec (pas de `DISPLAY`, conteneur, pas
-    de gestionnaire de fichiers) renvoie une erreur propre sans rien casser.
+    Usage local uniquement (console en loopback). On vise toujours un DOSSIER
+    (jamais un fichier exécutable). Cross-OS : `os.startfile` (Windows), `open`
+    (macOS), `xdg-open` (Linux). TOUT est best-effort : si l'ouverture échoue
+    (pas de `DISPLAY`, ou backend dans un conteneur sans GUI), ce n'est PAS une
+    erreur — on renvoie simplement le chemin sur disque pour que l'utilisateur
+    y aille lui-même.
     """
     try:
         resolved = Path(path).resolve()
@@ -533,24 +535,26 @@ def reveal(path: str):
     if not _under_serve_roots(resolved) or not resolved.exists():
         raise HTTPException(status_code=404, detail="path not found")
     target = resolved if resolved.is_dir() else resolved.parent
+    opened = False
     try:
         if sys.platform.startswith("win"):
             os.startfile(str(target))  # noqa: S606  (chemin validé sous outputs/)
+            opened = True
         elif sys.platform == "darwin":
-            subprocess.Popen(
-                ["open", str(target)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            subprocess.Popen(["open", str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            opened = True
         else:
-            subprocess.Popen(
-                ["xdg-open", str(target)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-    except OSError as exc:
-        raise HTTPException(status_code=501, detail=f"cannot open file manager: {exc}")
-    return {"opened": str(target)}
+            subprocess.Popen(["xdg-open", str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            opened = True
+    except OSError:
+        opened = False  # pas de GUI (conteneur) -> on se contente d'afficher le chemin
+    # Chemin lisible côté HÔTE : dans un conteneur, /outputs est monté sous
+    # docker/outputs/ sur la machine (cf. docker/docker-compose.app.yml).
+    disp = str(target)
+    if os.path.exists("/.dockerenv") and disp.startswith("/outputs"):
+        disp = "docker/outputs" + disp[len("/outputs"):]
+    label = "📂 Opened" if opened else "📁 On disk at"
+    return HTMLResponse(f'<span class="reveal-out">{label} <code>{html.escape(disp)}</code></span>')
 
 
 @router.get("/static/{name}")

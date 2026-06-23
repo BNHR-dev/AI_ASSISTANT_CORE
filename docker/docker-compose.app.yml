@@ -31,8 +31,7 @@ services:
     ports:
       - "127.0.0.1:8000:8000"   # exposé seulement en local
     volumes:
-      - aac-outputs:/outputs
-      - ./outputs/comfyui:/outputs/comfyui   # lit les images comfyui + y écrit le registre (manifest)
+      - ./outputs:/outputs   # bind hôte : TOUS les runs (blender + comfyui) visibles dans docker/outputs/
     depends_on:
       - ollama
       - searxng
@@ -75,5 +74,4 @@ services:
     # GPU (réservation NVIDIA) ajouté par docker-compose.gpu.yml (P3).
 
 volumes:
-  aac-outputs:
   ollama-models:

@@ -77,8 +77,11 @@
       <details><summary>▸ Intent</summary><pre>{{ intent | tojson(indent=2) }}</pre></details>
     {% endif %}
 
-    <button class="ghost"
-            hx-post="/console/reveal?path={{ path | urlencode }}"
-            hx-swap="none">📂 Open folder</button>
+    <div class="reveal-row">
+      <button class="ghost"
+              hx-post="/console/reveal?path={{ path | urlencode }}"
+              hx-target="next .reveal-out" hx-swap="outerHTML">📂 Open / locate folder</button>
+      <span class="reveal-out muted">— click to open it (native) or see its path on disk (Docker)</span>
+    </div>
   </div>
 </div>
