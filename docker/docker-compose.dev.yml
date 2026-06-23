@@ -1,0 +1,14 @@
+# Dev override — live-edit the Console without rebuilding the image.
+# Binds the host Console assets over the baked-in copies (read-only): edit a
+# template or console.css on the host, refresh the browser, see it instantly.
+# NOT a production path (prod bakes the assets into the image via Dockerfile COPY).
+#
+# Use:
+#   docker compose --project-directory docker \
+#     -f docker/docker-compose.app.yml -f docker/docker-compose.gpu.yml \
+#     -f docker/docker-compose.sandbox.yml -f docker/docker-compose.dev.yml up -d
+services:
+  aac-backend:
+    volumes:
+      - ../core/console_static:/app/console_static:ro
+      - ../core/console_templates:/app/console_templates:ro
