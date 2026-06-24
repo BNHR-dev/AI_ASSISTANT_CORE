@@ -1,48 +1,52 @@
 #!/usr/bin/env bash
-# fetch-models.sh — télécharge les modèles de la démo AAC (P5).
-# Portable (bash + curl) : Linux, macOS, Windows/WSL2. Modèles publics HuggingFace
-# (aucun token requis).
+# fetch-models.sh -- download the AAC demo image models (P5).
+# Portable (bash + curl): Linux, macOS, Windows/WSL2. Public HuggingFace models
+# (no token). Model names/URLs/sizes come from scripts/models.manifest -- the single
+# source of truth shared with the Windows script (scripts/windows/Fetch-ComfyUIModels.ps1).
 #
-#   RealVisXL V5.0 fp16 (checkpoint SDXL, VAE intégrée)  -> checkpoints/    (~6,5 Go)
-#   4x-UltraSharp       (upscaler ESRGAN)                -> upscale_models/ (~64 Mo)
-#
-# Cible : $COMFYUI_MODELS_DIR (défaut docker/models, relatif à la racine du repo).
-# Idempotent : saute un fichier déjà présent et de la bonne taille.
+# Target: $COMFYUI_MODELS_DIR (default docker/models, relative to the repo root).
+# Idempotent: skips a file already present with the expected size.
 set -euo pipefail
 
-MODELS_DIR="${COMFYUI_MODELS_DIR:-docker/models}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+MANIFEST="${AAC_MODELS_MANIFEST:-$REPO_ROOT/scripts/models.manifest}"
+MODELS_DIR="${COMFYUI_MODELS_DIR:-$REPO_ROOT/docker/models}"
+
+[ -f "$MANIFEST" ] || { echo "manifest introuvable : $MANIFEST" >&2; exit 1; }
 
 filesize() { stat -c%s "$1" 2>/dev/null || stat -f%z "$1" 2>/dev/null || echo 0; }
+trim() { echo "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
 fetch() {
-  local subdir=$1 filename=$2 url=$3 expected=$4
+  local subdir=$1 filename=$2 expected=$3 url=$4
   local dir="${MODELS_DIR}/${subdir}" dest
   dest="${dir}/${filename}"
   mkdir -p "$dir"
 
   if [ -f "$dest" ] && [ "$(filesize "$dest")" = "$expected" ]; then
-    echo "✓ déjà présent : ${subdir}/${filename}"
+    echo "[OK] deja present : ${subdir}/${filename}"
     return 0
   fi
 
-  echo "⤓ ${subdir}/${filename}  (~$(( expected / 1024 / 1024 )) Mo)"
+  echo "[DL] ${subdir}/${filename}  (~$(( expected / 1024 / 1024 )) Mo)"
   curl -fL --retry 3 --retry-delay 2 -# -o "${dest}.part" "$url"
-  mv "${dest}.part" "$dest"
 
   local got
-  got=$(filesize "$dest")
+  got=$(filesize "${dest}.part")
   if [ "$got" != "$expected" ]; then
-    echo "✗ ÉCHEC ${filename} : $got octets (attendu $expected)" >&2
+    echo "[!] ECHEC ${filename} : $got octets (attendu $expected)" >&2
+    rm -f "${dest}.part"
     exit 1
   fi
-  echo "✓ ${subdir}/${filename}"
+  mv "${dest}.part" "$dest"
+  echo "[OK] ${subdir}/${filename}"
 }
 
-echo "== Téléchargement des modèles -> ${MODELS_DIR}/ =="
-fetch checkpoints    "RealVisXL_V5.0_fp16.safetensors" \
-  "https://huggingface.co/SG161222/RealVisXL_V5.0/resolve/main/RealVisXL_V5.0_fp16.safetensors" \
-  6938065488
-fetch upscale_models "4x-UltraSharp.pth" \
-  "https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.pth" \
-  66961958
-echo "== OK. Modèles prêts dans ${MODELS_DIR}/ =="
+echo "== Telechargement des modeles image -> ${MODELS_DIR}/ =="
+while IFS='|' read -r kind subdir name size url || [ -n "$kind" ]; do
+  case "$kind" in ''|'#'*) continue ;; esac
+  [ "$(trim "$kind")" = "comfyui" ] || continue
+  fetch "$(trim "$subdir")" "$(trim "$name")" "$(trim "$size")" "$(trim "$url")"
+done < "$MANIFEST"
+echo "== OK. Modeles image prets dans ${MODELS_DIR}/ =="

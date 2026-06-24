@@ -47,6 +47,11 @@ class ToolStatusResponse(BaseModel):
     reason: str
     endpoint: Optional[str] = None
     activity: Optional[str] = None
+    # reachable distinguishes "service answers" from "service is READY to serve". A
+    # ComfyUI that answers HTTP but is missing the configured models is reachable=True,
+    # ready=False (no false green). `missing` lists the absent required model names.
+    reachable: Optional[bool] = None
+    missing: list[str] = Field(default_factory=list)
 
 
 class RuntimeHealthResponse(BaseModel):

@@ -1,0 +1,20 @@
+# AAC model manifest -- SINGLE SOURCE OF TRUTH for model names.
+#
+# Consumed by:
+#   scripts/linux/fetch-models.sh          (ComfyUI image models, Linux/WSL/macOS)
+#   scripts/linux/fetch-ollama-models.sh   (Ollama LLM names, Linux/WSL/macOS)
+#   scripts/windows/Fetch-ComfyUIModels.ps1 (ComfyUI image models, Windows-native)
+#   run.ps1                                 (Ollama model verification, Windows)
+#   core/tests/test_model_name_consistency.py (locks names == env == workflows)
+#
+# Pipe-delimited:  kind|subdir|name|size_bytes|url
+#   kind = comfyui | ollama
+#   '-'  = not applicable (ollama: no subdir/size/url, pulled by name)
+#
+# The ComfyUI names MUST match COMFYUI_CHECKPOINT_NAME / COMFYUI_REFINER_CHECKPOINT_NAME /
+# COMFYUI_UPSCALE_MODEL_NAME and the ckpt_name/model_name baked in the workflow JSONs.
+comfyui|checkpoints|RealVisXL_V5.0_fp16.safetensors|6938065488|https://huggingface.co/SG161222/RealVisXL_V5.0/resolve/main/RealVisXL_V5.0_fp16.safetensors
+comfyui|upscale_models|4x-UltraSharp.pth|66961958|https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.pth
+ollama|-|qwen3:8b|-|-
+ollama|-|qwen2.5-coder:7b|-|-
+ollama|-|qwen2.5vl:3b|-|-

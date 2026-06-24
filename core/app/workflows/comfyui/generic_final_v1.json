@@ -1,7 +1,7 @@
 {
   "4": {
     "inputs": {
-      "ckpt_name": "realvisxlV50_v50Bakedvae.safetensors"
+      "ckpt_name": "RealVisXL_V5.0_fp16.safetensors"
     },
     "class_type": "CheckpointLoaderSimple",
     "_meta": {
@@ -10,7 +10,7 @@
   },
   "12": {
     "inputs": {
-      "ckpt_name": "realvisxlV50_v50Bakedvae.safetensors"
+      "ckpt_name": "RealVisXL_V5.0_fp16.safetensors"
     },
     "class_type": "CheckpointLoaderSimple",
     "_meta": {

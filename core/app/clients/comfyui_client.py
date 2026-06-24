@@ -20,8 +20,10 @@ from app.engine.visual_workflow_selector import analyze_visual_intent, select_vi
 COMFYUI_OUTPUT_DIR = os.getenv("COMFYUI_OUTPUT_DIR", "")
 COMFYUI_DEFAULT_WORKFLOW = os.getenv("COMFYUI_DEFAULT_WORKFLOW", "cinematic_scene_v1")
 COMFYUI_CHECKPOINT_NAME = os.getenv("COMFYUI_CHECKPOINT_NAME", "sd_xl_base_1.0.safetensors")
+# Default aligned with scripts/models.manifest (single source of truth) and the
+# downloaded artifact. Docker/.env still override via COMFYUI_REFINER_CHECKPOINT_NAME.
 COMFYUI_REFINER_CHECKPOINT_NAME = os.getenv(
-    "COMFYUI_REFINER_CHECKPOINT_NAME", "realvisxlV50_v50Bakedvae.safetensors"
+    "COMFYUI_REFINER_CHECKPOINT_NAME", "RealVisXL_V5.0_fp16.safetensors"
 )
 COMFYUI_UPSCALE_MODEL_NAME = os.getenv("COMFYUI_UPSCALE_MODEL_NAME", "4x-UltraSharp.pth")
 WORKFLOWS_DIR = Path(__file__).resolve().parents[1] / "workflows" / "comfyui"
