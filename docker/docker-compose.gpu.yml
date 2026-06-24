@@ -20,8 +20,11 @@ services:
         TORCHVISION_VERSION: "0.26.0"
         TORCHAUDIO_VERSION: "2.11.0"
     environment:
-      # Vide => retire le `--cpu` de la base : ComfyUI bascule sur le GPU.
-      - COMFYUI_EXTRA_ARGS=
+      # Vide => retire le `--cpu` de la base : ComfyUI bascule sur le GPU (plein debit).
+      # Surchargeable : sur un GPU a faible VRAM (<= 12 Go), exporter
+      # COMFYUI_EXTRA_ARGS=--lowvram avant run.bat permet au pipeline `--final`
+      # (refiner + upscale 4x) de tenir en VRAM (au prix d'un rendu plus lent).
+      - COMFYUI_EXTRA_ARGS=${COMFYUI_EXTRA_ARGS:-}
     deploy:
       resources:
         reservations:
