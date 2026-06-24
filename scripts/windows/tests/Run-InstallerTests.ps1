@@ -151,6 +151,24 @@ Test-Case "Get-OllamaModelNames reads the manifest source of truth" {
   Assert-Eq $names.Count 3 "exactly 3 ollama models"
 }
 
+# 8b) Invoke-Child returns ONLY the integer exit code (not the child's stdout) -----------
+#     Regression: a succeeding child that prints output must not corrupt the exit code.
+Test-Case "Invoke-Child returns the integer exit code, never the child stdout" {
+  $env:AAC_RUN_PS1_NOEXEC = "1"
+  $RepoRoot3 = $RepoRoot; $RepoRoot = $RepoRoot3
+  . $RunPs1
+  $env:AAC_RUN_PS1_NOEXEC = $null
+  $child = New-Temp "-child.ps1"
+  @('Write-Host "noise line one"','Write-Host "noise line two"','exit 0') | Set-Content -LiteralPath $child -Encoding Ascii
+  $code = Invoke-Child $child @()
+  Assert-True ($code -is [int]) "Invoke-Child must return an [int]"
+  Assert-Eq $code 0 "succeeding child must yield code 0"
+  @('Write-Host "boom"','exit 7') | Set-Content -LiteralPath $child -Encoding Ascii
+  $code2 = Invoke-Child $child @()
+  Assert-Eq $code2 7 "failing child must propagate its exit code"
+  Remove-Item $child -Force -ErrorAction SilentlyContinue
+}
+
 # 9) Fetch idempotence: a present file of the right size is skipped (no download) ----------
 Test-Case "Fetch-ComfyUIModels is idempotent (skips present file, exits 0, twice)" {
   $work = New-Temp "-fetch-idem"

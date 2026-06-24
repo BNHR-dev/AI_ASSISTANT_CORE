@@ -79,14 +79,27 @@ def test_required_models_introspect_object_info(monkeypatch):
     def _fake_get(url, timeout=4.0):
         calls.setdefault("urls", []).append(url)
         if "CheckpointLoaderSimple" in url:
-            return _Resp({"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["a.safetensors", "b.safetensors"]]}}}})
-        return _Resp({"UpscaleModelLoader": {"input": {"required": {"model_name": [["4x-UltraSharp.pth"]]}}}})
+            # legacy shape: [[choices], {meta}]
+            return _Resp({"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["a.safetensors", "b.safetensors"], {"tooltip": "x"}]}}}})
+        # COMBO shape (real ComfyUI for UpscaleModelLoader): ["COMBO", {"options": [...]}]
+        return _Resp({"UpscaleModelLoader": {"input": {"required": {"model_name": ["COMBO", {"multiselect": False, "options": ["4x-UltraSharp.pth"]}]}}}})
 
     monkeypatch.setattr(tm.requests, "get", _fake_get)
     avail = tm._comfyui_available_models()
     assert avail["checkpoints"] == {"a.safetensors", "b.safetensors"}
     assert avail["upscale_models"] == {"4x-UltraSharp.pth"}
     assert any("object_info/CheckpointLoaderSimple" in u for u in calls["urls"])
+
+
+def test_extract_object_info_choices_handles_both_shapes():
+    # legacy list-at-[0]
+    assert tm._extract_object_info_choices([["a", "b"], {"tooltip": "x"}]) == ["a", "b"]
+    # COMBO type with options dict (real UpscaleModelLoader shape)
+    assert tm._extract_object_info_choices(["COMBO", {"multiselect": False, "options": ["4x-UltraSharp.pth"]}]) == ["4x-UltraSharp.pth"]
+    # unknown / malformed -> None
+    assert tm._extract_object_info_choices("nope") is None
+    assert tm._extract_object_info_choices([]) is None
+    assert tm._extract_object_info_choices(["COMBO", {"multiselect": False}]) is None
 
 
 def test_runtime_health_reports_comfyui_degraded_not_green(monkeypatch):

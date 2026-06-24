@@ -5,6 +5,7 @@ import json
 import os
 import random
 import re
+import time
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,12 @@ COMFYUI_REFINER_CHECKPOINT_NAME = os.getenv(
     "COMFYUI_REFINER_CHECKPOINT_NAME", "RealVisXL_V5.0_fp16.safetensors"
 )
 COMFYUI_UPSCALE_MODEL_NAME = os.getenv("COMFYUI_UPSCALE_MODEL_NAME", "4x-UltraSharp.pth")
+# Overall budget to wait for one render, and the per-poll HTTP timeout. The first render
+# after a cold start loads a ~6.6 GB checkpoint and the single-threaded ComfyUI server is
+# briefly unresponsive -> generous defaults + transient-tolerant polling (see
+# wait_for_completion) so the very first image does not spuriously fail.
+COMFYUI_HISTORY_TIMEOUT = int(os.getenv("COMFYUI_HISTORY_TIMEOUT", "300"))
+COMFYUI_POLL_TIMEOUT = int(os.getenv("COMFYUI_POLL_TIMEOUT", "15"))
 WORKFLOWS_DIR = Path(__file__).resolve().parents[1] / "workflows" / "comfyui"
 
 # Per-quality graph templates. The category workflow_id (object/portrait/scene)
@@ -534,23 +541,34 @@ def queue_prompt(workflow: dict[str, Any]) -> str:
     return prompt_id
 
 
-def wait_for_completion(prompt_id: str, timeout_seconds: int = 120) -> dict[str, Any]:
-    import time
+def wait_for_completion(prompt_id: str, timeout_seconds: int | None = None) -> dict[str, Any]:
+    if timeout_seconds is None:
+        timeout_seconds = COMFYUI_HISTORY_TIMEOUT
 
     deadline = time.time() + timeout_seconds
     last_history: dict[str, Any] | None = None
+    last_transient: str | None = None
 
     while time.time() < deadline:
         try:
-            response = requests.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=10)
+            response = requests.get(
+                f"{COMFYUI_URL}/history/{prompt_id}", timeout=COMFYUI_POLL_TIMEOUT
+            )
         except requests.RequestException as exc:
-            raise ComfyUIClientError(f"ComfyUI history request failed: {exc}") from exc
+            # ComfyUI is single-threaded: while it loads a checkpoint or samples, the HTTP
+            # server is briefly unresponsive. A transient poll timeout must NOT abort the
+            # whole wait -> keep polling until the overall deadline.
+            last_transient = str(exc)
+            time.sleep(2)
+            continue
 
         if response.ok:
             try:
                 data = response.json()
-            except ValueError as exc:
-                raise ComfyUIClientError("ComfyUI history response is not valid JSON") from exc
+            except ValueError:
+                # Partial/garbled body under load: treat as transient, keep polling.
+                time.sleep(1)
+                continue
 
             if prompt_id in data:
                 return data[prompt_id]
@@ -559,8 +577,11 @@ def wait_for_completion(prompt_id: str, timeout_seconds: int = 120) -> dict[str,
 
         time.sleep(1)
 
+    detail = f"Last history={last_history}"
+    if last_transient:
+        detail += f"; last transient error={last_transient}"
     raise ComfyUIClientError(
-        f"ComfyUI history timeout for prompt_id={prompt_id}. Last history={last_history}"
+        f"ComfyUI history timeout for prompt_id={prompt_id} after {timeout_seconds}s. {detail}"
     )
 
 

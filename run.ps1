@@ -101,10 +101,15 @@ function Test-DockerHasNvidia {
 }
 
 function Invoke-Child([string]$Script, [string[]]$ChildArgs) {
-  # Run a child .ps1 in its own PowerShell so its `exit` does not kill run.ps1 and its
-  # exit code propagates cleanly. Output stays on the console (captured by the transcript).
-  & powershell -NoProfile -ExecutionPolicy Bypass -File $Script @ChildArgs
-  return $LASTEXITCODE
+  # Run a child .ps1 in its own PowerShell so its `exit` does not kill run.ps1. The child
+  # is a SEPARATE process: its stdout comes back as strings on this function's output
+  # stream and would corrupt the return value (commingling text with the exit code). So
+  # capture the output into a variable, echo it for the transcript, and return ONLY the
+  # integer exit code.
+  $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $Script @ChildArgs 2>&1
+  $code = $LASTEXITCODE
+  if ($null -ne $out) { Write-Host ($out | Out-String).TrimEnd() }
+  return $code
 }
 
 function Get-ComposeCid([string[]]$Compose, [string]$Service) {

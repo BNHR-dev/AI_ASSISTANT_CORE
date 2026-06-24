@@ -87,6 +87,26 @@ _COMFYUI_LOADER_FIELDS = (
 )
 
 
+def _extract_object_info_choices(field_spec):
+    """Choices from a ComfyUI /object_info required-input spec.
+
+    ComfyUI mixes two shapes for combo inputs (seen on the same instance):
+      legacy : [[choice, ...], {meta}]                  -> choices are field_spec[0] (a list)
+      combo  : ["COMBO", {"options": [choice, ...]}]    -> choices are field_spec[1]["options"]
+    Returns a list of strings, or None if the spec is not understood.
+    """
+    if not isinstance(field_spec, list) or not field_spec:
+        return None
+    head = field_spec[0]
+    if isinstance(head, list):
+        return [str(x) for x in head]
+    if isinstance(head, str) and head.upper() == "COMBO" and len(field_spec) > 1:
+        opts = field_spec[1]
+        if isinstance(opts, dict) and isinstance(opts.get("options"), list):
+            return [str(x) for x in opts["options"]]
+    return None
+
+
 def _comfyui_available_models(timeout: float = 4.0):
     """Models ComfyUI actually exposes via /object_info. None if it cannot be read."""
     base = get_comfyui_url()
@@ -100,10 +120,13 @@ def _comfyui_available_models(timeout: float = 4.0):
             return None
         try:
             data = response.json()
-            choices = data[node_class]["input"]["required"][field][0]
-        except (ValueError, KeyError, IndexError, TypeError):
+            spec = data[node_class]["input"]["required"][field]
+        except (ValueError, KeyError, TypeError):
             return None
-        available[bucket] = {str(choice) for choice in choices}
+        choices = _extract_object_info_choices(spec)
+        if choices is None:
+            return None
+        available[bucket] = set(choices)
     return available
 
 
