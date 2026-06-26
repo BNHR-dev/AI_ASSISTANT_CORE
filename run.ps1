@@ -96,8 +96,16 @@ function Ensure-DockerDaemon {
 }
 
 function Test-DockerHasNvidia {
+  # Override explicite : AAC_GPU=1 force le GPU, AAC_GPU=0 force le CPU.
+  if ($env:AAC_GPU -eq "1") { return $true }
+  if ($env:AAC_GPU -eq "0") { return $false }
+  # Detection PORTABLE. L'ancien `docker info -match nvidia` ne marche que sous Linux natif :
+  # Docker Desktop/WSL2 expose le GPU SANS publier le runtime "nvidia" dans `docker info`
+  # -> faux negatif -> ComfyUI retombait en CPU et le rendu 2D "final" calait (WSL2 GPU stall).
+  # On SONDE donc reellement : un conteneur jetable lance AVEC --gpus all. S'il demarre, le GPU
+  # est utilisable (vrai sous Linux natif ET WSL2). busybox est minuscule (~4 Mo, telecharge 1x).
   if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) { return $false }
-  return ((Get-DockerInfoText) -match "nvidia")
+  return ((Invoke-DockerQuiet @("run","--rm","--gpus","all","busybox","true")) -eq 0)
 }
 
 function Invoke-Child([string]$Script, [string[]]$ChildArgs) {

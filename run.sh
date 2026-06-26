@@ -44,11 +44,19 @@ docker info >/dev/null 2>&1 || die "le daemon Docker ne répond pas (démarrez D
 COMPOSE=(docker compose --project-directory "$DOCKER_DIR"
          -f "$DOCKER_DIR/docker-compose.app.yml"
          -f "$DOCKER_DIR/docker-compose.sandbox.yml")
+# Détection GPU PORTABLE. L'ancien test `docker info | grep nvidia` ne marchait que sous
+# Linux natif (runtime nvidia-container-toolkit visible) : Docker Desktop/WSL2 expose le
+# GPU SANS publier ce runtime dans `docker info` -> faux négatif -> ComfyUI retombait en
+# CPU et le rendu 2D "final" devenait inexploitable. On SONDE donc réellement : un conteneur
+# jetable lancé AVEC --gpus all (vrai partout). Override : AAC_GPU=1 force, 0 force CPU.
 GPU=0
-if command -v nvidia-smi >/dev/null 2>&1 && docker info 2>/dev/null | grep -qi nvidia; then
-  GPU=1
-  COMPOSE+=(-f "$DOCKER_DIR/docker-compose.gpu.yml")
-fi
+case "${AAC_GPU:-auto}" in
+  1) GPU=1 ;;
+  0) GPU=0 ;;
+  *) if command -v nvidia-smi >/dev/null 2>&1 \
+        && docker run --rm --gpus all busybox true >/dev/null 2>&1; then GPU=1; fi ;;
+esac
+[ "$GPU" = 1 ] && COMPOSE+=(-f "$DOCKER_DIR/docker-compose.gpu.yml")
 
 case "$ACTION" in
   down) log "Arrêt de la stack"; "${COMPOSE[@]}" down; exit 0 ;;
