@@ -127,6 +127,13 @@ root backend `chown`s them).
 - **PyTorch on Python 3.14** — resolved: `cp314` wheels on cpu (`torch 2.12.1`) and cu128
   (`torch 2.11.0`), and every ComfyUI requirement has a cp314 wheel → no compilation.
 - **Windows GPU prerequisites**: Docker Desktop + WSL2 backend + NVIDIA driver (else CPU).
+- **`--final` heavy render under Docker Desktop / WSL2**: the two-stage refiner + 4× ESRGAN
+  hi-res pass can **stall** (GPU ~1 %, repeated torch *"Pin error"*). Cause = WSL2 GPU
+  paravirtualization handling CUDA **pinned memory** poorly, plus the Windows NVIDIA *sysmem
+  fallback* silently spilling saturated VRAM to host RAM. It is **not** a VRAM-capacity issue:
+  the **same RTX 3060 renders `--final` fine on native Linux**. On the Windows/Docker path,
+  keep `draft` (2D) quality, or export `COMFYUI_EXTRA_ARGS=--lowvram` before `run.bat` (fits
+  VRAM, slower), or raise WSL2 RAM via `.wslconfig`. `draft` and text work on every path.
 - **Confinement on Docker** = the hardened container (no bwrap on the rootful path;
   `AAC_BLENDER_SANDBOX=off`). bwrap-without-`SYS_ADMIN` is proven under rootless Podman
   (`SECURITY.md`, Track Z), non-canonical here.

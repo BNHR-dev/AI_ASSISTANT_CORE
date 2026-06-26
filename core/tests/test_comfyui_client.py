@@ -22,7 +22,7 @@ def test_inject_visual_request_updates_expected_nodes(monkeypatch):
 
     import app.clients.comfyui_client as comfyui_client
 
-    monkeypatch.setenv("COMFYUI_CHECKPOINT_NAME", "realvisxlV50_v50Bakedvae.safetensors")
+    monkeypatch.setenv("COMFYUI_CHECKPOINT_NAME", "RealVisXL_V5.0_fp16.safetensors")
     comfyui_client = importlib.reload(comfyui_client)
 
     request = VisualRequest(
@@ -56,7 +56,7 @@ def test_inject_visual_request_updates_expected_nodes(monkeypatch):
     assert injected["11"]["inputs"]["steps"] == 15
     # category workflow_id is preserved as the output prefix
     assert injected["9"]["inputs"]["filename_prefix"] == "cinematic_scene_v1"
-    assert injected["4"]["inputs"]["ckpt_name"] == "realvisxlV50_v50Bakedvae.safetensors"
+    assert injected["4"]["inputs"]["ckpt_name"] == "RealVisXL_V5.0_fp16.safetensors"
 
 
 

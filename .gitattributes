@@ -1,0 +1,8 @@
+# Shell scripts and the model manifest are executed/parsed on Linux: they MUST stay
+# LF even when committed from Windows (CRLF in a bash script breaks the shebang and
+# every line). This overrides core.autocrlf on every clone -> reproducible.
+*.sh        text eol=lf
+*.manifest  text eol=lf
+
+# Windows launchers stay CRLF (native).
+*.bat       text eol=crlf

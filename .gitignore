@@ -24,6 +24,8 @@ venv/
 /benchmarks/
 # untracked working artifacts, anywhere (repo root or core/) — never published
 local_artifacts/
+# run.ps1 / run.sh journals (Start-Transcript)
+/logs/
 *.log
 *.db
 *.sqlite

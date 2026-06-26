@@ -83,7 +83,7 @@ def test_invalid_quality_is_rejected():
 
 def test_draft_payload_has_hires_and_no_refiner(monkeypatch):
     client = reload_client(
-        monkeypatch, COMFYUI_CHECKPOINT_NAME="realvisxlV50_v50Bakedvae.safetensors"
+        monkeypatch, COMFYUI_CHECKPOINT_NAME="RealVisXL_V5.0_fp16.safetensors"
     )
     request = VisualRequest(
         workflow_id="cinematic_scene_v1", positive_prompt="neon city", quality="draft"
@@ -93,7 +93,7 @@ def test_draft_payload_has_hires_and_no_refiner(monkeypatch):
     class_types = {node["class_type"] for node in payload.values()}
     # RealVisXL base is present
     assert any(
-        n.get("inputs", {}).get("ckpt_name") == "realvisxlV50_v50Bakedvae.safetensors"
+        n.get("inputs", {}).get("ckpt_name") == "RealVisXL_V5.0_fp16.safetensors"
         for n in payload.values()
     )
     # hires pass is present (latent upscale)
@@ -107,8 +107,8 @@ def test_draft_payload_has_hires_and_no_refiner(monkeypatch):
 def test_final_payload_has_refiner_and_esrgan(monkeypatch):
     client = reload_client(
         monkeypatch,
-        COMFYUI_CHECKPOINT_NAME="realvisxlV50_v50Bakedvae.safetensors",
-        COMFYUI_REFINER_CHECKPOINT_NAME="realvisxlV50_v50Bakedvae.safetensors",
+        COMFYUI_CHECKPOINT_NAME="RealVisXL_V5.0_fp16.safetensors",
+        COMFYUI_REFINER_CHECKPOINT_NAME="RealVisXL_V5.0_fp16.safetensors",
         COMFYUI_UPSCALE_MODEL_NAME="4x-UltraSharp.pth",
     )
     request = VisualRequest(
@@ -123,7 +123,7 @@ def test_final_payload_has_refiner_and_esrgan(monkeypatch):
     # ESRGAN hires pass
     assert "UpscaleModelLoader" in class_types
     assert payload["20"]["inputs"]["model_name"] == "4x-UltraSharp.pth"
-    assert payload["12"]["inputs"]["ckpt_name"] == "realvisxlV50_v50Bakedvae.safetensors"
+    assert payload["12"]["inputs"]["ckpt_name"] == "RealVisXL_V5.0_fp16.safetensors"
 
 
 def test_seed_and_params_injected_in_all_samplers(monkeypatch):

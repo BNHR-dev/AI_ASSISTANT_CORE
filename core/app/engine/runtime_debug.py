@@ -7,7 +7,11 @@ from app.infra.runtime_urls import (
     get_ollama_tags_url,
     get_searxng_healthcheck_url,
 )
-from app.infra.tool_manager import is_comfyui_ready, is_ollama_ready, is_searxng_ready
+from app.infra.tool_manager import (
+    get_comfyui_status,
+    is_ollama_ready,
+    is_searxng_ready,
+)
 
 
 APP_VERSION = "1.7.0"
@@ -140,6 +144,22 @@ def _build_service_status(
     }
 
 
+def _build_comfyui_status() -> dict:
+    # ComfyUI is reachable vs READY: an empty-but-reachable instance is NOT ready.
+    status = get_comfyui_status()
+    return {
+        "name": "comfyui",
+        "ready": bool(status["ready"]),
+        "reachable": bool(status["reachable"]),
+        "required": False,
+        "role": "visual_generation",
+        "reason": status["reason"],
+        "endpoint": get_comfyui_url(),
+        "activity": "optional",
+        "missing": list(status.get("missing", [])),
+    }
+
+
 def get_runtime_health() -> dict:
     services = {
         "ollama": _build_service_status(
@@ -156,13 +176,7 @@ def get_runtime_health() -> dict:
             required=False,
             endpoint=get_searxng_healthcheck_url(),
         ),
-        "comfyui": _build_service_status(
-            "comfyui",
-            is_comfyui_ready(),
-            role="visual_generation",
-            required=False,
-            endpoint=get_comfyui_url(),
-        ),
+        "comfyui": _build_comfyui_status(),
     }
 
     required_failures = [item["name"] for item in services.values() if item["required"] and not item["ready"]]
