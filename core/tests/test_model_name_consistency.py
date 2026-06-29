@@ -10,6 +10,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CORE = Path(__file__).resolve().parents[1]
 MANIFEST = REPO_ROOT / "scripts" / "models.manifest"
@@ -18,6 +20,18 @@ COMPOSE = REPO_ROOT / "docker" / "docker-compose.app.yml"
 WORKFLOWS = CORE / "app" / "workflows" / "comfyui"
 
 LEGACY_NAME = "realvisxlV50_v50Bakedvae.safetensors"
+
+# Ce module verrouille la cohérence des noms de modèles ENTRE des fichiers
+# répartis dans tout l'arbre du repo (manifest racine, compose racine,
+# .env.example, workflows). Il n'a de sens que si l'arbre complet est présent.
+# Lorsqu'on exécute la suite DANS l'image minimale (`/app` = `core/` seul), les
+# fichiers racine n'existent pas → on SKIP avec une raison claire au lieu
+# d'échouer. La vérification reste active sur l'hôte et en CI (repo complet).
+pytestmark = pytest.mark.skipif(
+    not (MANIFEST.exists() and COMPOSE.exists() and ENV_EXAMPLE.exists()),
+    reason="repo-root consistency files absent (minimal core/ image) — "
+           "this cross-tree check runs on the host and in CI.",
+)
 
 
 def _manifest_comfyui() -> dict:
