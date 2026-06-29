@@ -8,7 +8,7 @@ AI_ASSISTANT_CORE (AAC) takes a natural-language request, makes a structured rou
 
 It is not a thin wrapper around a chat model. The core is a real orchestration loop — **router → planner → executor** — with an observability surface on top, and it runs entirely on your own hardware.
 
-> **Status.** The core (routing, planning, execution, OpenAI-compatible API) is stable and test-covered. The Blender pipeline is experimental but functional. Limitations are stated plainly under [Roadmap](#roadmap) — nothing here is oversold.
+> **Status.** The core (routing, planning, execution, OpenAI-compatible API) is stable and test-covered. The Blender pipeline is experimental but functional — and its LLM quality is **measured, not asserted**: a reproducible, multi-model baseline lives in [`BENCHMARK.md`](BENCHMARK.md). Limitations are stated plainly under [Roadmap](#roadmap) — nothing here is oversold.
 
 ## Quickstart — from zero to running, one command
 
