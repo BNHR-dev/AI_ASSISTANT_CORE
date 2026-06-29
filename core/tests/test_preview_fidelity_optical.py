@@ -87,16 +87,26 @@ def _luminance_std_in_mask(gray: Image.Image, mask: Image.Image) -> tuple[float,
 
 @pytest.fixture(scope="module")
 def renders(tmp_path_factory):
+    # Le vrai rendu va dans un dossier temporaire (toujours inscriptible, même
+    # sous rootfs read-only durci). La copie inspectable sous `outputs/` est un
+    # confort, pas une dépendance du test : best-effort, jamais bloquante.
     d = tmp_path_factory.mktemp("h611_optical")
-    _ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        _ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+        artifact_ok = True
+    except OSError:
+        artifact_ok = False  # FS non inscriptible (conteneur durci) → on garde tmp
     out = {}
     for mode in ("glass", "opaque", "metal"):
         blend = d / f"{mode}.blend"
         png = d / f"{mode}.png"
         _build_fixture(mode, blend)
         _render_via_corrector(blend, png)
-        # copie inspectable
-        Image.open(png).save(_ARTIFACT_DIR / f"{mode}.png")
+        if artifact_ok:
+            try:
+                Image.open(png).save(_ARTIFACT_DIR / f"{mode}.png")
+            except OSError:
+                pass
         out[mode] = png
     return out
 
