@@ -5,7 +5,7 @@
 > **Honest scope.** This benchmark covers **only the two LLM sites of the Blender pipeline**. The router/classifier, the web-search path and the ComfyUI image pipeline are **not yet measured** (planned — see [Roadmap](#roadmap)). The corpora are small (5 and 11 cases): treat these as a **baseline harness**, not an exhaustive evaluation. The value here is the *method* — versioned corpus, pinned inference, deterministic scoring — as much as the score.
 
 - **Default model:** `qwen2.5-coder:7b` (local, via Ollama); cross-model comparison covers 6 candidates (3 B–16 B).
-- **Commit:** `aee4eac` · **Date:** 2026-06-29
+- **Date:** 2026-06-30 (scene-extraction prompt fix: `backdrop`/`pedestal` → 1.000)
 - **Hardware:** single RTX 3060 (12 GB)
 
 ---
@@ -43,20 +43,20 @@ Per case: `freeform_metal_sphere_floating`, `freeform_low_poly_tree`, `ambiguous
 | Metric | Result |
 | --- | --- |
 | Parse OK | **100 %** |
-| Mean score | **0.876 / 1.0** |
+| Mean score | **0.905 / 1.0** |
 
 Per-field accuracy surfaces exactly where it breaks down:
 
 | Field | Accuracy |
 | --- | --- |
 | `framing`, `subject.*` (shape, color, material, kind, cap, transparency) | **1.000** |
-| `pedestal.material` | 1.000 |
-| `backdrop.color` | 0.900 |
 | `subject.kind_fidelity` | 1.000 |
+| `backdrop.color`, `pedestal.color`, `pedestal.material` | 1.000 |
 | **`schema_version`** | **0.545** |
-| **`pedestal.color`** | **0.000** |
 
-Two real weaknesses, stated plainly: the default model is unreliable on `schema_version` (0.545) and, on this single-seed run, missed `pedestal.color` (0.000 — see the cross-model section, where other models do get it). These are tracked, not hidden.
+One real weakness remains, stated plainly: the default model is unreliable on `schema_version` (0.545). It is tracked, not hidden — and it is the *next* extraction-prompt fix to make (see the cross-model finding below).
+
+> **The benchmark drove a fix.** The prior revision flagged two extraction gaps — `backdrop.color` (0.900) and `pedestal.color` (0.000 on the single-seed run). A scene-extraction prompt fix (2026-06-30) closed both to **1.000** while resolving a real rendering bug (a wrong backdrop color bleeding a colored cast over neutral packshots). `schema_version` is the remaining systemic gap.
 
 ### 3. Cross-model comparison — `product_render`
 
@@ -64,22 +64,22 @@ The whole point of a benchmark is to **compare and decide**. Six locally-runnabl
 
 | Rank | Model | Mean score | Parse OK | Time (11 cases) | Note |
 | --- | --- | --- | --- | --- | --- |
-| 1 | `qwen2.5-coder:14b` | **0.923** | 100 % | 94.6 s | best quality, slowest |
-| 2 | **`qwen2.5-coder:7b`** *(default)* | 0.876 | 100 % | **38.8 s** | best quality-per-second |
-| 3 | `codegemma:7b` | 0.845 | 100 % | 75.9 s | other-vendor code model |
-| 4 | `deepseek-coder-v2:16b` | 0.841 | 100 % | 68.4 s | MoE (~2.4 B active): faster than the 14 B *dense* |
-| 5 | `qwen2.5:7b` *(generalist)* | 0.809 | 90.9 % | 44.5 s | same base as `coder:7b`, no code tuning |
-| 6 | `qwen2.5-coder:3b` | 0.773 | 90.9 % | 41.0 s | smallest |
+| 1 | **`qwen2.5-coder:7b`** *(default)* | **0.905** | 100 % | **44.1 s** | best quality *and* quality-per-second |
+| 2 | `qwen2.5-coder:14b` | **0.905** | 100 % | 62.8 s | ties the 7 B, for 1.4× the time |
+| 3 | `deepseek-coder-v2:16b` | 0.900 | 100 % | 46.7 s | MoE (~2.4 B active): nearly top, faster than the 14 B *dense* |
+| 4 | `qwen2.5:7b` *(generalist)* | 0.809 | 90.9 % | 43.0 s | same base as `coder:7b`, no code tuning |
+| 5 | `codegemma:7b` | 0.806 | 100 % | 71.7 s | other-vendor code model |
+| 6 | `qwen2.5-coder:3b` | 0.785 | 90.9 % | 30.9 s | smallest, fastest |
 
 **What it shows:**
 
-- **The default is the right call.** `qwen2.5-coder:7b` lands 2nd on quality while being **>2× faster** than the top model — the best quality/latency trade-off on consumer hardware. The model choice is now *evidence-backed*, not assumed.
-- **Size helps, with diminishing returns and a real latency cost.** 3b → 7b → 14b climbs monotonically (0.773 → 0.876 → 0.923), but the 14b pays 2.4× the time for +0.047.
-- **Code fine-tuning earns its keep.** `coder:7b` (0.876, 100 % parse) beats the *same-base, same-size* generalist `qwen2.5:7b` (0.809, 90.9 % parse). A controlled result: the only variable is the code tuning.
-- **Total params ≠ quality.** The 16 B MoE ran faster than the 14 B dense (confirming the MoE expectation) but ranked 4th on quality — bigger headline number, not better output.
-- **A systemic weakness, not a model one.** `schema_version` is weak for *every* model (best 0.636). When all candidates fail at the same field, the likely cause is the prompt/spec, not the model — a fix to make on our side.
+- **The default is the right call — now unambiguously.** `qwen2.5-coder:7b` is **tied for the best quality** (0.905, with the 14 B) while running **1.4× faster**. It is the best quality *and* the best quality-per-second among the strong models. The model choice is *evidence-backed*, not assumed.
+- **Returns flatten, they don't just diminish.** 3b → 7b → 14b reads 0.785 → 0.905 → **0.905**: the 14 B adds **nothing** over the 7 B on this corpus, for 1.4× the latency. At this scale, paying for more parameters buys no quality.
+- **Code fine-tuning earns its keep.** `coder:7b` (0.905, 100 % parse) beats the *same-base, same-size* generalist `qwen2.5:7b` (0.809, 90.9 % parse) by **+0.096**. A controlled result: the only variable is the code tuning.
+- **Total params ≠ quality.** The 16 B MoE lands 3rd (0.900) — close, and faster than the 14 B dense (confirming the MoE expectation), but not better than the 7 B. Bigger headline number, not better output.
+- **A systemic weakness, not a model one.** `schema_version` is weak for *every* model (best 0.636). When all candidates fail at the same field, the cause is the prompt/spec, not the model — exactly the kind of fix just applied to `backdrop`/`pedestal` this revision, with `schema_version` next in line.
 
-> **Consolidation (5 seeds).** Re-running the podium (14b / 7b / codegemma) across seeds `42,7,1,123,999` returns **bit-identical scores** — the ranking is perfectly stable. Note *why*: the canonical config is greedy (`temperature=0`, `top_k=1`), so the seed does not change the output. This proves **reproducibility**, not robustness to sampling noise — measuring the latter would require `temperature > 0`, and is left as honest future work. The corpus is also small (11 cases), so per-field figures stay indicative rather than definitive.
+> **Consolidation (5 seeds).** Re-running the default (`coder:7b`) across seeds `42,7,1,123,999` returns **bit-identical scores** (mean 0.905 every time). Note *why*: the canonical config is greedy (`temperature=0`, `top_k=1`), so the seed does not change the output. This proves **reproducibility**, not robustness to sampling noise — measuring the latter would require `temperature > 0`, and is left as honest future work. The corpus is also small (11 cases), so per-field figures stay indicative rather than definitive.
 
 ---
 
