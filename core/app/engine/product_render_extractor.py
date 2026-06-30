@@ -257,6 +257,14 @@ objet de la liste kind (bouteille, pot, boîte, tube, cylindre, sphère, \
 montre/chronomètre). Sinon `approximate` : le kind choisi n'est qu'une \
 approximation de l'objet demandé.
 
+Fond (`backdrop`) :
+- Si la demande NOMME une couleur ou une nuance de fond, respecte-la \
+EXACTEMENT, y compris les nuances de gris : "fond gris froid" → cool_gray, \
+"fond gris chaud" → warm_gray, "fond gris neutre" → neutral_gray, \
+"fond bleu" → blue, "backdrop noir" → black.
+- UNIQUEMENT si la demande ne décrit AUCUN fond, utilise `neutral_gray` \
+par défaut (studio neutre). N'invente JAMAIS une couleur de fond non demandée.
+
 Socle (`pedestal`) :
 - Fournis la clé `pedestal` UNIQUEMENT si la demande décrit le socle, le \
 support ou la base du produit (couleur ou matière). Exemple : "sur socle \
