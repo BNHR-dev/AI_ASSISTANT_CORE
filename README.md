@@ -124,14 +124,14 @@ Most solo projects say *"it works."* AAC **measures** it. Two reproducible eval 
 
 | Model | Quality | Time (11 cases) |
 |---|---|---|
-| **`qwen2.5-coder:7b`** *(default)* | **0.905** | **44.1 s** |
-| `qwen2.5-coder:14b` | 0.905 | 62.8 s |
-| `deepseek-coder-v2:16b` | 0.900 | 46.7 s |
-| `qwen2.5:7b` *(generalist)* | 0.809 | 43.0 s |
-| `codegemma:7b` | 0.806 | 71.7 s |
-| `qwen2.5-coder:3b` | 0.785 | 30.9 s |
+| **`qwen2.5-coder:7b`** *(default)* | **0.987** | **34.4 s** |
+| `qwen2.5-coder:14b` | 0.951 | 56.9 s |
+| `qwen2.5:7b` *(generalist)* | 0.931 | 40.0 s |
+| `qwen2.5-coder:3b` | 0.862 | 29.2 s |
+| `codegemma:7b` | 0.828 | 67.3 s |
+| `deepseek-coder-v2:16b` | 0.822 | 48.9 s |
 
-The default (`coder:7b`) is **tied for the best quality while running 1.4× faster** than the model it ties — the best quality-per-second on consumer hardware. Clean findings fall out: a code-tuned model beats the *same-size, same-base* generalist (0.905 vs 0.809), the 14 B buys **no** quality over the 7 B for its extra latency, and one field (`schema_version`) is weak for *every* model — so that's the spec to fix, not the model.
+The default (`coder:7b`) is **the best quality outright — and the fastest of the strong models** (1.65× faster than the runner-up) on consumer hardware. The benchmark keeps earning its keep: its per-field breakdown exposed a spec-level weakness (`schema_version`, weak for *every* model), one extraction-prompt fix later that field scores 1.000 — and re-running the six-model comparison showed the rankings reshuffle with the prompt, proof that a benchmark measures the **model × prompt pair**, not the model alone.
 
 **Honest scope:** small corpora (5 and 11 cases), only the Blender-side LLM is measured yet, and the pinned greedy decoding makes this a *reproducibility* baseline, not a robustness one. Full method, per-field scores and the cross-seed consolidation → [`BENCHMARK.md`](BENCHMARK.md).
 

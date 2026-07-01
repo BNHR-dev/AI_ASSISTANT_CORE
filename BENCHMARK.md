@@ -5,7 +5,7 @@
 > **Honest scope.** This benchmark covers **only the two LLM sites of the Blender pipeline**. The router/classifier, the web-search path and the ComfyUI image pipeline are **not yet measured** (planned — see [Roadmap](#roadmap)). The corpora are small (5 and 11 cases): treat these as a **baseline harness**, not an exhaustive evaluation. The value here is the *method* — versioned corpus, pinned inference, deterministic scoring — as much as the score.
 
 - **Default model:** `qwen2.5-coder:7b` (local, via Ollama); cross-model comparison covers 6 candidates (3 B–16 B).
-- **Date:** 2026-06-30 (scene-extraction prompt fix: `backdrop`/`pedestal` → 1.000)
+- **Date:** 2026-07-01 (extraction-prompt fix: `schema_version` 0.545 → 1.000 on the default model)
 - **Hardware:** single RTX 3060 (12 GB)
 
 ---
@@ -38,25 +38,24 @@ Per case: `freeform_metal_sphere_floating`, `freeform_low_poly_tree`, `ambiguous
 
 ### 2. `product_render` — quality of the structured scene extraction
 
-11 cases · single run.
+11 cases · measured three times on 2026-07-01 (single run, 5-seed consolidation, cross-model session).
 
 | Metric | Result |
 | --- | --- |
-| Parse OK | **100 %** |
-| Mean score | **0.905 / 1.0** |
+| Parse OK | **100 %** (every session) |
+| Mean score | **0.98 – 1.00** (1.000 · 0.982 · 0.987 across the three sessions) |
 
-Per-field accuracy surfaces exactly where it breaks down:
+Per-field accuracy:
 
 | Field | Accuracy |
 | --- | --- |
 | `framing`, `subject.*` (shape, color, material, kind, cap, transparency) | **1.000** |
-| `subject.kind_fidelity` | 1.000 |
-| `backdrop.color`, `pedestal.color`, `pedestal.material` | 1.000 |
-| **`schema_version`** | **0.545** |
+| `subject.kind_fidelity`, `backdrop.color`, `pedestal.*` | 1.000 |
+| **`schema_version`** | **1.000** *(was 0.545 — fixed this revision, see below)* |
 
-One real weakness remains, stated plainly: the default model is unreliable on `schema_version` (0.545). It is tracked, not hidden — and it is the *next* extraction-prompt fix to make (see the cross-model finding below).
+> **The benchmark drove a fix — again.** The 2026-06-30 revision fixed `backdrop.color`/`pedestal.color` at the prompt level. This revision closes the last systemic gap: `schema_version` (0.545 → 1.000). Root cause: the model *inferred* V1 attributes from the object type ("tube" → cylindrical) and then labeled the extraction v1 even when the request never stated them. The fix is an **anti-inference rule** in the extraction prompt — a V1 field may only be filled when the request states it explicitly — plus two contrastive examples. No model change, no scoring change, one prompt edit.
 
-> **The benchmark drove a fix.** The prior revision flagged two extraction gaps — `backdrop.color` (0.900) and `pedestal.color` (0.000 on the single-seed run). A scene-extraction prompt fix (2026-06-30) closed both to **1.000** while resolving a real rendering bug (a wrong backdrop color bleeding a colored cast over neutral packshots). `schema_version` is the remaining systemic gap.
+**Honest nuance — reproducibility has a boundary.** Within one server session, greedy decoding is bit-identical (5 seeds, stdev 0.000). *Across* sessions, exactly one borderline case can flip (observed twice: the amber-bottle v0/v1 label; the watch pedestal color) — hence the 0.98–1.00 range instead of a single number. Reproducibility holds within a session; the residual across-session variance is ±1 case (±0.018 on the mean).
 
 ### 3. Cross-model comparison — `product_render`
 
@@ -64,22 +63,22 @@ The whole point of a benchmark is to **compare and decide**. Six locally-runnabl
 
 | Rank | Model | Mean score | Parse OK | Time (11 cases) | Note |
 | --- | --- | --- | --- | --- | --- |
-| 1 | **`qwen2.5-coder:7b`** *(default)* | **0.905** | 100 % | **44.1 s** | best quality *and* quality-per-second |
-| 2 | `qwen2.5-coder:14b` | **0.905** | 100 % | 62.8 s | ties the 7 B, for 1.4× the time |
-| 3 | `deepseek-coder-v2:16b` | 0.900 | 100 % | 46.7 s | MoE (~2.4 B active): nearly top, faster than the 14 B *dense* |
-| 4 | `qwen2.5:7b` *(generalist)* | 0.809 | 90.9 % | 43.0 s | same base as `coder:7b`, no code tuning |
-| 5 | `codegemma:7b` | 0.806 | 100 % | 71.7 s | other-vendor code model |
-| 6 | `qwen2.5-coder:3b` | 0.785 | 90.9 % | 30.9 s | smallest, fastest |
+| 1 | **`qwen2.5-coder:7b`** *(default)* | **0.987** | 100 % | **34.4 s** | best quality outright, and fastest of the strong models |
+| 2 | `qwen2.5-coder:14b` | 0.951 | 100 % | 56.9 s | clearly behind the 7 B now, for 1.65× the time |
+| 3 | `qwen2.5:7b` *(generalist)* | 0.931 | 100 % | 40.0 s | biggest beneficiary of the clearer prompt (was 0.809) |
+| 4 | `qwen2.5-coder:3b` | 0.862 | 100 % | 29.2 s | smallest, fastest |
+| 5 | `codegemma:7b` | 0.828 | 90.9 % | 67.3 s | parse regressed under the longer prompt |
+| 6 | `deepseek-coder-v2:16b` | 0.822 | 90.9 % | 48.9 s | was 3rd (0.900) on the previous prompt — dropped, with parse failures |
 
 **What it shows:**
 
-- **The default is the right call — now unambiguously.** `qwen2.5-coder:7b` is **tied for the best quality** (0.905, with the 14 B) while running **1.4× faster**. It is the best quality *and* the best quality-per-second among the strong models. The model choice is *evidence-backed*, not assumed.
-- **Returns flatten, they don't just diminish.** 3b → 7b → 14b reads 0.785 → 0.905 → **0.905**: the 14 B adds **nothing** over the 7 B on this corpus, for 1.4× the latency. At this scale, paying for more parameters buys no quality.
-- **Code fine-tuning earns its keep.** `coder:7b` (0.905, 100 % parse) beats the *same-base, same-size* generalist `qwen2.5:7b` (0.809, 90.9 % parse) by **+0.096**. A controlled result: the only variable is the code tuning.
-- **Total params ≠ quality.** The 16 B MoE lands 3rd (0.900) — close, and faster than the 14 B dense (confirming the MoE expectation), but not better than the 7 B. Bigger headline number, not better output.
-- **A systemic weakness, not a model one.** `schema_version` is weak for *every* model (best 0.636). When all candidates fail at the same field, the cause is the prompt/spec, not the model — exactly the kind of fix just applied to `backdrop`/`pedestal` this revision, with `schema_version` next in line.
+- **The default is the right call — now outright.** `qwen2.5-coder:7b` is **first, alone** (0.987) *and* the fastest of the strong models — 1.65× faster than the runner-up. On the previous prompt it tied the 14 B; on the tightened prompt it simply wins. The model choice is *evidence-backed*, not assumed.
+- **A spec fix beat a model swap.** `schema_version` was weak for *every* model on the old prompt (best 0.636) — a spec problem, not a model problem. One prompt edit later, the default scores 1.000 on it. No amount of "try a bigger model" would have found that; the per-field breakdown did.
+- **A benchmark measures the pair, not the model.** Same corpus, same scoring, new prompt: `deepseek-coder-v2:16b` fell from 3rd (0.900) to 6th (0.822) with parse failures, while the generalist `qwen2.5:7b` jumped +0.122. Rankings are **model × prompt fit** — which is exactly why the comparison is re-run after every prompt change instead of quoting stale numbers.
+- **Code fine-tuning still earns its keep — less starkly.** `coder:7b` (0.987) beats the *same-base, same-size* generalist (0.931) by +0.056 (was +0.096). The clearer the spec, the smaller the specialization gap — an expected and honest convergence.
+- **Returns still flatten past 7 B.** The 14 B scores *below* the 7 B (0.951 vs 0.987) for 1.65× the latency. At this scale, paying for more parameters buys no quality.
 
-> **Consolidation (5 seeds).** Re-running the default (`coder:7b`) across seeds `42,7,1,123,999` returns **bit-identical scores** (mean 0.905 every time). Note *why*: the canonical config is greedy (`temperature=0`, `top_k=1`), so the seed does not change the output. This proves **reproducibility**, not robustness to sampling noise — measuring the latter would require `temperature > 0`, and is left as honest future work. The corpus is also small (11 cases), so per-field figures stay indicative rather than definitive.
+> **Consolidation (5 seeds).** Re-running the default (`coder:7b`) across seeds `42,7,1,123,999` returns **bit-identical scores within the session** (mean 0.982 every time, stdev 0.000). Note *why*: the canonical config is greedy (`temperature=0`, `top_k=1`), so the seed does not change the output. This proves **reproducibility**, not robustness to sampling noise — measuring the latter would require `temperature > 0`, and is left as honest future work. Across sessions, one borderline case can flip (see the nuance in section 2). The corpus is also small (11 cases), so per-field figures stay indicative rather than definitive.
 
 ---
 
