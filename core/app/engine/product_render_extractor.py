@@ -281,6 +281,41 @@ cas, OMETS complètement les clés `shape`, `cap`, `transparency`, \
 - Utilise `schema_version="v1"` UNIQUEMENT si tu remplis effectivement \
 au moins un de ces champs V1.
 
+RÈGLE ANTI-INFÉRENCE (critique pour le choix v0/v1) : un champ V1 ne se \
+remplit QUE si la demande l'énonce avec un mot explicite. Ne DÉDUIS \
+JAMAIS `shape`, `cap`, `transparency` ou `framing` du type d'objet ni \
+du bon sens :
+- "tube" seul → N'écris PAS shape=cylindrical ni transparency=opaque ;
+- "boîte" seule → N'écris PAS shape=rectangular ;
+- "bouteille" ou "flacon" seuls → N'écris PAS cap=present : il faut \
+"bouchon", "couvercle" ou équivalent dans la demande ;
+- "en verre" seul → material=glass, et N'écris PAS transparency ;
+- transparency s'écrit UNIQUEMENT si la demande contient un mot de \
+transmission, avec ce mapping strict : "transparent"/"transparente" → \
+transparency=glass (la valeur "transparent" N'EXISTE PAS, ne l'écris \
+jamais) ; "translucide" → translucent ; "opaque" → opaque ;
+- aucun mot de cadrage (packshot, plan rapproché, cadrage moyen...) → \
+N'écris PAS framing.
+Si aucun champ V1 n'est énoncé explicitement, la bonne réponse est \
+`schema_version="v0"` SANS les clés V1.
+
+Exemples du choix v0/v1 (à imiter) :
+- "bouteille de shampoing verte en verre sur fond beige" → \
+{{"schema_version": "v0", "subject": {{"kind": "bottle", "color": "green", \
+"material": "glass", "label": "bouteille de shampoing verte en verre", \
+"kind_fidelity": "exact"}}, "backdrop": {{"color": "beige"}}}} \
+(rien d'explicite sur silhouette/bouchon/transparence/cadrage → v0, \
+même si une bouteille a "évidemment" un bouchon et que le verre est \
+"évidemment" transparent).
+- "packshot serré d'un flacon cylindrique translucide bleu avec bouchon, \
+fond noir" → \
+{{"schema_version": "v1", "subject": {{"kind": "bottle", "color": "blue", \
+"material": "glossy", "shape": "cylindrical", "cap": "present", \
+"transparency": "translucent", "label": "flacon cylindrique translucide \
+bleu avec bouchon", "kind_fidelity": "exact"}}, "backdrop": \
+{{"color": "black"}}, "framing": "close_packshot"}} \
+(chaque champ V1 rempli correspond à un mot explicite de la demande).
+
 Distinction CRITIQUE material vs transparency :
 - `material` est l'aspect de surface : matte, glossy, glass, metallic.
 - `transparency` est le profil de transmission : opaque, translucent, glass.
