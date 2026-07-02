@@ -153,7 +153,7 @@ curl -sN http://127.0.0.1:8000/v1/chat/completions \
 
 ## Roadmap
 
-**Where this is going** — the bet is *grounded* 3D-native generation. The AI fills validated specs today; next is retrieval-augmented grounding (**RAG**) over a studio's own assets and conventions, so native-3D output stays correct and consistent at production scale. AI that *assists* the 3D pipeline rather than replacing it with flat images.
+**Where this is going** — the bet is *grounded* 3D-native generation, and it is no longer a lone bet: **world models** are pushing AI toward real 3D understanding. Yann LeCun left Meta and raised $1B to build them (AMI Labs); World Labs' Marble already exports generated worlds as meshes and Gaussian splats. None of them ship **production discipline** — contracts, verification, traceability. That layer is what AAC builds. The AI fills validated specs today; next is retrieval-augmented grounding (**RAG**) over a studio's own assets and conventions, so native-3D output stays correct and consistent at production scale. And when generated worlds reach the pipeline, they get treated like everything else here: **untrusted input, put under contract**. AI that *assists* the 3D pipeline rather than replacing it with flat images.
 
 Near-term, concrete:
 - **Stronger isolation.** Generated `bpy` code already runs OS-confined (bubblewrap / hardened container). Next: a dedicated VM, ComfyUI confinement, and CPU/RAM quotas — so untrusted code can never touch confidential assets or exhaust the host. A goal, not a shipped guarantee.
