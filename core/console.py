@@ -457,7 +457,12 @@ def eval_view(request: Request, file: str | None = None):
     return templates.TemplateResponse(
         request,
         "_eval.html",
-        {"reports": reports, "selected": selected, "summary": summary},
+        {
+            "reports": reports,
+            "selected": selected,
+            "summary": summary,
+            "eval_dir": str(EVAL_DIR),
+        },
     )
 
 
