@@ -71,4 +71,11 @@
   {% else %}
     <div class="strip err">⚠️ Unreadable report: {{ selected }}</div>
   {% endif %}
+
+  <div class="reveal-row">
+    <button class="ghost"
+            hx-post="/console/reveal?path={{ eval_dir | urlencode }}"
+            hx-target="next .reveal-out" hx-swap="outerHTML">📂 Open / locate reports folder</button>
+    <span class="reveal-out muted">— click to open it (native) or see its path on disk (Docker)</span>
+  </div>
 {% endif %}
