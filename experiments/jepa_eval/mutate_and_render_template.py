@@ -10,12 +10,21 @@
 import json
 import math
 import os
+import re
 
 import bpy
 from mathutils import Vector
 
 VARIANT = os.environ["JEPA_VARIANT"]
 OUT_DIR = os.environ["JEPA_OUT"]
+
+# Graded defects: "deg_<type>_iN" (N = 1..3) is a weaker version of "deg_<type>"
+# (the unsuffixed variant stays the full-strength defect, N = 4 conceptually).
+# Strict "_iN" suffix match — "deg_intruder" itself contains "_i".
+LEVEL = 4
+_m = re.match(r"^(.+)_i(\d)$", VARIANT)
+if _m:
+    VARIANT, LEVEL = _m.group(1), int(_m.group(2))
 
 scene = bpy.context.scene
 # Some pipeline .blends carry a Camera object without the active-camera pointer set.
@@ -58,13 +67,18 @@ elif VARIANT == "deg_nolight":
         key = max(lights, key=lambda o: o.data.energy, default=None)
     if key is None:
         raise SystemExit("no light in scene — cannot inject the missing-light defect")
-    bpy.data.objects.remove(key, do_unlink=True)
+    if LEVEL >= 4:
+        bpy.data.objects.remove(key, do_unlink=True)
+    else:
+        key.data.energy *= {1: 0.75, 2: 0.50, 3: 0.25}[LEVEL]
 elif VARIANT == "deg_framing":
-    orbit_and_scale(0.0, 2.5)
-    cam.location.x += 0.5
-    cam.location.z += 0.25
+    t = {1: 0.2, 2: 0.5, 3: 0.8, 4: 1.0}[LEVEL]
+    orbit_and_scale(0.0, 1.0 + 1.5 * t)
+    cam.location.x += 0.5 * t
+    cam.location.z += 0.25 * t
 elif VARIANT == "deg_intruder":
-    bpy.ops.mesh.primitive_cube_add(size=0.15, location=(0.28, -0.02, 0.075))
+    size = {1: 0.04, 2: 0.07, 3: 0.11, 4: 0.15}[LEVEL]
+    bpy.ops.mesh.primitive_cube_add(size=size, location=(0.28, -0.02, size / 2))
     cube = bpy.context.object
     cube.name = "Intruder_Cube"
     mat = bpy.data.materials.new("Intruder_Mat")
@@ -75,7 +89,7 @@ elif VARIANT == "deg_intruder":
     cube.data.materials.append(mat)
 elif VARIANT == "deg_rimlight":
     light_data = bpy.data.lights.new("Rim_Light", type="AREA")
-    light_data.energy = 200.0
+    light_data.energy = {1: 25.0, 2: 75.0, 3: 140.0, 4: 200.0}[LEVEL]
     light_data.color = (1.0, 0.05, 0.6)
     light_data.size = 1.0
     rim = bpy.data.objects.new("Rim_Light", light_data)

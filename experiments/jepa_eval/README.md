@@ -1,10 +1,11 @@
 # Experiment A — a V-JEPA "learned eye" next to the deterministic contracts
 
-**Status: done — real signal.** Primary AUC **1.000** over all 80 within-case pairs (pre-registered
-threshold for "real signal": ≥ 0.80), including perfect separation of the two defect classes the deployed
-contract cannot see (intruder object, colored rim light) — the stretch goal. Margins are thin and stated:
-worst conform 0.9962 vs best degraded 0.9935. Full numbers in [`results/`](results/), summary in
-[`BENCHMARK.md §4`](../../BENCHMARK.md).
+**Status: done, hardened — real signal.** Primary AUC **0.975** over 320 within-case pairs
+(pre-registered threshold for "real signal": ≥ 0.80), across 4 defect families × 4 intensities.
+V-JEPA is the only tested representation that never drops below 0.80 at any intensity; the trivial
+baselines (raw pixels, color histograms — same protocol) **invert below chance** on the subtle
+structural defect (small intruder cube, AUC down to 0.00), the very defect the deployed contract
+cannot see either. Full numbers in [`results/`](results/), analysis in [`BENCHMARK.md §4`](../../BENCHMARK.md).
 
 AAC verifies product renders with deterministic contracts (required objects, visual QA, geometric framing).
 This experiment adds a third look of a different nature: a **learned metric**. A frozen video world-model encoder
@@ -28,11 +29,12 @@ Measured by AUC (probability that a conforming render scores above a degraded on
 ## Method
 
 1. **Labeled dataset** — the prompts of the product-render eval corpus (`core/app/engine/product_render_eval_cases.py`)
-   rendered through the real pipeline, then mutated into 8 variants: 4 conforming (pipeline output + 3 in-contract
-   camera jitters) and 4 degraded (key light removed · camera pushed off-frame · intruder object · strong colored rim
-   light). 512×512, EEVEE. Every variant records what the deployed contract sees (`contract_verdict`).
-   **5 of the 11 corpus cases qualify** — the other 6 route to the legacy scaffold path where no contract applies
-   (upstream template routing; recorded in the dataset's `excluded.json`). Final dataset: **40 images**.
+   rendered through the real pipeline, then mutated: 4 conforming variants (pipeline output + 3 in-contract camera
+   jitters) and 4 defect families **at 4 intensities each** (key light dimmed 25/50/75 % then removed · framing slightly
+   off → broken · intruder cube 4 → 15 cm · colored rim light 25 → 200 W). 512×512, EEVEE. Every variant records what
+   the deployed contract sees (`contract_verdict`). **5 of the 11 corpus cases qualify** — the other 6 route to the
+   legacy scaffold path where no contract applies (upstream template routing; recorded in the dataset's
+   `excluded.json`). Final dataset: **100 images**.
 2. **Encode** — each image through the frozen encoder (no training, no fine-tuning).
 3. **Score** — cosine similarity to the leave-one-out centroid of the same case's conforming embeddings.
 4. **Separate** — global AUC + per-defect AUC (pure-Python Mann-Whitney; no sklearn).
@@ -54,8 +56,10 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 pip install -r requirements.txt
 
-python make_dataset.py        # drives the running AAC stack (docker compose up first)
-python encode_and_score.py    # needs a GPU for comfort; CPU works, slower
+python make_dataset.py                       # drives the running AAC stack (docker compose up first)
+python encode_and_score.py                   # V-JEPA (GPU for comfort; CPU works, slower)
+python encode_and_score.py --embedder pixel      # trivial baseline: raw 64x64 pixels
+python encode_and_score.py --embedder histogram  # trivial baseline: RGB color histograms
 ```
 
 Dataset and reports land in `docker/outputs/blender/_jepa_eval/` (host side, gitignored).

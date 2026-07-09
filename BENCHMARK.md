@@ -84,18 +84,24 @@ The whole point of a benchmark is to **compare and decide**. Six locally-runnabl
 
 Deterministic contracts tell you *which rule broke* — but they can't see what they were never taught. This experiment puts a frozen world-model encoder next to them ([V-JEPA 2.1](https://github.com/facebookresearch/vjepa2) ViT-L/16, MIT, pinned commit) and asks one question: does an embedding distance separate conforming renders from degraded ones? Protocol, dataset builder and success thresholds were fixed **before** the first measurement — see [`experiments/jepa_eval/`](experiments/jepa_eval/).
 
-**Setup.** 5 corpus cases rendered by the real pipeline, then mutated into 8 variants each: 4 conforming (pipeline output + 3 in-contract camera jitters) and 4 injected defects. 40 images, labeled by construction, each recording what the deployed contract sees. Score = cosine similarity to the case's conform centroid, leave-one-out.
+**Setup.** 5 corpus cases rendered by the real pipeline, then mutated: 4 conforming variants per case (pipeline output + 3 in-contract camera jitters) and 4 defect families **at 4 intensities each** — key light dimmed 25/50/75 % then removed · framing from slightly off to broken · an intruder cube from 4 cm to 15 cm · a colored rim light from 25 W to 200 W. 100 images, labeled by construction, each recording what the deployed contract sees. Score = cosine similarity to the case's conform centroid, leave-one-out. Two **trivial baselines** run the exact same protocol with dumb representations (raw 64×64 pixels; RGB color histograms) — the control that says whether the world model earns anything.
 
-| Injected defect | AUC | Does the deployed contract see it? |
-|---|---|---|
-| key light removed | 1.000 | yes — required object missing |
-| broken framing | 1.000 | partially — pixel checks are signal-only; the geometric check would catch it live |
-| intruder object | 1.000 | **no** — only `Sun` is forbidden |
-| colored rim light | 1.000 | **no** — lighting coherence is unchecked |
+AUC per defect × intensity (1 = weakest), 20 within-case pairs each:
 
-**Result: AUC = 1.000 over all 80 within-case pairs** (pre-registered thresholds: ≥ 0.80 = real signal, ≤ 0.60 = documented negative). The two defect classes the deployed contract cannot see are separated perfectly — the experiment's stretch goal. The margin is thin and stated: worst conform 0.9962 vs best degraded 0.9935, and the closest calls are all the intruder object — the subtlest defect.
+| Defect (weak → strong) | V-JEPA | pixels | histogram | Contract sees it? |
+|---|---|---|---|---|
+| key light dimmed 25 % → removed | **0.80 · 1.0 · 1.0 · 1.0** | 0.25 · 0.50 · 1.0 · 1.0 | 1.0 · 1.0 · 1.0 · 1.0 | only full removal |
+| framing slightly off → broken | **1.0 · 1.0 · 1.0 · 1.0** | 0.95 · 1.0 · 1.0 · 1.0 | 0.45 · 0.95 · 1.0 · 1.0 | partially (signal-only pixel checks) |
+| intruder cube 4 → 15 cm | **0.85 · 0.95 · 1.0 · 1.0** | 0.25 · 0.25 · 0.40 · 0.60 | 0.00 · 0.15 · 0.55 · 0.80 | **no** — only `Sun` is forbidden |
+| colored rim light 25 → 200 W | **1.0 · 1.0 · 1.0 · 1.0** | 1.0 · 1.0 · 1.0 · 1.0 | 1.0 · 1.0 · 1.0 · 1.0 | **no** — lighting coherence unchecked |
 
-**Honest scope.** Tiny corpus, defects deliberately visible, single still images, frozen encoder: this is *a third look, not a quality oracle* — it says nothing about beauty. The next hard test is defects at the threshold of visibility, and video/turntable input (V-JEPA's native ground).
+**Result: primary AUC 0.975 over 320 within-case pairs** (pre-registered thresholds: ≥ 0.80 = real signal). Three readings:
+
+- **V-JEPA is the only representation that never drops below 0.80 at any defect intensity**, and it bends exactly where a human would hesitate: a 4 cm cube (0.85), a 25 % light dim (0.80).
+- **The baselines don't just fail on subtle structural defects — they invert.** A small intruder cube scores *below chance* on pixels and histograms (down to AUC 0.00): legitimate camera jitter moves more pixels than an illegitimate small cube, so the defect looks *more normal* than the conforming variants. Trivial metrics measure **change**; the embedding measures something closer to **conformity** — which is the whole point.
+- **The defect that is both contract-blind and baseline-resistant — the intruder object — is exactly where the world model earns its keep.**
+
+**Honest scope.** Tiny corpus (5 cases), synthetic defects, single still images, frozen encoder: this is *a third look, not a quality oracle* — it says nothing about beauty. Next hard test: video/turntable input (V-JEPA's native ground) and defects below these intensities.
 
 **A finding made on the way: 6 of the 11 corpus prompts never reach the deterministic builder.** The upstream template routing sends them down the legacy scaffold path, where no contract applies (recorded per case in the dataset's `excluded.json`). The extraction corpus was built to test the *extractor*; the template routing in front of it turns out to be untested — it is now on the roadmap.
 

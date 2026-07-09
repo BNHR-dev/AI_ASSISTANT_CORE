@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -35,13 +36,25 @@ BLENDER_EXE = os.environ.get("BLENDER_EXE", "/usr/local/bin/blender")
 FIDELITY_MARKER = "### PREVIEW_FIDELITY_BLOCK ###"
 
 CONFORM_VARIANTS = ("conform_j1", "conform_j2", "conform_j3")
-DEGRADED_VARIANTS = ("deg_nolight", "deg_framing", "deg_intruder", "deg_rimlight")
+DEFECT_FAMILIES = ("deg_nolight", "deg_framing", "deg_intruder", "deg_rimlight")
+# _i1.._i3 = graded (weak → strong) versions; the unsuffixed name is full strength (4).
+DEGRADED_VARIANTS = tuple(
+    f"{family}_i{level}" for family in DEFECT_FAMILIES for level in (1, 2, 3)
+) + DEFECT_FAMILIES
 DEFECT_OF = {
-    "deg_nolight": "key light removed",
+    "deg_nolight": "key light removed (graded: dimmed)",
     "deg_framing": "camera pushed far and off-axis",
     "deg_intruder": "intruder cube next to the product",
     "deg_rimlight": "strong colored rim light",
 }
+
+
+def defect_family_and_level(variant: str) -> tuple[str, int]:
+    # Strict "_iN" suffix only — "deg_intruder" itself contains "_i".
+    match = re.match(r"^(.+)_i(\d)$", variant)
+    if match:
+        return match.group(1), int(match.group(2))
+    return variant, 4
 
 
 def build_mutate_script() -> Path:
@@ -214,13 +227,16 @@ def run_variant(case_id: str, blend: Path, variant: str, script: Path) -> None:
     if objects_path.exists():
         object_names = json.loads(objects_path.read_text(encoding="utf-8"))["object_names"]
     label = "conform" if variant in CONFORM_VARIANTS else "degraded"
+    family, level = defect_family_and_level(variant)
     write_variant_json(
         out_dir,
         {
             "case_id": case_id,
             "variant": variant,
             "label": label,
-            "defect": DEFECT_OF.get(variant),
+            "defect": DEFECT_OF.get(family) if label == "degraded" else None,
+            "defect_family": family if label == "degraded" else None,
+            "intensity": level if label == "degraded" else None,
             "source_blend": str(blend),
             "contract_verdict": contract_verdict(object_names, preview),
         },

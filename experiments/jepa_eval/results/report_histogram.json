@@ -5,31 +5,91 @@
     "detail": "32-bin per-channel RGB color histogram (96 dims), cosine"
   },
   "dataset": {
-    "images": 40,
+    "images": 100,
     "conform": 20,
-    "degraded": 20,
+    "degraded": 80,
     "cases": 5
   },
   "thresholds_preregistered": {
     "real_signal": 0.8,
     "weak_signal": 0.6
   },
-  "auc_primary_within_case": 0.95,
-  "auc_primary_pairs": 80,
-  "auc_pooled": 0.95,
+  "auc_primary_within_case": 0.80625,
+  "auc_primary_pairs": 320,
+  "auc_pooled": 0.810625,
   "per_defect": {
-    "deg_nolight": {
+    "deg_framing_i1": {
+      "auc": 0.45,
+      "pairs": 20,
+      "contract_caught_rate": 0.0
+    },
+    "deg_framing_i2": {
+      "auc": 0.95,
+      "pairs": 20,
+      "contract_caught_rate": 0.0
+    },
+    "deg_framing_i3": {
       "auc": 1.0,
       "pairs": 20,
-      "contract_caught_rate": 1.0
+      "contract_caught_rate": 0.0
     },
     "deg_framing": {
       "auc": 1.0,
       "pairs": 20,
       "contract_caught_rate": 0.0
     },
+    "deg_intruder_i1": {
+      "auc": 0.0,
+      "pairs": 20,
+      "contract_caught_rate": 0.0
+    },
+    "deg_intruder_i2": {
+      "auc": 0.15,
+      "pairs": 20,
+      "contract_caught_rate": 0.0
+    },
+    "deg_intruder_i3": {
+      "auc": 0.55,
+      "pairs": 20,
+      "contract_caught_rate": 0.0
+    },
     "deg_intruder": {
       "auc": 0.8,
+      "pairs": 20,
+      "contract_caught_rate": 0.0
+    },
+    "deg_nolight_i1": {
+      "auc": 1.0,
+      "pairs": 20,
+      "contract_caught_rate": 0.0
+    },
+    "deg_nolight_i2": {
+      "auc": 1.0,
+      "pairs": 20,
+      "contract_caught_rate": 0.0
+    },
+    "deg_nolight_i3": {
+      "auc": 1.0,
+      "pairs": 20,
+      "contract_caught_rate": 0.0
+    },
+    "deg_nolight": {
+      "auc": 1.0,
+      "pairs": 20,
+      "contract_caught_rate": 1.0
+    },
+    "deg_rimlight_i1": {
+      "auc": 1.0,
+      "pairs": 20,
+      "contract_caught_rate": 0.0
+    },
+    "deg_rimlight_i2": {
+      "auc": 1.0,
+      "pairs": 20,
+      "contract_caught_rate": 0.0
+    },
+    "deg_rimlight_i3": {
+      "auc": 1.0,
       "pairs": 20,
       "contract_caught_rate": 0.0
     },
@@ -41,33 +101,33 @@
   },
   "per_case": {
     "sf1-watch-metallic-stone-pedestal": {
-      "auc": 1.0,
+      "auc": 0.8125,
       "conform_mean": 0.995177373290062,
-      "degraded_mean": 0.7375520542263985
+      "degraded_mean": 0.7983523830771446
     },
     "v0-bottle-amber-glass-neutral-gray": {
-      "auc": 0.9375,
+      "auc": 0.8125,
       "conform_mean": 0.9963097423315048,
-      "degraded_mean": 0.7114882245659828
+      "degraded_mean": 0.787288211286068
     },
     "v1-bottle-rectangular-amber-glass-cap-closeup": {
-      "auc": 0.9375,
+      "auc": 0.8125,
       "conform_mean": 0.9957459270954132,
-      "degraded_mean": 0.7135854735970497
+      "degraded_mean": 0.7891588564962149
     },
     "v1-jar-rounded-white-translucent-beige": {
-      "auc": 0.9375,
+      "auc": 0.796875,
       "conform_mean": 0.9966507703065872,
-      "degraded_mean": 0.7101073190569878
+      "degraded_mean": 0.7881514951586723
     },
     "v1-tube-cylindrical-red-opaque-warm-gray": {
-      "auc": 0.9375,
+      "auc": 0.796875,
       "conform_mean": 0.9958583116531372,
-      "degraded_mean": 0.71385857462883
+      "degraded_mean": 0.7945236470550299
     }
   },
   "verdict": "baseline — context for the learned metric; pre-registered thresholds do not apply",
-  "encode_seconds_total": 0.2,
+  "encode_seconds_total": 0.3,
   "scores": [
     {
       "case_id": "sf1-watch-metallic-stone-pedestal",
@@ -95,6 +155,90 @@
       "variant": "conform_j3",
       "label": "conform",
       "jepa_score": 0.9976134300231934,
+      "contract_caught": false
+    },
+    {
+      "case_id": "sf1-watch-metallic-stone-pedestal",
+      "variant": "deg_nolight_i1",
+      "label": "degraded",
+      "jepa_score": 0.667607843875885,
+      "contract_caught": false
+    },
+    {
+      "case_id": "sf1-watch-metallic-stone-pedestal",
+      "variant": "deg_nolight_i2",
+      "label": "degraded",
+      "jepa_score": 0.4577818214893341,
+      "contract_caught": false
+    },
+    {
+      "case_id": "sf1-watch-metallic-stone-pedestal",
+      "variant": "deg_nolight_i3",
+      "label": "degraded",
+      "jepa_score": 0.3064214587211609,
+      "contract_caught": false
+    },
+    {
+      "case_id": "sf1-watch-metallic-stone-pedestal",
+      "variant": "deg_framing_i1",
+      "label": "degraded",
+      "jepa_score": 0.9977171421051025,
+      "contract_caught": false
+    },
+    {
+      "case_id": "sf1-watch-metallic-stone-pedestal",
+      "variant": "deg_framing_i2",
+      "label": "degraded",
+      "jepa_score": 0.9904550313949585,
+      "contract_caught": false
+    },
+    {
+      "case_id": "sf1-watch-metallic-stone-pedestal",
+      "variant": "deg_framing_i3",
+      "label": "degraded",
+      "jepa_score": 0.9495625495910645,
+      "contract_caught": false
+    },
+    {
+      "case_id": "sf1-watch-metallic-stone-pedestal",
+      "variant": "deg_intruder_i1",
+      "label": "degraded",
+      "jepa_score": 0.9992241859436035,
+      "contract_caught": false
+    },
+    {
+      "case_id": "sf1-watch-metallic-stone-pedestal",
+      "variant": "deg_intruder_i2",
+      "label": "degraded",
+      "jepa_score": 0.9980524182319641,
+      "contract_caught": false
+    },
+    {
+      "case_id": "sf1-watch-metallic-stone-pedestal",
+      "variant": "deg_intruder_i3",
+      "label": "degraded",
+      "jepa_score": 0.993712306022644,
+      "contract_caught": false
+    },
+    {
+      "case_id": "sf1-watch-metallic-stone-pedestal",
+      "variant": "deg_rimlight_i1",
+      "label": "degraded",
+      "jepa_score": 0.8572386503219604,
+      "contract_caught": false
+    },
+    {
+      "case_id": "sf1-watch-metallic-stone-pedestal",
+      "variant": "deg_rimlight_i2",
+      "label": "degraded",
+      "jepa_score": 0.820962131023407,
+      "contract_caught": false
+    },
+    {
+      "case_id": "sf1-watch-metallic-stone-pedestal",
+      "variant": "deg_rimlight_i3",
+      "label": "degraded",
+      "jepa_score": 0.7846943736076355,
       "contract_caught": false
     },
     {
@@ -155,6 +299,90 @@
     },
     {
       "case_id": "v0-bottle-amber-glass-neutral-gray",
+      "variant": "deg_nolight_i1",
+      "label": "degraded",
+      "jepa_score": 0.6916888356208801,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v0-bottle-amber-glass-neutral-gray",
+      "variant": "deg_nolight_i2",
+      "label": "degraded",
+      "jepa_score": 0.47899800539016724,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v0-bottle-amber-glass-neutral-gray",
+      "variant": "deg_nolight_i3",
+      "label": "degraded",
+      "jepa_score": 0.32646164298057556,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v0-bottle-amber-glass-neutral-gray",
+      "variant": "deg_framing_i1",
+      "label": "degraded",
+      "jepa_score": 0.9973841905593872,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v0-bottle-amber-glass-neutral-gray",
+      "variant": "deg_framing_i2",
+      "label": "degraded",
+      "jepa_score": 0.9615081548690796,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v0-bottle-amber-glass-neutral-gray",
+      "variant": "deg_framing_i3",
+      "label": "degraded",
+      "jepa_score": 0.8787434101104736,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v0-bottle-amber-glass-neutral-gray",
+      "variant": "deg_intruder_i1",
+      "label": "degraded",
+      "jepa_score": 0.9995291233062744,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v0-bottle-amber-glass-neutral-gray",
+      "variant": "deg_intruder_i2",
+      "label": "degraded",
+      "jepa_score": 0.9991670846939087,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v0-bottle-amber-glass-neutral-gray",
+      "variant": "deg_intruder_i3",
+      "label": "degraded",
+      "jepa_score": 0.9974026083946228,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v0-bottle-amber-glass-neutral-gray",
+      "variant": "deg_rimlight_i1",
+      "label": "degraded",
+      "jepa_score": 0.8525680303573608,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v0-bottle-amber-glass-neutral-gray",
+      "variant": "deg_rimlight_i2",
+      "label": "degraded",
+      "jepa_score": 0.8005473613739014,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v0-bottle-amber-glass-neutral-gray",
+      "variant": "deg_rimlight_i3",
+      "label": "degraded",
+      "jepa_score": 0.7666600346565247,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v0-bottle-amber-glass-neutral-gray",
       "variant": "deg_nolight",
       "label": "degraded",
       "jepa_score": 0.3190881907939911,
@@ -207,6 +435,90 @@
       "variant": "conform_j3",
       "label": "conform",
       "jepa_score": 0.9978350400924683,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-bottle-rectangular-amber-glass-cap-closeup",
+      "variant": "deg_nolight_i1",
+      "label": "degraded",
+      "jepa_score": 0.7005285024642944,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-bottle-rectangular-amber-glass-cap-closeup",
+      "variant": "deg_nolight_i2",
+      "label": "degraded",
+      "jepa_score": 0.5039023160934448,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-bottle-rectangular-amber-glass-cap-closeup",
+      "variant": "deg_nolight_i3",
+      "label": "degraded",
+      "jepa_score": 0.34586650133132935,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-bottle-rectangular-amber-glass-cap-closeup",
+      "variant": "deg_framing_i1",
+      "label": "degraded",
+      "jepa_score": 0.9973346590995789,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-bottle-rectangular-amber-glass-cap-closeup",
+      "variant": "deg_framing_i2",
+      "label": "degraded",
+      "jepa_score": 0.9641274809837341,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-bottle-rectangular-amber-glass-cap-closeup",
+      "variant": "deg_framing_i3",
+      "label": "degraded",
+      "jepa_score": 0.8880796432495117,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-bottle-rectangular-amber-glass-cap-closeup",
+      "variant": "deg_intruder_i1",
+      "label": "degraded",
+      "jepa_score": 0.9994847178459167,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-bottle-rectangular-amber-glass-cap-closeup",
+      "variant": "deg_intruder_i2",
+      "label": "degraded",
+      "jepa_score": 0.9990606307983398,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-bottle-rectangular-amber-glass-cap-closeup",
+      "variant": "deg_intruder_i3",
+      "label": "degraded",
+      "jepa_score": 0.9970605373382568,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-bottle-rectangular-amber-glass-cap-closeup",
+      "variant": "deg_rimlight_i1",
+      "label": "degraded",
+      "jepa_score": 0.8399795293807983,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-bottle-rectangular-amber-glass-cap-closeup",
+      "variant": "deg_rimlight_i2",
+      "label": "degraded",
+      "jepa_score": 0.788809061050415,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-bottle-rectangular-amber-glass-cap-closeup",
+      "variant": "deg_rimlight_i3",
+      "label": "degraded",
+      "jepa_score": 0.7479662299156189,
       "contract_caught": false
     },
     {
@@ -267,6 +579,90 @@
     },
     {
       "case_id": "v1-jar-rounded-white-translucent-beige",
+      "variant": "deg_nolight_i1",
+      "label": "degraded",
+      "jepa_score": 0.6838754415512085,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-jar-rounded-white-translucent-beige",
+      "variant": "deg_nolight_i2",
+      "label": "degraded",
+      "jepa_score": 0.49260762333869934,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-jar-rounded-white-translucent-beige",
+      "variant": "deg_nolight_i3",
+      "label": "degraded",
+      "jepa_score": 0.3205661177635193,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-jar-rounded-white-translucent-beige",
+      "variant": "deg_framing_i1",
+      "label": "degraded",
+      "jepa_score": 0.9973028898239136,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-jar-rounded-white-translucent-beige",
+      "variant": "deg_framing_i2",
+      "label": "degraded",
+      "jepa_score": 0.962835967540741,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-jar-rounded-white-translucent-beige",
+      "variant": "deg_framing_i3",
+      "label": "degraded",
+      "jepa_score": 0.8816211819648743,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-jar-rounded-white-translucent-beige",
+      "variant": "deg_intruder_i1",
+      "label": "degraded",
+      "jepa_score": 0.9995529055595398,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-jar-rounded-white-translucent-beige",
+      "variant": "deg_intruder_i2",
+      "label": "degraded",
+      "jepa_score": 0.9993234872817993,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-jar-rounded-white-translucent-beige",
+      "variant": "deg_intruder_i3",
+      "label": "degraded",
+      "jepa_score": 0.9980002641677856,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-jar-rounded-white-translucent-beige",
+      "variant": "deg_rimlight_i1",
+      "label": "degraded",
+      "jepa_score": 0.8638578057289124,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-jar-rounded-white-translucent-beige",
+      "variant": "deg_rimlight_i2",
+      "label": "degraded",
+      "jepa_score": 0.8032126426696777,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-jar-rounded-white-translucent-beige",
+      "variant": "deg_rimlight_i3",
+      "label": "degraded",
+      "jepa_score": 0.7672383189201355,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-jar-rounded-white-translucent-beige",
       "variant": "deg_nolight",
       "label": "degraded",
       "jepa_score": 0.3111526072025299,
@@ -319,6 +715,90 @@
       "variant": "conform_j3",
       "label": "conform",
       "jepa_score": 0.9977136850357056,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-tube-cylindrical-red-opaque-warm-gray",
+      "variant": "deg_nolight_i1",
+      "label": "degraded",
+      "jepa_score": 0.7418751120567322,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-tube-cylindrical-red-opaque-warm-gray",
+      "variant": "deg_nolight_i2",
+      "label": "degraded",
+      "jepa_score": 0.5031318068504333,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-tube-cylindrical-red-opaque-warm-gray",
+      "variant": "deg_nolight_i3",
+      "label": "degraded",
+      "jepa_score": 0.3351357877254486,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-tube-cylindrical-red-opaque-warm-gray",
+      "variant": "deg_framing_i1",
+      "label": "degraded",
+      "jepa_score": 0.99709153175354,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-tube-cylindrical-red-opaque-warm-gray",
+      "variant": "deg_framing_i2",
+      "label": "degraded",
+      "jepa_score": 0.9645639657974243,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-tube-cylindrical-red-opaque-warm-gray",
+      "variant": "deg_framing_i3",
+      "label": "degraded",
+      "jepa_score": 0.8844786882400513,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-tube-cylindrical-red-opaque-warm-gray",
+      "variant": "deg_intruder_i1",
+      "label": "degraded",
+      "jepa_score": 0.9994347095489502,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-tube-cylindrical-red-opaque-warm-gray",
+      "variant": "deg_intruder_i2",
+      "label": "degraded",
+      "jepa_score": 0.999101996421814,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-tube-cylindrical-red-opaque-warm-gray",
+      "variant": "deg_intruder_i3",
+      "label": "degraded",
+      "jepa_score": 0.9975221753120422,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-tube-cylindrical-red-opaque-warm-gray",
+      "variant": "deg_rimlight_i1",
+      "label": "degraded",
+      "jepa_score": 0.8695498108863831,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-tube-cylindrical-red-opaque-warm-gray",
+      "variant": "deg_rimlight_i2",
+      "label": "degraded",
+      "jepa_score": 0.8025598526000977,
+      "contract_caught": false
+    },
+    {
+      "case_id": "v1-tube-cylindrical-red-opaque-warm-gray",
+      "variant": "deg_rimlight_i3",
+      "label": "degraded",
+      "jepa_score": 0.7624986171722412,
       "contract_caught": false
     },
     {

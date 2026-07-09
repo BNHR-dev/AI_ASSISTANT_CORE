@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -177,7 +178,15 @@ def main() -> None:
         [s["jepa_score"] for s in scored if s["label"] == "degraded"],
     )
     per_defect = {}
-    for defect_variant in ("deg_nolight", "deg_framing", "deg_intruder", "deg_rimlight"):
+    def family_level(variant: str) -> tuple[str, int]:
+        # Strict "_iN" suffix — "deg_intruder" itself contains "_i".
+        match = re.match(r"^(.+)_i(\d)$", variant)
+        return (match.group(1), int(match.group(2))) if match else (variant, 4)
+
+    degraded_variants = sorted(
+        {s["variant"] for s in scored if s["label"] == "degraded"}, key=family_level
+    )
+    for defect_variant in degraded_variants:
         auc, pairs = within_case_auc(defect_variant)
         caught = [s["contract_verdict"]["contract_caught"] for s in scored
                   if s["variant"] == defect_variant]
