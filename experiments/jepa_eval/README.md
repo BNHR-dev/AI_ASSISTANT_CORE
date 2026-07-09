@@ -1,6 +1,10 @@
 # Experiment A — a V-JEPA "learned eye" next to the deterministic contracts
 
-**Status: in progress.** Results land in this README and in [`BENCHMARK.md §4`](../../BENCHMARK.md) when the run completes.
+**Status: done — real signal.** Primary AUC **1.000** over all 80 within-case pairs (pre-registered
+threshold for "real signal": ≥ 0.80), including perfect separation of the two defect classes the deployed
+contract cannot see (intruder object, colored rim light) — the stretch goal. Margins are thin and stated:
+worst conform 0.9962 vs best degraded 0.9935. Full numbers in [`results/`](results/), summary in
+[`BENCHMARK.md §4`](../../BENCHMARK.md).
 
 AAC verifies product renders with deterministic contracts (required objects, visual QA, geometric framing).
 This experiment adds a third look of a different nature: a **learned metric**. A frozen video world-model encoder
@@ -23,10 +27,12 @@ Measured by AUC (probability that a conforming render scores above a degraded on
 
 ## Method
 
-1. **Labeled dataset** — the 11 prompts of the product-render eval corpus (`core/app/engine/product_render_eval_cases.py`),
-   each rendered through the real pipeline, then mutated into 7 variants: 3 conforming (pipeline output + 2 in-contract
+1. **Labeled dataset** — the prompts of the product-render eval corpus (`core/app/engine/product_render_eval_cases.py`)
+   rendered through the real pipeline, then mutated into 8 variants: 4 conforming (pipeline output + 3 in-contract
    camera jitters) and 4 degraded (key light removed · camera pushed off-frame · intruder object · strong colored rim
-   light). 77 images, 512×512, EEVEE. Every variant records what the deterministic contract sees (`contract_verdict`).
+   light). 512×512, EEVEE. Every variant records what the deployed contract sees (`contract_verdict`).
+   **5 of the 11 corpus cases qualify** — the other 6 route to the legacy scaffold path where no contract applies
+   (upstream template routing; recorded in the dataset's `excluded.json`). Final dataset: **40 images**.
 2. **Encode** — each image through the frozen encoder (no training, no fine-tuning).
 3. **Score** — cosine similarity to the leave-one-out centroid of the same case's conforming embeddings.
 4. **Separate** — global AUC + per-defect AUC (pure-Python Mann-Whitney; no sklearn).

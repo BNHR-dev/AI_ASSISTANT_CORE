@@ -18,9 +18,13 @@ VARIANT = os.environ["JEPA_VARIANT"]
 OUT_DIR = os.environ["JEPA_OUT"]
 
 scene = bpy.context.scene
+# Some pipeline .blends carry a Camera object without the active-camera pointer set.
 cam = scene.camera
 if cam is None:
-    raise SystemExit("no active camera in scene — unexpected for a product_render run")
+    cam = next((o for o in scene.objects if o.type == "CAMERA"), None)
+    if cam is None:
+        raise SystemExit("no camera object in scene — cannot render")
+    scene.camera = cam
 
 
 def orbit_and_scale(theta_deg: float, k: float) -> None:
@@ -44,10 +48,16 @@ if VARIANT == "conform_j1":
     orbit_and_scale(4.0, 0.97)
 elif VARIANT == "conform_j2":
     orbit_and_scale(-4.0, 1.03)
+elif VARIANT == "conform_j3":
+    orbit_and_scale(2.5, 1.01)
 elif VARIANT == "deg_nolight":
+    # Canonical name first; else the strongest light plays the key-light role.
     key = bpy.data.objects.get("Key_Light")
     if key is None:
-        raise SystemExit("Key_Light absent — cannot inject the missing-light defect")
+        lights = [o for o in scene.objects if o.type == "LIGHT"]
+        key = max(lights, key=lambda o: o.data.energy, default=None)
+    if key is None:
+        raise SystemExit("no light in scene — cannot inject the missing-light defect")
     bpy.data.objects.remove(key, do_unlink=True)
 elif VARIANT == "deg_framing":
     orbit_and_scale(0.0, 2.5)

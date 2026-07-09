@@ -33,8 +33,11 @@ def main() -> None:
     for name in PUSHED:
         push(name)
     print(f"scripts pushed to {CONTAINER}:{SCRIPTS_DIR}", flush=True)
+    # Run-by-path puts the script's dir on sys.path, not the workdir — the `app`
+    # package (at /app/app) needs PYTHONPATH.
     proc = subprocess.run(
-        ["docker", "exec", CONTAINER, "python", f"{SCRIPTS_DIR}/incontainer_build_dataset.py"]
+        ["docker", "exec", "-e", "PYTHONPATH=/app", CONTAINER,
+         "python", f"{SCRIPTS_DIR}/incontainer_build_dataset.py"]
     )
     sys.exit(proc.returncode)
 

@@ -80,6 +80,25 @@ The whole point of a benchmark is to **compare and decide**. Six locally-runnabl
 
 > **Consolidation (5 seeds).** Re-running the default (`coder:7b`) across seeds `42,7,1,123,999` returns **bit-identical scores within the session** (mean 0.982 every time, stdev 0.000). Note *why*: the canonical config is greedy (`temperature=0`, `top_k=1`), so the seed does not change the output. This proves **reproducibility**, not robustness to sampling noise — measuring the latter would require `temperature > 0`, and is left as honest future work. Across sessions, one borderline case can flip (see the nuance in section 2). The corpus is also small (11 cases), so per-field figures stay indicative rather than definitive.
 
+### 4. `product_render` — a learned metric next to the contracts (experimental)
+
+Deterministic contracts tell you *which rule broke* — but they can't see what they were never taught. This experiment puts a frozen world-model encoder next to them ([V-JEPA 2.1](https://github.com/facebookresearch/vjepa2) ViT-L/16, MIT, pinned commit) and asks one question: does an embedding distance separate conforming renders from degraded ones? Protocol, dataset builder and success thresholds were fixed **before** the first measurement — see [`experiments/jepa_eval/`](experiments/jepa_eval/).
+
+**Setup.** 5 corpus cases rendered by the real pipeline, then mutated into 8 variants each: 4 conforming (pipeline output + 3 in-contract camera jitters) and 4 injected defects. 40 images, labeled by construction, each recording what the deployed contract sees. Score = cosine similarity to the case's conform centroid, leave-one-out.
+
+| Injected defect | AUC | Does the deployed contract see it? |
+|---|---|---|
+| key light removed | 1.000 | yes — required object missing |
+| broken framing | 1.000 | partially — pixel checks are signal-only; the geometric check would catch it live |
+| intruder object | 1.000 | **no** — only `Sun` is forbidden |
+| colored rim light | 1.000 | **no** — lighting coherence is unchecked |
+
+**Result: AUC = 1.000 over all 80 within-case pairs** (pre-registered thresholds: ≥ 0.80 = real signal, ≤ 0.60 = documented negative). The two defect classes the deployed contract cannot see are separated perfectly — the experiment's stretch goal. The margin is thin and stated: worst conform 0.9962 vs best degraded 0.9935, and the closest calls are all the intruder object — the subtlest defect.
+
+**Honest scope.** Tiny corpus, defects deliberately visible, single still images, frozen encoder: this is *a third look, not a quality oracle* — it says nothing about beauty. The next hard test is defects at the threshold of visibility, and video/turntable input (V-JEPA's native ground).
+
+**A finding made on the way: 6 of the 11 corpus prompts never reach the deterministic builder.** The upstream template routing sends them down the legacy scaffold path, where no contract applies (recorded per case in the dataset's `excluded.json`). The extraction corpus was built to test the *extractor*; the template routing in front of it turns out to be untested — it is now on the roadmap.
+
 ---
 
 ## Reproduce it yourself
@@ -113,11 +132,14 @@ docker exec aac-aac-backend-1 \
 
 Each run writes a timestamped JSON report (lexicographic order = chronological order), and `script_gen` also persists every extracted script for human inspection.
 
+The learned-metric experiment (section 4) reproduces from [`experiments/jepa_eval/`](experiments/jepa_eval/) — dataset builder, encoder loading (pinned + reviewed) and scoring are documented in its README; its report lands in `experiments/jepa_eval/results/`.
+
 ---
 
 ## Roadmap
 
 - **Grow the corpora** beyond 5 / 11 cases.
 - **Cross-seed robustness**: vary the seed to measure sampling noise, not just reproducibility.
-- **Extend coverage** to the router/classifier, the web-search path and the ComfyUI image pipeline (new harnesses).
+- **Extend coverage** to the router/classifier — **including the template routing** (6 of 11 extraction prompts route to the legacy path; found by the learned-metric experiment) — the web-search path and the ComfyUI image pipeline (new harnesses).
+- **Harden the learned metric** (section 4): threshold-of-visibility defects, turntable (video) input, and a `jepa_score` column in the eval reports if the signal keeps earning it.
 - Track baselines **across models** to compare candidates objectively.
