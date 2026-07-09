@@ -16,6 +16,14 @@ It is **not a thin wrapper around a chat model.** The core is a real orchestrati
 
 > **Status — honest by default.** The core — routing, planning, execution, OpenAI-compatible API — is stable and test-covered. The Blender pipeline is experimental but functional, and its LLM quality is **measured, not asserted**: a reproducible, multi-model baseline lives in [`BENCHMARK.md`](BENCHMARK.md). Limitations are stated plainly in the [Roadmap](#roadmap) — nothing here is oversold.
 
+## See it run — the 4-minute walkthrough
+
+The whole pipeline at work: routing, the security gate, deterministic self-correction, traceability, image generation, the benchmark. English captions — no audio needed.
+
+[![Watch the AAC walkthrough](docs/assets/walkthrough-thumb.png)](https://github.com/BNHR-dev/AI_ASSISTANT_CORE/releases/download/v1.0/walkthrough_v1.mp4)
+
+*Click to play — hosted on the [v1.0 release](https://github.com/BNHR-dev/AI_ASSISTANT_CORE/releases/tag/v1.0).*
+
 ## Why AAC
 
 **Built for 3D-production studios** — where the material is confidential by default (unreleased films, client assets, work under NDA and content-security regimes), and *"it generates"* is not enough: the pipeline has to be controllable, auditable, and trustworthy.
@@ -46,7 +54,7 @@ When you see `== OK — stack ready ==`, open **<http://127.0.0.1:8000/console>*
 
 | Effort | You run | Needs |
 |---|---|---|
-| Just watch | a hosted demo video *(coming soon)* | a browser |
+| Just watch | the [4-minute walkthrough](https://github.com/BNHR-dev/AI_ASSISTANT_CORE/releases/download/v1.0/walkthrough_v1.mp4) | a browser |
 | **One command** (recommended) | `./run.sh` | Docker (+ NVIDIA toolkit for GPU) |
 | Native | the production runtime | Linux + GPU |
 
