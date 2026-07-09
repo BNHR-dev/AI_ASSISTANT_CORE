@@ -1,21 +1,30 @@
-"""Encode the labeled dataset with the frozen V-JEPA 2.1 encoder and measure separation.
+"""Encode the labeled dataset and measure conform/degraded separation.
 
 Scores: cosine similarity of each render to the centroid of its case's conforming
 embeddings — leave-one-out for conforming renders (the tested image never feeds its
 own centroid), full conform centroid for degraded ones.
 
 Primary metric (decided before seeing any result): AUC over within-case
-(conform, degraded) pairs, aggregated across the 11 cases — scores are case-relative,
+(conform, degraded) pairs, aggregated across cases — scores are case-relative,
 so cross-case pairs would mix case difficulty into the metric. The pooled cross-case
 AUC is reported alongside for transparency.
 
-Usage: .venv/bin/python encode_and_score.py
+Usage: .venv/bin/python encode_and_score.py [--embedder vjepa|pixel|histogram]
+
+`--embedder` swaps the representation, nothing else — the two trivial baselines
+answer the "so what?" question: would raw pixels or color histograms separate
+these defects just as well as the world-model embedding?
+  vjepa      — frozen V-JEPA 2.1 ViT-L/16, mean-pooled patch tokens (default)
+  pixel      — the image itself, downscaled to 64x64 RGB and flattened
+  histogram  — 32-bin per-channel RGB color histogram (96 dims)
+
 Reads  ../../docker/outputs/blender/_jepa_eval/ (host view of the container outputs)
-Writes results/report.json + results/SUMMARY.md (committed — the experiment's product).
+Writes results/report[_<embedder>].json + SUMMARY[_<embedder>].md (committed).
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import time
 from collections import defaultdict
@@ -49,6 +58,45 @@ def cosine(a: torch.Tensor, b: torch.Tensor) -> float:
     return torch.nn.functional.cosine_similarity(a, b, dim=0).item()
 
 
+def make_embedder(name: str):
+    """Return (embed_fn(path) -> 1-D cpu tensor, embedder_info dict)."""
+    if name == "vjepa":
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        encoder = load_encoder(device)
+
+        def embed(path: Path) -> torch.Tensor:
+            with torch.inference_mode():
+                tokens = encoder(image_tensor(path, device))
+            return tokens.mean(dim=1).squeeze(0).cpu()
+
+        return embed, {
+            "embedder": "vjepa", "hub_model": HUB_MODEL, "pinned_commit": PINNED_COMMIT,
+            "resolution": RESOLUTION, "pooling": "mean over patch tokens",
+            "frames": 1, "frozen": True,
+        }
+
+    if name == "pixel":
+
+        def embed(path: Path) -> torch.Tensor:
+            img = Image.open(path).convert("RGB").resize((64, 64), Image.BICUBIC)
+            return torch.frombuffer(bytearray(img.tobytes()), dtype=torch.uint8).float() / 255.0
+
+        return embed, {"embedder": "pixel",
+                       "detail": "64x64 RGB flattened (12288 dims), cosine on raw pixels"}
+
+    if name == "histogram":
+
+        def embed(path: Path) -> torch.Tensor:
+            hist = torch.tensor(Image.open(path).convert("RGB").histogram(), dtype=torch.float32)
+            hist = hist.view(3, 32, 8).sum(dim=2).flatten()  # 32 bins per channel
+            return hist / hist.sum()
+
+        return embed, {"embedder": "histogram",
+                       "detail": "32-bin per-channel RGB color histogram (96 dims), cosine"}
+
+    raise ValueError(f"unknown embedder: {name}")
+
+
 def auc_from_pairs(conform: list[float], degraded: list[float]) -> tuple[float, int]:
     """Mann-Whitney AUC: P(conform score > degraded score), ties count half."""
     wins = 0.0
@@ -72,21 +120,21 @@ def verdict(auc: float) -> str:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--embedder", choices=("vjepa", "pixel", "histogram"), default="vjepa")
+    args = parser.parse_args()
+
     dataset = json.loads((DATASET_ROOT / "dataset.json").read_text(encoding="utf-8"))
     entries = dataset["entries"]
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    encoder = load_encoder(device)
+    embed, embedder_info = make_embedder(args.embedder)
 
-    # 1. Encode every image (sequential — 77 images, deterministic order).
+    # 1. Encode every image (sequential, deterministic order).
     t0 = time.perf_counter()
     embeddings: dict[tuple[str, str], torch.Tensor] = {}
     for entry in entries:
         case_id, variant = entry["case_id"], entry["variant"]
-        path = DATASET_ROOT / case_id / variant / "preview.png"
-        with torch.inference_mode():
-            tokens = encoder(image_tensor(path, device))
-        embeddings[(case_id, variant)] = tokens.mean(dim=1).squeeze(0).cpu()
+        embeddings[(case_id, variant)] = embed(DATASET_ROOT / case_id / variant / "preview.png")
     t_encode = time.perf_counter() - t0
 
     # 2. Per-case scores.
@@ -146,11 +194,11 @@ def main() -> None:
         per_case[case_id] = {"auc": auc, "conform_mean": sum(c) / len(c) if c else None,
                              "degraded_mean": sum(d) / len(d) if d else None}
 
+    is_baseline = args.embedder != "vjepa"
     report = {
-        "experiment": "A — V-JEPA learned metric next to deterministic contracts",
-        "model": {"hub_model": HUB_MODEL, "pinned_commit": PINNED_COMMIT,
-                  "resolution": RESOLUTION, "pooling": "mean over patch tokens",
-                  "frames": 1, "frozen": True},
+        "experiment": "A — V-JEPA learned metric next to deterministic contracts"
+        + (" — TRIVIAL BASELINE" if is_baseline else ""),
+        "model": embedder_info,
         "dataset": {"images": len(scored),
                     "conform": sum(1 for s in scored if s["label"] == "conform"),
                     "degraded": sum(1 for s in scored if s["label"] == "degraded"),
@@ -161,22 +209,29 @@ def main() -> None:
         "auc_pooled": pooled_auc,
         "per_defect": per_defect,
         "per_case": per_case,
-        "verdict": verdict(primary_auc),
+        "verdict": ("baseline — context for the learned metric; pre-registered "
+                    "thresholds do not apply") if is_baseline else verdict(primary_auc),
         "encode_seconds_total": round(t_encode, 1),
         "scores": [{k: s[k] for k in ("case_id", "variant", "label", "jepa_score")}
                    | {"contract_caught": s["contract_verdict"]["contract_caught"]}
                    for s in scored],
     }
 
+    suffix = "" if args.embedder == "vjepa" else f"_{args.embedder}"
     RESULTS_DIR.mkdir(exist_ok=True)
-    (RESULTS_DIR / "report.json").write_text(
+    (RESULTS_DIR / f"report{suffix}.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
+    embedder_desc = (
+        f"`{HUB_MODEL}` (frozen, commit `{PINNED_COMMIT[:12]}`), {RESOLUTION}px, mean-pooled"
+        if args.embedder == "vjepa"
+        else f"trivial baseline — {embedder_info['detail']}"
+    )
     lines = [
-        "# Experiment A — results",
+        f"# Experiment A — results ({args.embedder})",
         "",
-        f"- Encoder: `{HUB_MODEL}` (frozen, commit `{PINNED_COMMIT[:12]}`), {RESOLUTION}px, mean-pooled",
+        f"- Embedder: {embedder_desc}",
         f"- Dataset: {report['dataset']['images']} images "
         f"({report['dataset']['conform']} conform / {report['dataset']['degraded']} degraded, "
         f"{report['dataset']['cases']} cases)",
@@ -195,15 +250,15 @@ def main() -> None:
     lines += ["", "| Case | AUC | conform mean | degraded mean |", "|---|---|---|---|"]
     for case_id, c in per_case.items():
         lines.append(f"| {case_id} | {c['auc']:.3f} | {c['conform_mean']:.4f} | {c['degraded_mean']:.4f} |")
-    (RESULTS_DIR / "SUMMARY.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (RESULTS_DIR / f"SUMMARY{suffix}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    print(f"encoded {len(scored)} images in {t_encode:.1f}s on {device}")
+    print(f"[{args.embedder}] encoded {len(scored)} images in {t_encode:.1f}s")
     print(f"PRIMARY AUC (within-case) = {primary_auc:.3f} over {primary_pairs} pairs")
     print(f"pooled AUC = {pooled_auc:.3f}")
     for name, d in per_defect.items():
         print(f"  {name:14s} AUC={d['auc']:.3f}  contract_caught={d['contract_caught_rate']}")
     print(f"verdict: {report['verdict']}")
-    print(f"report: {RESULTS_DIR / 'report.json'}")
+    print(f"report: {RESULTS_DIR / f'report{suffix}.json'}")
 
 
 if __name__ == "__main__":
