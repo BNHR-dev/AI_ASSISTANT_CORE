@@ -34,25 +34,32 @@ os.makedirs(OUT_DIR, exist_ok=True)
 
 scene = bpy.context.scene
 
-# --- 1. Append the contract objects from the pipeline run ------------------
+# --- 1. Append the contract objects + camera from the pipeline run ----------
+# The run's scene.blend is saved AFTER the hero-framing corrector ran, so its
+# camera is the contract-passing one (occupancy in band). Reusing it keeps the
+# demo framing identical to what the pipeline actually shipped.
 run_blend = LAYOUT["source_run_blend"]
 with bpy.data.libraries.load(run_blend, link=False) as (data_from, data_to):
-    wanted = [n for n in data_from.objects if n in ("Pedestal", "Product_Subject", "Product_Cap")]
+    wanted = [n for n in data_from.objects if n in ("Pedestal", "Product_Subject", "Product_Cap", "Camera")]
     data_to.objects = wanted
 for obj in data_to.objects:
     if obj is not None:
         scene.collection.objects.link(obj)
 print("APPENDED:", [o.name for o in data_to.objects if o])
 
-# --- 2. Camera + lights (canonical, from layout) ----------------------------
-cam_cfg = LAYOUT["camera"]
-cam_data = bpy.data.cameras.new("Camera")
-cam_data.lens = cam_cfg["lens_mm"]
-cam = bpy.data.objects.new("Camera", cam_data)
-scene.collection.objects.link(cam)
-cam.location = cam_cfg["location"]
-cam.rotation_euler = cam_cfg["rotation_euler"]
+# --- 2. Camera (from the run if present, else layout) + lights --------------
+cam = next((o for o in data_to.objects if o is not None and o.type == "CAMERA"), None)
+if cam is None:
+    cam_cfg = LAYOUT["camera"]
+    cam_data = bpy.data.cameras.new("Camera")
+    cam_data.lens = cam_cfg["lens_mm"]
+    cam = bpy.data.objects.new("Camera", cam_data)
+    scene.collection.objects.link(cam)
+    cam.location = cam_cfg["location"]
+    cam.rotation_euler = cam_cfg["rotation_euler"]
+cam_data = cam.data
 scene.camera = cam
+print("CAMERA:", list(cam.location), "lens", cam_data.lens)
 
 for name, loc, size in (("Key_Light", (0.8, -0.6, 1.2), 1.2), ("Fill_Light", (-0.8, -0.4, 0.8), 1.0)):
     cfg = LAYOUT["lights"]["key" if name == "Key_Light" else "fill"]
@@ -88,9 +95,13 @@ for eng in ("BLENDER_EEVEE", "BLENDER_EEVEE_NEXT"):
     if eng in scene.render.bl_rna.properties["engine"].enum_items.keys():
         scene.render.engine = eng
         break
-res = 512 if PREVIEW else LAYOUT["render"]["resolution"]
-scene.render.resolution_x = res
-scene.render.resolution_y = res
+# 16:9 like the pipeline's canonical render — the contract occupancy band
+# [0.25, 0.55] is calibrated for that aspect (square framing reads ~0.17).
+res_x, res_y = LAYOUT["render"]["resolution"]
+if PREVIEW:
+    res_x, res_y = res_x // 2, res_y // 2
+scene.render.resolution_x = res_x
+scene.render.resolution_y = res_y
 scene.render.resolution_percentage = 100
 scene.render.image_settings.file_format = "PNG"
 
@@ -127,8 +138,8 @@ framing_raw = {
     "sensor_fit": cam_data.sensor_fit,
     "shift_x": cam_data.shift_x,
     "shift_y": cam_data.shift_y,
-    "res_x": res,
-    "res_y": res,
+    "res_x": res_x,
+    "res_y": res_y,
     "pixel_aspect_x": scene.render.pixel_aspect_x,
     "pixel_aspect_y": scene.render.pixel_aspect_y,
     "subject_corners": corners,

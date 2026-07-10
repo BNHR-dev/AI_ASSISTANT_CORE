@@ -18,7 +18,7 @@
     "fill": {"energy": 18.0, "color": [1.0, 0.95, 0.85]}
   },
   "render": {
-    "resolution": 1024,
+    "resolution": [1920, 1080],
     "filepath": "render.png"
   }
 }
