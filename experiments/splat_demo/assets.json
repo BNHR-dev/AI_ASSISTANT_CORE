@@ -1,0 +1,36 @@
+{
+  "addon": {
+    "name": "3DGS Render by KIRI Engine",
+    "version": "5.0.0",
+    "source_url": "https://github.com/Kiri-Innovation/3dgs-render-blender-addon/releases/tag/v5.0.0",
+    "file": "3dgs_render_by_kiri_engine_5.0.0.zip",
+    "sha256": "1b00593fd569bc9b453d1f87b11212ea471ff66b341d6df1fd9a6b808cf7ae04",
+    "license": "GPL-3.0 (Blender addon)",
+    "blender_target": "5.1 (per release Blender_version_notes.txt)",
+    "install_note": "release folder name contains dots (invalid Python module); installed as ~/.config/blender/5.1/scripts/addons/kiri_3dgs_render",
+    "headless_note": "fresh imports arrive with Update Mode=1 (manual, frozen view matrix) and render blank; set Update Mode=0 on KIRI_3DGS_Render_GN then run sna.dgs_render_update_enabled_3dgs_objects_6d7f4 with the scene camera set"
+  },
+  "splats": [
+    {
+      "scene": "playroom",
+      "file": "playroom_30k.ply",
+      "sha256": "c6fddedf6c7b412d078bbbaa1826e7a1b258f75f862c5190dc50a646243d7d9e",
+      "size_bytes": 476053504,
+      "splats": 1916379,
+      "source_url": "https://huggingface.co/datasets/Voxel51/gaussian_splatting (FO_dataset/playroom/point_cloud/iteration_30000/point_cloud.ply)",
+      "license_declared": "Apache-2.0 (as declared by the Hugging Face redistributor Voxel51)",
+      "license_caveat": "underlying capture originates from the Deep Blending research dataset (Hedman et al. 2018); reconstruction made with the official 3DGS method — chain of rights recorded, not re-audited",
+      "downloaded": "2026-07-10"
+    },
+    {
+      "scene": "drjohnson",
+      "file": "drjohnson_30k.ply",
+      "sha256": "92f4898839ec4ad7f197cf6c74b89918b35ea712b4e41435593ccb152d22b7f5",
+      "size_bytes": 788529152,
+      "source_url": "https://huggingface.co/datasets/Voxel51/gaussian_splatting (FO_dataset/drjohnson/point_cloud/iteration_30000/point_cloud.ply)",
+      "license_declared": "Apache-2.0 (as declared by the Hugging Face redistributor Voxel51)",
+      "license_caveat": "underlying capture originates from the Deep Blending research dataset (Hedman et al. 2018); reconstruction made with the official 3DGS method — chain of rights recorded, not re-audited",
+      "downloaded": "2026-07-10"
+    }
+  ]
+}
