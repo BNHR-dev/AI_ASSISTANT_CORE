@@ -1,0 +1,76 @@
+{
+  "manifest_version": 1,
+  "pipeline": "splat_demo_experiment",
+  "request_id": "da3d1385-83ab-44ec-966d-684083d54148",
+  "created_at": "2026-07-10T12:40:10.900934+00:00",
+  "status": "passed",
+  "output_dir": "results",
+  "input": {
+    "prompt": "packshot cin\u00e9matographique : chronom\u00e8tre en m\u00e9tal poli sur un socle en pierre",
+    "task_type": "experiment_splat_demo"
+  },
+  "artifacts": {
+    "render_png": {
+      "path": "results/render.png",
+      "exists": true
+    },
+    "mask_png": {
+      "path": "results/mask.png",
+      "exists": true
+    },
+    "hero_overlay_png": {
+      "path": "results/hero_overlay.png",
+      "exists": true
+    },
+    "contract_report": {
+      "path": "results/contract_report.json",
+      "exists": true
+    },
+    "framing_raw": {
+      "path": "results/framing_raw.json",
+      "exists": true
+    },
+    "manifest": {
+      "path": "results/manifest.json",
+      "exists": true
+    }
+  },
+  "scene_report": {
+    "status": "passed",
+    "violations": []
+  },
+  "execution": {
+    "blender_status": "success",
+    "blender_error": null
+  },
+  "provenance": {
+    "source_run": {
+      "run_id": "da3d1385-83ab-44ec-966d-684083d54148",
+      "scene_blend": "/home/BNHR/projects/aac/docker/outputs/blender/da3d1385-83ab-44ec-966d-684083d54148/scene.blend",
+      "camera": "hero-framing corrected camera reused as-is (contract-passing)"
+    },
+    "splat": {
+      "scene": "playroom",
+      "file": "playroom_30k.ply",
+      "sha256": "c6fddedf6c7b412d078bbbaa1826e7a1b258f75f862c5190dc50a646243d7d9e",
+      "source_url": "https://huggingface.co/datasets/Voxel51/gaussian_splatting (FO_dataset/playroom/point_cloud/iteration_30000/point_cloud.ply)",
+      "license_declared": "Apache-2.0 (as declared by the Hugging Face redistributor Voxel51)",
+      "license_caveat": "underlying capture originates from the Deep Blending research dataset (Hedman et al. 2018); reconstruction made with the official 3DGS method \u2014 chain of rights recorded, not re-audited",
+      "addon": "3DGS Render by KIRI Engine",
+      "addon_version": "5.0.0",
+      "transform": {
+        "rotation_euler_deg": [
+          -90.0,
+          0.0,
+          15.0
+        ],
+        "location": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": 1.0
+      }
+    }
+  }
+}
