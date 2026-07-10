@@ -103,7 +103,7 @@ AUC per defect × intensity (1 = weakest), 20 within-case pairs each:
 
 **Honest scope.** Tiny corpus (5 cases), synthetic defects, single still images, frozen encoder: this is *a third look, not a quality oracle* — it says nothing about beauty. Next hard test: video/turntable input (V-JEPA's native ground) and defects below these intensities.
 
-**A finding made on the way: 6 of the 11 corpus prompts never reach the deterministic builder.** The upstream template routing sends them down the legacy scaffold path, where no contract applies (recorded per case in the dataset's `excluded.json`). The extraction corpus was built to test the *extractor*; the template routing in front of it turns out to be untested — it is now on the roadmap.
+**A finding made on the way: 6 of the 11 corpus prompts never reached the deterministic builder.** The upstream template routing sent them down the legacy scaffold path, where no contract applies (recorded per case in the dataset's `excluded.json`). The extraction corpus was built to test the *extractor*; the template routing in front of it turned out to be untested. **Closed (2026-07-10):** bare object-on-a-backdrop prompts ("boîte rouge brillante sur fond noir") now route to the builder via a composed signal — an object noun *and* a backdrop marker, never one without the other — and the whole corpus is locked by a routing harness (`core/tests/test_template_routing_eval_corpus.py`, negatives included).
 
 ---
 
@@ -146,6 +146,6 @@ The learned-metric experiment (section 4) reproduces from [`experiments/jepa_eva
 
 - **Grow the corpora** beyond 5 / 11 cases.
 - **Cross-seed robustness**: vary the seed to measure sampling noise, not just reproducibility.
-- **Extend coverage** to the router/classifier — **including the template routing** (6 of 11 extraction prompts route to the legacy path; found by the learned-metric experiment) — the web-search path and the ComfyUI image pipeline (new harnesses).
+- **Extend coverage** to the router/classifier, the web-search path and the ComfyUI image pipeline (new harnesses). *(Template routing: done — found by the learned-metric experiment, closed by the corpus routing harness, 2026-07-10.)*
 - **Harden the learned metric** (section 4): threshold-of-visibility defects, turntable (video) input, and a `jepa_score` column in the eval reports if the signal keeps earning it.
 - Track baselines **across models** to compare candidates objectively.
