@@ -111,6 +111,55 @@ _PRODUCT_KEYWORDS = (
     "seamless backdrop",
 )
 
+# Signal composé « objet nu sur fond » (2026-07-10).
+# Trouvaille de l'expérience jepa_eval : 6 des 11 prompts du corpus d'éval
+# product_render routaient vers le chemin legacy — descriptions d'objet nues
+# (« boîte rouge brillante sur fond noir ») sans aucun mot-clé produit.
+# Or « <objet> sur fond <couleur> » est LA grammaire du packshot ; elle ne
+# décrit jamais une scène. Le signal exige les DEUX moitiés : un nom d'objet
+# produit ET le marqueur « sur fond » — « ville sur fond de coucher de
+# soleil » (pas d'objet produit) ou « boîte dans un hangar » (pas de fond)
+# ne déclenchent pas. Vérifié par le harnais corpus
+# (test_template_routing_eval_corpus.py) ; évalué APRÈS _INTERIOR_KEYWORDS,
+# un mot-clé intérieur explicite garde la priorité sur ce signal faible.
+_PACKSHOT_OBJECT_NOUNS = (
+    "bouteille", "bottle", "flacon", "fiole",
+    "boîte", "boite", "box",
+    "tube", "pot", "jar",
+    "sphère", "sphere", "cube",
+    "bloc",
+)
+
+_PACKSHOT_BACKDROP_MARKERS = (
+    "sur fond",
+    "sur un fond",
+    # « fond <qualificatif> » sans « sur » (ex. « bouteille bleue, fond
+    # blanc ») : composés énumérés — « fond » seul est ambigu (« au fond du
+    # couloir »), le composé qualifié ne l'est pas.
+    "fond blanc",
+    "fond noir",
+    "fond gris",
+    "fond beige",
+    "fond neutre",
+    "fond uni",
+    "fond clair",
+    "fond sombre",
+    "fond studio",
+    "white background",
+    "black background",
+    "gray background",
+    "grey background",
+    "neutral background",
+    "plain background",
+)
+
+
+def _matches_bare_packshot(msg_lower: str) -> bool:
+    """Vrai si le message est une description packshot « objet nu sur fond »."""
+    return any(m in msg_lower for m in _PACKSHOT_BACKDROP_MARKERS) and any(
+        n in msg_lower for n in _PACKSHOT_OBJECT_NOUNS
+    )
+
 
 # ---------------------------------------------------------------------------
 # Template interior_space
@@ -338,6 +387,8 @@ def select_template(message: str) -> str | None:
     Détection déterministe par mots-clés uniquement.
     Priorité product_render > interior_space : "packshot produit" reste produit
     même si le mot "produit" n'apparaît pas dans les mots-clés intérieurs.
+    Le signal composé « objet nu sur fond » passe en dernier : plus faible
+    qu'un mot-clé explicite, il ne s'applique que si rien d'autre n'a matché.
     """
     msg_lower = message.lower()
 
@@ -346,6 +397,9 @@ def select_template(message: str) -> str | None:
 
     if any(kw in msg_lower for kw in _INTERIOR_KEYWORDS):
         return TEMPLATE_INTERIOR_SPACE
+
+    if _matches_bare_packshot(msg_lower):
+        return TEMPLATE_PRODUCT_RENDER
 
     return None
 
@@ -360,6 +414,8 @@ def get_template_name(message: str) -> str | None:
         return "product_render"
     if any(kw in msg_lower for kw in _INTERIOR_KEYWORDS):
         return "interior_space"
+    if _matches_bare_packshot(msg_lower):
+        return "product_render"
     return None
 
 
