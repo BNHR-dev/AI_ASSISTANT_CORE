@@ -163,6 +163,10 @@ curl -sN http://127.0.0.1:8000/v1/chat/completions \
 
 **Where this is going** — the bet is *grounded* 3D-native generation, and it is no longer a lone bet: **world models** are pushing AI toward real 3D understanding. Yann LeCun left Meta and raised $1B to build them (AMI Labs); World Labs' Marble already exports generated worlds as meshes and Gaussian splats. None of them ship **production discipline** — contracts, verification, traceability. That layer is what AAC builds. The AI fills validated specs today; next is retrieval-augmented grounding (**RAG**) over a studio's own assets and conventions, so native-3D output stays correct and consistent at production scale. And when generated worlds reach the pipeline, they get treated like everything else here: **untrusted input, put under contract**. AI that *assists* the 3D pipeline rather than replacing it with flat images.
 
+![The AAC packshot under contract inside a captured Gaussian-splat environment](experiments/splat_demo/results/hero_overlay.png)
+
+*That last sentence, run once for real: the pipeline's packshot rendered inside a captured Gaussian-splat world. Same framing contract — passed. Same overlay, drawn on the shipped image. The splat's provenance (source, sha256, license) recorded in the manifest. Method and honest limits: [`experiments/splat_demo/`](experiments/splat_demo/).*
+
 Near-term, concrete:
 - **Stronger isolation.** Generated `bpy` code already runs OS-confined (bubblewrap / hardened container). Next: a dedicated VM, ComfyUI confinement, and CPU/RAM quotas — so untrusted code can never touch confidential assets or exhaust the host. A goal, not a shipped guarantee.
 - **Wider measurement.** Extend the benchmark beyond the Blender LLM — the router, the web path, ComfyUI — and add true cross-seed robustness (`temperature > 0`).

@@ -4,7 +4,7 @@
   "splat_blend": "/home/BNHR/projects/aac/experiments/splat_demo/assets/playroom_import.blend",
   "splat_object": "playroom_30k",
   "splat_transform": {
-    "rotation_euler_deg": [-90.0, 0.0, 300.0],
+    "rotation_euler_deg": [-90.0, 0.0, 15.0],
     "location": [0.0, 0.0, 0.0],
     "scale": 1.0
   },
