@@ -10,9 +10,11 @@ Invariants couverts :
   outils, borné à [1, 5], valeur invalide → 1.
 - HITL : pause_before_tools marque les steps outils ; le run s'arrête
   AVANT le step outil (jamais exécuté), statut "paused", awaiting_step_ids
-  renseigné, checkpoint sur disque ; resume vaut approbation (le step
-  s'exécute, plus de re-pause) ; l'événement step.awaiting_user est
-  journalisé ; les steps amont (prepare) restaurés sans ré-exécution.
+  renseigné, checkpoint sur disque ; resume approuve LE prochain step
+  gated seulement (un plan à plusieurs steps gated repasse en pause avant
+  chacun — une approbation par outil, jamais en bloc) ; l'événement
+  step.awaiting_user est journalisé ; les steps amont (prepare) restaurés
+  sans ré-exécution.
 - Console : la vue marque is_paused ; POST /console/resume reprend et
   rend le fragment résultat.
 """
@@ -210,6 +212,47 @@ def test_pause_stops_before_tool_and_resume_approves(hitl_env: Path, monkeypatch
     # Le step amont a été restauré, pas ré-exécuté (un seul prepare au total).
     prepare = [r for r in resumed["step_results"] if r["step_id"] == "step_prepare_visual"]
     assert len(prepare) == 1
+
+
+def test_resume_approves_only_next_gated_step(hitl_env: Path, monkeypatch) -> None:
+    """Plan à DEUX steps gated : la première reprise ne lève que la gate du
+    premier — le run repasse en pause avant le second ; une seconde reprise
+    le libère. Une approbation d'étape n'approuve jamais tout le reste."""
+    from app.engine import run_state as rs
+    from app.engine.planner_types import ExecutionPlan, PlanStep
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "app.engine.step_executor.generate_with_ollama",
+        lambda model, prompt: calls.append(model) or "OK",
+    )
+
+    plan = ExecutionPlan(
+        task_type="build",
+        strategy="two_steps",
+        steps=[
+            PlanStep(step_id="step_a", step_type="llm_primary", goal="a",
+                     agent="AGENT_BUILDER_IA", model="m-a", requires_approval=True),
+            PlanStep(step_id="step_b", step_type="llm_primary", goal="b",
+                     agent="AGENT_BUILDER_IA", model="m-b", requires_approval=True),
+        ],
+    )
+    rs.save_run_state(
+        "req-hitl-multi", message="deux étapes sous approbation",
+        has_image=False, mode="auto", decision=dict(_VISUAL_DECISION),
+        plan=plan, step_results=[], run_status="paused",
+    )
+
+    first = resume_request("req-hitl-multi")
+    assert first["execution_summary"]["status"] == "paused"
+    assert first["execution_summary"]["successful_step_ids"] == ["step_a"]
+    assert first["execution_summary"]["awaiting_step_ids"] == ["step_b"]
+    assert calls == ["m-a"]  # step_b jamais exécuté à ce stade
+
+    second = resume_request("req-hitl-multi")
+    assert second["execution_summary"]["status"] == "success"
+    assert second["execution_summary"]["successful_step_ids"] == ["step_a", "step_b"]
+    assert calls == ["m-a", "m-b"]  # une approbation = un step
 
 
 def test_pause_flag_off_changes_nothing(hitl_env: Path, monkeypatch) -> None:

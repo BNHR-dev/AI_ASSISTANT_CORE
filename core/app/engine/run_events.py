@@ -27,7 +27,9 @@ Configuration (env vars) :
   (conteneur à rootfs read-only : seul le volume /outputs est writable).
 - AAC_RUN_EVENTS_RETENTION_DAYS : rétention en jours (même exigence C3
   que les trajectoires : les événements contiennent les prompts
-  utilisateur). Défaut 30. "0" = purge désactivée.
+  utilisateur). Défaut 30. "0" = purge désactivée. La purge couvre
+  events.jsonl ET state.json — même classe de données (prompts inclus) ;
+  politique détaillée par fichier dans _purge_old_runs.
 
 Garanties (mêmes invariants que llm_trajectory_log) :
 - Ne lève JAMAIS d'exception (IO error, permission, disque plein → swallow).
@@ -44,6 +46,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
+from app.engine.run_identity import resolve_run_dir
+
 RUN_EVENTS_ENABLED_ENV = "AAC_RUN_EVENTS_ENABLED"
 RUN_EVENTS_DIR_ENV = "AAC_RUN_EVENTS_DIR"
 DEFAULT_RUN_EVENTS_DIR = "outputs/runs"
@@ -54,6 +58,15 @@ DEFAULT_RUN_EVENTS_RETENTION_DAYS = 30
 BLENDER_OUTPUT_DIR_ENV = "BLENDER_OUTPUT_DIR"
 
 EVENTS_FILENAME = "events.jsonl"
+# Écrit par run_state, purgé ICI : même classe de données (le prompt
+# utilisateur y figure), même rétention. Défini dans ce module pour éviter
+# l'import circulaire (run_state importe déjà run_events).
+STATE_FILENAME = "state.json"
+
+# Fichiers d'un dossier de run contenant des DONNÉES UTILISATEUR : supprimés
+# à expiration. Tout le reste est préservé — le dossier n'est retiré que
+# s'il finit vide.
+_USER_DATA_FILENAMES = (EVENTS_FILENAME, STATE_FILENAME)
 
 _DISABLED_VALUES: frozenset[str] = frozenset({"0", "false", "no", "off"})
 
@@ -99,14 +112,24 @@ def _purge_old_runs(base_dir: Path, now: datetime) -> None:
     """
     Purge best-effort des runs plus vieux que la rétention.
 
-    Contrairement aux trajectoires (fichiers nommés par date), les runs sont
-    nommés par request_id : la date fait foi via le mtime de events.jsonl
-    (= dernière écriture = fin du run). Une copie/restauration retarde la
-    purge — acceptable pour du best-effort. Conservateur par construction :
-    on ne supprime QUE events.jsonl, puis le répertoire seulement s'il est
-    vide (un state.json ou manifest futur le préserve). Un répertoire sans
-    events.jsonl n'est jamais touché. Ne lève jamais (appelée sous le try
-    enveloppant de emit_run_event).
+    Politique EXPLICITE par fichier (audit rétention 2026-07-11 — avant :
+    seul events.jsonl était supprimé et state.json, prompt inclus, restait
+    indéfiniment) :
+    - events.jsonl et state.json contiennent des données utilisateur → tous
+      deux supprimés à expiration ; les temporaires d'écriture atomique
+      orphelins (state.json.*.tmp, crash pendant un checkpoint) suivent la
+      même règle ;
+    - les artefacts Blender/ComfyUI ne vivent PAS ici (outputs/blender/,
+      outputs/comfyui/) et gardent leur propre cycle de vie ; tout autre
+      fichier du dossier (manifest de run futur…) est conservé, et le
+      répertoire n'est retiré que s'il finit vide ;
+    - l'âge du run = mtime le plus récent parmi ses fichiers de données
+      (= dernière écriture du run). Un répertoire sans aucun fichier de
+      données est étranger : jamais touché.
+
+    Une copie/restauration retarde la purge — acceptable pour du
+    best-effort. Ne lève jamais (appelée sous le try enveloppant de
+    emit_run_event).
     """
     retention_days = get_run_events_retention_days()
     if retention_days <= 0:
@@ -115,14 +138,24 @@ def _purge_old_runs(base_dir: Path, now: datetime) -> None:
     for run_dir in base_dir.iterdir():
         if not run_dir.is_dir():
             continue
-        events_file = run_dir / EVENTS_FILENAME
-        try:
-            mtime = datetime.fromtimestamp(events_file.stat().st_mtime, tz=timezone.utc)
-        except OSError:
+        data_files = [run_dir / name for name in _USER_DATA_FILENAMES]
+        data_files += sorted(run_dir.glob(STATE_FILENAME + ".*.tmp"))
+        mtimes = []
+        for data_file in data_files:
+            try:
+                mtimes.append(data_file.stat().st_mtime)
+            except OSError:
+                continue
+        if not mtimes:
             continue
-        if mtime >= cutoff:
+        newest = datetime.fromtimestamp(max(mtimes), tz=timezone.utc)
+        if newest >= cutoff:
             continue
-        events_file.unlink(missing_ok=True)
+        for data_file in data_files:
+            try:
+                data_file.unlink(missing_ok=True)
+            except OSError:
+                pass
         try:
             run_dir.rmdir()
         except OSError:
@@ -163,7 +196,11 @@ def emit_run_event(
         line = json.dumps(record, ensure_ascii=False, default=str)
 
         base_dir = get_run_events_dir()
-        run_dir = base_dir / request_id
+        # Contrat canonique des ids (run_identity) : un id invalide ne doit
+        # jamais nommer un chemin — échec avalé comme toute autre IO.
+        run_dir = resolve_run_dir(base_dir, request_id)
+        if run_dir is None:
+            raise ValueError(f"invalid request_id: {request_id!r}")
         first_event = not run_dir.exists()
         run_dir.mkdir(parents=True, exist_ok=True)
         path = run_dir / EVENTS_FILENAME

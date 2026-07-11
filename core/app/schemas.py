@@ -2,6 +2,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from app.engine.run_identity import REQUEST_ID_PATTERN
+
 
 class RouteRequest(BaseModel):
     message: str
@@ -38,7 +40,8 @@ class ExecutionSummaryResponse(BaseModel):
     error_step_ids: list[str] = Field(default_factory=list)
     blocked_step_ids: list[str] = Field(default_factory=list)
     # 4B — steps en attente d'approbation (status global "paused") ;
-    # la reprise via POST /resume vaut approbation.
+    # chaque POST /resume approuve le prochain step outil SEULEMENT
+    # (un plan à plusieurs outils repasse en pause avant chacun).
     awaiting_step_ids: list[str] = Field(default_factory=list)
 
 
@@ -126,14 +129,17 @@ class ReproduceResponse(BaseModel):
 class ResumeRequest(BaseModel):
     """Reprise d'un run interrompu depuis son checkpoint (state.json) :
     les steps déjà réussis sont restaurés, le reste est ré-exécuté."""
-    request_id: str
+    # Le contrat canonique (run_identity) est appliqué dès la frontière API :
+    # request_id nomme un dossier sous outputs/runs/, jamais un chemin libre.
+    request_id: str = Field(pattern=REQUEST_ID_PATTERN)
 
 
 class ExecuteRequest(BaseModel):
     message: str
     has_image: bool = False
     # 4B — human-in-the-loop opt-in : le run s'arrête AVANT chaque step
-    # outil (status "paused"), la reprise via POST /resume vaut approbation.
+    # outil (status "paused") ; chaque POST /resume approuve le step outil
+    # suivant (approbation PAR outil, jamais en bloc).
     pause_before_tools: bool = False
 
 

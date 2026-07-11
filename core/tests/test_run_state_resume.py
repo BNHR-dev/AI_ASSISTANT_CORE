@@ -4,8 +4,10 @@ Tests du checkpoint de run (app.engine.run_state) et de la reprise
 
 Invariants couverts :
 - save/load : round-trip fidèle, activation par env, écriture non-bloquante
-  (IO impossible → pas d'exception), lecture tolérante (corrompu → None),
-  champs inconnus d'une version future ignorés au rebuild.
+  (IO impossible → pas d'exception), écriture ATOMIQUE (échec simulé sur
+  fsync/replace → ancien checkpoint intact, aucun temporaire orphelin),
+  lecture tolérante (corrompu → None), champs inconnus d'une version
+  future ignorés au rebuild.
 - execute_request checkpointe après CHAQUE step (un crash au step 2 laisse
   le step 1 sur disque) puis stampe run_status au final.
 - resume_request : restaure les steps RÉUSSIS sans les ré-exécuter (leurs
@@ -96,6 +98,61 @@ def test_save_and_load_round_trip(state_env: Path) -> None:
     assert rebuilt_plan.steps[1].depends_on == ["step_primary"]
     rebuilt = rstate.rebuild_step_result(saved["step_results"][0])
     assert rebuilt.output == "OK" and rebuilt.duration_ms == 12
+
+
+def test_save_is_atomic_no_tmp_leftover(state_env: Path) -> None:
+    """Le chemin nominal ne laisse aucun fichier temporaire derrière lui."""
+    rstate.save_run_state(
+        "req-1", message="x", has_image=False, mode="auto",
+        decision=dict(_DECISION), plan=_plan(), step_results=[],
+    )
+    names = sorted(p.name for p in (state_env / "req-1").iterdir())
+    assert names == [rstate.STATE_FILENAME]
+
+
+def test_save_failure_preserves_previous_checkpoint(
+    state_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un échec PENDANT l'écriture (disque plein, crash simulé sur fsync)
+    ne doit ni tronquer le checkpoint existant ni laisser de temporaire."""
+    import os as os_module
+
+    rstate.save_run_state(
+        "req-1", message="premier", has_image=False, mode="auto",
+        decision=dict(_DECISION), plan=_plan(), step_results=[],
+    )
+
+    def full_disk(fd):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(os_module, "fsync", full_disk)
+    rstate.save_run_state(
+        "req-1", message="second", has_image=False, mode="auto",
+        decision=dict(_DECISION), plan=_plan(), step_results=[],
+    )  # ne lève pas (invariant non-bloquant)
+
+    saved = rstate.load_run_state("req-1")
+    assert saved is not None and saved["message"] == "premier"
+    names = sorted(p.name for p in (state_env / "req-1").iterdir())
+    assert names == [rstate.STATE_FILENAME]
+
+
+def test_save_failure_on_replace_cleans_tmp(
+    state_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os as os_module
+
+    def broken_replace(src, dst):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(os_module, "replace", broken_replace)
+    rstate.save_run_state(
+        "req-1", message="x", has_image=False, mode="auto",
+        decision=dict(_DECISION), plan=_plan(), step_results=[],
+    )  # ne lève pas
+
+    assert rstate.load_run_state("req-1") is None
+    assert list((state_env / "req-1").iterdir()) == []
 
 
 def test_save_disabled_writes_nothing(monkeypatch, tmp_path: Path) -> None:

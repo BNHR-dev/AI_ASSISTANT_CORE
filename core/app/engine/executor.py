@@ -12,6 +12,7 @@ from app.engine.planner_types import StepResult
 from app.engine.result_assembler import assemble_final_output
 from app.engine.router_service import build_route_decision
 from app.engine.run_events import emit_run_event
+from app.engine.run_locks import run_execution_lock
 from app.engine.run_state import (
     load_run_state,
     rebuild_plan,
@@ -351,8 +352,8 @@ def _run_pending_steps(
     """Exécute les steps non encore réussis, avec CHECKPOINT après chacun :
     un run interrompu reprend là où il s'est arrêté (4A). Un step marqué
     requires_approval ARRÊTE le run avant son exécution (4B) : status
-    awaiting_user, checkpoint, et la reprise (resume_request) vaut
-    approbation."""
+    awaiting_user, checkpoint, et la reprise (resume_request) approuve CE
+    step seulement — le run se remettra en pause avant le suivant."""
     for step in plan.steps:
         if step.status == "success":
             continue
@@ -406,6 +407,22 @@ def execute_request(
     # request_id imposable par l'appelant (5 v2 : la Console asynchrone doit
     # connaître l'id AVANT de lancer le run pour s'abonner au flux d'événements).
     request_id = request_id or str(uuid4())
+    # Verrou par run (run_locks, mono-process) : deux exécutions simultanées
+    # du même id écriraient en même temps events.jsonl et state.json et
+    # doubleraient les steps outils. RunBusyError immédiate si déjà actif.
+    with run_execution_lock(request_id):
+        return _execute_request_locked(
+            message, has_image, mode, pause_before_tools, request_id
+        )
+
+
+def _execute_request_locked(
+    message: str,
+    has_image: bool,
+    mode: str,
+    pause_before_tools: bool,
+    request_id: str,
+) -> dict:
     started_at = _utc_now_iso()
     started_perf = perf_counter()
 
@@ -497,8 +514,19 @@ def resume_request(request_id: str) -> dict:
     déjà RÉUSSIS sont restaurés tels quels (leurs sorties redeviennent
     disponibles pour les steps dépendants), tout le reste est ré-exécuté.
 
-    LookupError si aucun checkpoint exploitable n'existe pour ce request_id.
+    Sémantique HITL (4B) : une reprise approuve UNIQUEMENT le prochain step
+    en attente d'approbation. Un plan à plusieurs steps gated repasse en
+    pause avant chacun — approbation par outil, jamais en bloc.
+
+    LookupError si aucun checkpoint exploitable n'existe pour ce request_id ;
+    RunBusyError (run_locks) si le run est déjà en cours dans ce process
+    (double /resume, double clic Console, reprise pendant l'exécution).
     """
+    with run_execution_lock(request_id):
+        return _resume_request_locked(request_id)
+
+
+def _resume_request_locked(request_id: str) -> dict:
     saved = load_run_state(request_id)
     if saved is None:
         raise LookupError(f"no saved state for request_id {request_id}")
@@ -525,13 +553,20 @@ def resume_request(request_id: str) -> dict:
 
     # Seuls les succès sont restaurés ; les steps error/blocked/awaiting
     # repartent de zéro (statut pending), leurs anciens résultats ne sont
-    # pas rejoués. 4B : la reprise VAUT approbation — les gates
-    # requires_approval sont levées pour toute la continuation (sinon le
-    # run se remettrait en pause au même step, indéfiniment).
+    # pas rejoués.
     restored_ids = {result.step_id for result in restored}
     for step in plan.steps:
         step.status = "success" if step.step_id in restored_ids else "pending"
-        step.requires_approval = False
+    # 4B — la reprise vaut approbation du PROCHAIN step gated SEULEMENT :
+    # on lève la gate du premier step non réussi qui en exige une, les
+    # suivantes restent en place — un plan à plusieurs outils repasse en
+    # pause avant chacun (approbation par outil). Sans levée, le run se
+    # remettrait en pause au même step indéfiniment ; en levant tout,
+    # une approbation d'étape approuverait tous les outils restants.
+    for step in plan.steps:
+        if step.status != "success" and step.requires_approval:
+            step.requires_approval = False
+            break
     for result in restored:
         state.add_result(result)
 
