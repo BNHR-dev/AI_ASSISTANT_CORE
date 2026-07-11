@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+from app.engine.artifact_manifest import MANIFEST_VERSION
 from app.engine.blender_types import BlenderRequest, BlenderResult
 
 
@@ -29,7 +30,7 @@ _FAKE_BLENDER_REQUEST = BlenderRequest(
 _FAKE_MANIFEST_PATH = f"outputs/blender/{_FAKE_REQUEST_ID}/manifest.json"
 
 _FAKE_MANIFEST_DATA = {
-    "manifest_version": 1,
+    "manifest_version": MANIFEST_VERSION,
     "pipeline": "blender",
     "request_id": _FAKE_REQUEST_ID,
     "status": "success",
@@ -237,6 +238,6 @@ def test_execute_exposes_blender_manifest_with_expected_keys():
     )
     manifest = result.get("blender_manifest")
     assert isinstance(manifest, dict), f"Expected dict, got: {type(manifest)}"
-    assert manifest.get("manifest_version") == 1
+    assert manifest.get("manifest_version") == MANIFEST_VERSION
     assert manifest.get("pipeline") == "blender"
     assert manifest.get("status") == "success"

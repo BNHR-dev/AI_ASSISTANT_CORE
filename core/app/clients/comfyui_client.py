@@ -516,6 +516,28 @@ def build_comfyui_prompt_payload(request: VisualRequest) -> dict[str, Any]:
     return inject_visual_request(workflow, request, template_id)
 
 
+def get_comfyui_system_info() -> dict[str, Any] | None:
+    """
+    Versions du serveur ComfyUI (repro tier 1), via GET /system_stats.
+    Best-effort : None si injoignable ou réponse inattendue — le manifest
+    enregistre alors `comfyui: null` plutôt que de bloquer le run.
+    """
+    try:
+        response = requests.get(f"{COMFYUI_URL}/system_stats", timeout=5)
+        if not response.ok:
+            return None
+        system = response.json().get("system")
+        if not isinstance(system, dict):
+            return None
+        return {
+            "comfyui_version": system.get("comfyui_version"),
+            "pytorch_version": system.get("pytorch_version"),
+            "python_version": system.get("python_version"),
+        }
+    except (requests.RequestException, ValueError):
+        return None
+
+
 def queue_prompt(workflow: dict[str, Any]) -> str:
     try:
         response = requests.post(
@@ -775,6 +797,10 @@ def run_comfyui_workflow(request_or_prompt: str | VisualRequest) -> dict[str, An
                         "view_url": first_descriptor.get("view_url"),
                         "history": history,
                         "seed": run_seed,
+                        # Repro tier 1 : le workflow TEL QU'ENVOYÉ (pas reconstruit
+                        # a posteriori — l'env peut changer entre-temps). Consommé
+                        # par le manifest (sidecar workflow_resolved_v<i>.json).
+                        "workflow_resolved": workflow,
                         "error": error_message,
                     }
                 )
@@ -790,6 +816,7 @@ def run_comfyui_workflow(request_or_prompt: str | VisualRequest) -> dict[str, An
                     "view_url": first_descriptor.get("view_url"),
                     "history": history,
                     "seed": run_seed,
+                    "workflow_resolved": workflow,
                 }
             )
         except Exception as exc:

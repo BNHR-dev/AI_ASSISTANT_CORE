@@ -11,7 +11,15 @@ Structure du manifest :
   artifacts.* (chemins + existence),
   scene_report.status, scene_report.violations,
   execution.blender_status, execution.blender_error,
+  repro.{repro_version, aac_git_commit, blender_version, scene_py_sha256,
+         scene_report_semantic_sha256, preview_png{sha256, dhash}},
   future.creative_intent, future.template_used, future.iteration_parent
+
+v2 (chantier repro) : bloc `repro` — tier 1 (hash du scene.py exécuté,
+version Blender, commit AAC), tier 2 (hash sémantique du scene_report,
+chemins exclus — le `.blend` binaire n'est volontairement PAS hashé, il est
+instable à scène identique), tier 3 (sha256 + dHash du preview.png).
+Définition des tiers : app/engine/repro.py.
 """
 from __future__ import annotations
 
@@ -20,9 +28,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.engine import repro
 from app.engine.blender_types import BlenderRequest, BlenderResult
 
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 PIPELINE = "blender"
 
 
@@ -52,22 +61,51 @@ def _manifest_status(blender_status: str) -> str:
     return "failed"
 
 
-def _scene_report_section(result: BlenderResult) -> dict[str, Any]:
+def _resolve_scene_report(result: BlenderResult) -> dict[str, Any]:
     """
-    Extrait les infos scene_report depuis BlenderResult.scene_report (champ
-    renseigné par run_blender_script), avec fallback sur meta["blender_scene_report"]
-    pour les appelants qui passeraient encore par meta.
-    Fallback final : status=unavailable, violations=[].
+    Le scene_report effectif : BlenderResult.scene_report (champ renseigné par
+    run_blender_script), avec fallback sur meta["blender_scene_report"] pour
+    les appelants qui passeraient encore par meta. Dict vide sinon.
     """
     report = getattr(result, "scene_report", None)
-    if not isinstance(report, dict) or not report:
-        meta = result.meta if isinstance(getattr(result, "meta", None), dict) else {}
-        report = meta.get("blender_scene_report") or {}
+    if isinstance(report, dict) and report:
+        return report
+    meta = result.meta if isinstance(getattr(result, "meta", None), dict) else {}
+    fallback = meta.get("blender_scene_report")
+    return fallback if isinstance(fallback, dict) else {}
+
+
+def _scene_report_section(result: BlenderResult) -> dict[str, Any]:
+    """Résumé scene_report du manifest. Fallback : status=unavailable, violations=[]."""
+    report = _resolve_scene_report(result)
     if not report:
         return {"status": "unavailable", "violations": []}
     return {
         "status": report.get("status", "unavailable"),
         "violations": report.get("violations", []),
+    }
+
+
+def _repro_section(
+    script_path: str | None,
+    preview_path: str | None,
+    scene_report: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Bloc repro (tiers 1/2/3). Chaque champ est best-effort : un fichier
+    absent (preview non rendu, script manquant) donne null, jamais d'échec.
+    """
+    return {
+        "repro_version": 1,
+        "aac_git_commit": repro.aac_git_commit(),
+        "blender_version": repro.blender_version(),
+        "scene_py_sha256": repro.sha256_file(script_path),
+        "scene_report_semantic_sha256": repro.semantic_scene_report_hash(scene_report),
+        "preview_png": {
+            "sha256": repro.sha256_file(preview_path),
+            "pixels_sha256": repro.sha256_image_pixels(preview_path),
+            "dhash": repro.dhash_image(preview_path),
+        },
     }
 
 
@@ -87,6 +125,7 @@ def build_blender_manifest(
 
     blender_status = result.status
     manifest_status = _manifest_status(blender_status)
+    scene_report_dict = _resolve_scene_report(result)
 
     return {
         "manifest_version": MANIFEST_VERSION,
@@ -112,6 +151,11 @@ def build_blender_manifest(
             "blender_status": blender_status,
             "blender_error": result.error,
         },
+        "repro": _repro_section(
+            script_path=result.script_path or _path("scene.py"),
+            preview_path=_path("preview.png"),
+            scene_report=scene_report_dict,
+        ),
         "future": {
             "creative_intent": getattr(request, "creative_intent", None),
             "template_used": getattr(request, "template_used", None),
