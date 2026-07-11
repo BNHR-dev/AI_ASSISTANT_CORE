@@ -77,6 +77,14 @@ def sha256_file(path: str | Path | None) -> Optional[str]:
         return None
 
 
+def sha256_text(text: Optional[str]) -> Optional[str]:
+    """SHA256 hex d'un contenu texte (UTF-8). Équivalent de sha256_file pour
+    un contenu déjà en mémoire (ex. scene.py transmis à /reproduce)."""
+    if text is None:
+        return None
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def _canonicalize(value: Any) -> Any:
     """Floats arrondis (et -0.0 normalisé), récursif. Les clés sont triées à la
     sérialisation (json sort_keys), pas ici."""
@@ -109,30 +117,84 @@ def sha256_canonical_json(data: Any) -> Optional[str]:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _strip_volatile_keys(value: Any) -> Any:
-    """Retire récursivement les clés de chemins (`*_path`) : les chemins
-    changent par machine/run sans changer la sémantique de la scène."""
-    if isinstance(value, dict):
-        return {
-            k: _strip_volatile_keys(v)
-            for k, v in value.items()
-            if not (isinstance(k, str) and k.endswith("_path"))
-        }
-    if isinstance(value, list):
-        return [_strip_volatile_keys(item) for item in value]
-    return value
+# Version du bloc repro écrit dans les manifests. v2 : hash sémantique en
+# WHITELIST (voir _semantic_scene_view) — v1 hashait tout le scene_report
+# moins les chemins, ce qui embarquait des champs non sémantiques (mtime du
+# preview, métriques pixel de la visual-QA, longueur du code dans l'ast_guard)
+# et rendait le tier 2 non comparable entre deux exécutions identiques.
+REPRO_VERSION = 2
+
+_SEMANTIC_SCALAR_KEYS = (
+    "template_name",
+    "status",
+    "object_count",
+    "mesh_count",
+    "camera_count",
+    "light_count",
+    "has_active_camera",
+)
+# framing_contract : la partie GÉOMÉTRIQUE (projection NDC déterministe de la
+# scène). framing_divergence en est exclue : dérivée des PIXELS du preview
+# (bbox perceptuelle) — c'est le territoire du tier 3.
+_SEMANTIC_FRAMING_KEYS = (
+    "status",
+    "violations",
+    "method",
+    "screen_bbox",
+    "occupancy",
+    "center_u",
+    "base_v",
+    "in_frame",
+    "depth_min",
+    "thresholds",
+)
+# runtime_contract : le CHEMIN de correction emprunté (déterministe à entrées
+# égales). before/after en sont exclus : mtime, tailles de fichiers, statuts
+# de visual-QA pixel.
+_SEMANTIC_RUNTIME_KEYS = (
+    "status",
+    "template_name",
+    "corrections_applied",
+    "correction_status",
+    "initial_violations",
+    "final_violations",
+)
+
+
+def _semantic_scene_view(report: dict[str, Any]) -> dict[str, Any]:
+    """
+    Projection WHITELIST du scene_report sur son contenu sémantique : ce que
+    la scène EST (objets, comptes, template, cadrage géométrique, corrections
+    appliquées), pas ce que son exécution a laissé comme traces (chemins,
+    timestamps, métriques dérivées des pixels — mesuré live 2026-07-11 : deux
+    exécutions du même scene.py donnent la même scène mais des mtimes et des
+    floats de visual-QA différents).
+    """
+    view: dict[str, Any] = {key: report.get(key) for key in _SEMANTIC_SCALAR_KEYS}
+    view["object_names"] = report.get("object_names")
+    view["violations"] = report.get("violations")
+
+    framing = report.get("framing_contract")
+    if isinstance(framing, dict):
+        view["framing_contract"] = {k: framing.get(k) for k in _SEMANTIC_FRAMING_KEYS}
+
+    runtime = report.get("runtime_contract")
+    if isinstance(runtime, dict):
+        view["runtime_contract"] = {k: runtime.get(k) for k in _SEMANTIC_RUNTIME_KEYS}
+
+    return view
 
 
 def semantic_scene_report_hash(report: Any) -> Optional[str]:
     """
-    Tier 2 — hash sémantique du scene_report : chemins exclus, canonique.
-    Deux runs produisant la même scène (objets, comptes, statut, violations)
-    partagent ce hash, quel que soit le request_id ou la machine.
+    Tier 2 — hash sémantique du scene_report : projection whitelist puis
+    hash canonique. Deux runs produisant la même scène partagent ce hash,
+    quels que soient request_id, machine, timestamps ou bruit pixel.
     None si le report n'est pas un dict non vide.
     """
     if not isinstance(report, dict) or not report:
         return None
-    return sha256_canonical_json(_strip_volatile_keys(report))
+    return sha256_canonical_json(_semantic_scene_view(report))
 
 
 # ---------------------------------------------------------------------------

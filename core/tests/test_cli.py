@@ -322,3 +322,127 @@ def test_execute_json_is_raw_response(runner, monkeypatch):
 
     assert result.exit_code == 0
     assert json.loads(result.output) == EXECUTE_OK
+
+
+# ---------------------------------------------------------------------------
+# aac reproduce
+# ---------------------------------------------------------------------------
+
+REPRODUCE_EXACT = {
+    "pipeline": "comfyui",
+    "verdict": "exact",
+    "dhash_threshold": 4,
+    "reproduced_request_id": "orig-run",
+    "variants": [{"index": 1, "verdict": "exact", "image": {"dhash_distance": 0}}],
+    "checks": [],
+    "environment_diffs": [],
+    "report_path": "/outputs/comfyui/repro/orig-run/abc/reproduce_report.json",
+    "duration_ms": 42000,
+}
+
+
+def _make_comfyui_run(tmp_path):
+    run_dir = tmp_path / "orig-run"
+    run_dir.mkdir()
+    workflow = {"9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "orig-run/x"}}}
+    (run_dir / "workflow_resolved_v1.json").write_text(json.dumps(workflow), encoding="utf-8")
+    manifest = {
+        "manifest_version": 2,
+        "pipeline": "comfyui",
+        "request_id": "orig-run",
+        "repro": {"variants": [{"index": 1, "workflow_file": "workflow_resolved_v1.json"}]},
+    }
+    (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return run_dir, workflow
+
+
+def test_reproduce_comfyui_sends_sidecars_and_exits_zero(runner, monkeypatch, tmp_path):
+    run_dir, workflow = _make_comfyui_run(tmp_path)
+    api = FakeAPI({("POST", "/reproduce"): REPRODUCE_EXACT})
+    _install(monkeypatch, api)
+
+    result = runner.invoke(cli.aac, ["reproduce", str(run_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert "exact" in result.output
+    body = json.loads(api.requests[0].content)
+    assert body["pipeline"] == "comfyui"
+    assert body["workflows"]["1"] == workflow
+    assert body["scene_py"] is None
+
+
+def test_reproduce_accepts_manifest_path_directly(runner, monkeypatch, tmp_path):
+    run_dir, _ = _make_comfyui_run(tmp_path)
+    api = FakeAPI({("POST", "/reproduce"): REPRODUCE_EXACT})
+    _install(monkeypatch, api)
+
+    result = runner.invoke(cli.aac, ["reproduce", str(run_dir / "manifest.json")])
+    assert result.exit_code == 0, result.output
+
+
+def test_reproduce_blender_sends_scene_py(runner, monkeypatch, tmp_path):
+    run_dir = tmp_path / "orig-run"
+    run_dir.mkdir()
+    (run_dir / "scene.py").write_text("import bpy\n", encoding="utf-8")
+    manifest = {
+        "manifest_version": 2,
+        "pipeline": "blender",
+        "request_id": "orig-run",
+        "output_dir": str(run_dir),
+        "repro": {"scene_py_sha256": "x"},
+    }
+    (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    api = FakeAPI(
+        {("POST", "/reproduce"): {**REPRODUCE_EXACT, "pipeline": "blender", "variants": []}}
+    )
+    _install(monkeypatch, api)
+
+    result = runner.invoke(cli.aac, ["reproduce", str(run_dir)])
+
+    assert result.exit_code == 0, result.output
+    body = json.loads(api.requests[0].content)
+    assert body["pipeline"] == "blender"
+    assert body["scene_py"] == "import bpy\n"
+
+
+def test_reproduce_non_reproduced_verdict_exits_one(runner, monkeypatch, tmp_path):
+    run_dir, _ = _make_comfyui_run(tmp_path)
+    different = {**REPRODUCE_EXACT, "verdict": "different"}
+    api = FakeAPI({("POST", "/reproduce"): different})
+    _install(monkeypatch, api)
+
+    result = runner.invoke(cli.aac, ["reproduce", str(run_dir)])
+    assert result.exit_code == 1
+    assert "different" in result.output
+
+
+def test_reproduce_rejects_manifest_without_repro_block(runner, monkeypatch, tmp_path):
+    run_dir = tmp_path / "old-run"
+    run_dir.mkdir()
+    (run_dir / "manifest.json").write_text(
+        json.dumps({"manifest_version": 1, "pipeline": "blender"}), encoding="utf-8"
+    )
+    api = FakeAPI({})
+    _install(monkeypatch, api)
+
+    result = runner.invoke(cli.aac, ["reproduce", str(run_dir)])
+
+    assert result.exit_code == 1
+    assert api.requests == []  # rien n'est parti vers l'API
+    assert "v2" in result.output or "repro" in result.output
+
+
+def test_reproduce_environment_diffs_rendered(runner, monkeypatch, tmp_path):
+    run_dir, _ = _make_comfyui_run(tmp_path)
+    with_diffs = {
+        **REPRODUCE_EXACT,
+        "verdict": "different",
+        "environment_diffs": [
+            {"field": "comfyui_version", "recorded": "0.20.0", "current": "0.25.0"}
+        ],
+    }
+    api = FakeAPI({("POST", "/reproduce"): with_diffs})
+    _install(monkeypatch, api)
+
+    result = runner.invoke(cli.aac, ["reproduce", str(run_dir)])
+    assert "comfyui_version : 0.20.0 → 0.25.0" in result.output

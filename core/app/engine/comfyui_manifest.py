@@ -205,7 +205,7 @@ def _repro_section(
 ) -> dict[str, Any]:
     runs = _runs_from_result(result)
     return {
-        "repro_version": 1,
+        "repro_version": repro.REPRO_VERSION,
         "aac_git_commit": repro.aac_git_commit(),
         "comfyui": comfyui_system_info,
         "models": _models_section(runs),

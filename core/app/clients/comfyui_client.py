@@ -538,6 +538,24 @@ def get_comfyui_system_info() -> dict[str, Any] | None:
         return None
 
 
+def free_execution_cache() -> bool:
+    """
+    POST /free — libère la mémoire et invalide le cache d'exécution de
+    ComfyUI. Indispensable au rejeu (reproduce) : mesuré live 2026-07-11,
+    re-soumettre un graphe strictement identique sans ça ne produit AUCUNE
+    image (`execution_cached`). Best-effort : False si injoignable.
+    """
+    try:
+        response = requests.post(
+            f"{COMFYUI_URL}/free",
+            json={"unload_models": False, "free_memory": True},
+            timeout=10,
+        )
+        return response.ok
+    except requests.RequestException:
+        return False
+
+
 def queue_prompt(workflow: dict[str, Any]) -> str:
     try:
         response = requests.post(

@@ -103,6 +103,38 @@ def test_semantic_hash_detects_scene_change() -> None:
     assert repro.semantic_scene_report_hash(_REPORT) != repro.semantic_scene_report_hash(other)
 
 
+def test_semantic_hash_ignores_execution_noise() -> None:
+    # Mesuré live 2026-07-11 : deux exécutions du même scene.py produisent la
+    # même scène mais des mtimes, tailles de preview et métriques pixel de
+    # visual-QA différents. Le tier 2 doit y être INSENSIBLE.
+    base = {
+        **_REPORT,
+        "framing_contract": {
+            "status": "passed", "violations": [], "screen_bbox": [0.42, 0.23, 0.52, 0.62],
+            "occupancy": 0.39,
+            "framing_divergence": {"iou": 0.0966, "perceptual_bbox_fraction": [0.39, 0.43, 1.0, 1.0]},
+        },
+        "runtime_contract": {
+            "status": "passed", "corrections_applied": ["normalize_lighting"],
+            "after": {"preview_mtime_iso": "2026-07-11T06:55:15+00:00", "preview_size_bytes": 165059},
+        },
+        "visual_qa": {"status": "degraded", "violations": ["subject_offcenter"]},
+        "ast_guard": {"status": "passed", "metrics": {"raw_code_length": 4008}},
+    }
+    noisy = json.loads(json.dumps(base))
+    noisy["framing_contract"]["framing_divergence"] = {"iou": 0.0625, "perceptual_bbox_fraction": [0.22, 0.09, 0.93, 1.0]}
+    noisy["runtime_contract"]["after"] = {"preview_mtime_iso": "2026-07-11T07:22:09+00:00", "preview_size_bytes": 162487}
+    noisy["visual_qa"] = {"status": "passed", "violations": []}
+    noisy["ast_guard"] = {"status": "skipped", "metrics": {}}
+
+    assert repro.semantic_scene_report_hash(base) == repro.semantic_scene_report_hash(noisy)
+
+    # Mais un changement GÉOMÉTRIQUE du cadrage reste détecté.
+    moved = json.loads(json.dumps(base))
+    moved["framing_contract"]["occupancy"] = 0.17
+    assert repro.semantic_scene_report_hash(base) != repro.semantic_scene_report_hash(moved)
+
+
 @pytest.mark.parametrize("bad", [None, {}, [], "x", 42])
 def test_semantic_hash_rejects_non_report(bad) -> None:
     assert repro.semantic_scene_report_hash(bad) is None
