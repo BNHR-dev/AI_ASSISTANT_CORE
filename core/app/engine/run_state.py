@@ -33,6 +33,7 @@ from typing import Any, Optional
 
 from app.engine.planner_types import ExecutionPlan, PlanStep, StepResult
 from app.engine.run_events import get_run_events_dir
+from app.engine.run_identity import resolve_run_dir
 
 RUN_STATE_ENABLED_ENV = "AAC_RUN_STATE_ENABLED"
 STATE_FILENAME = "state.json"
@@ -79,7 +80,11 @@ def save_run_state(
             },
             "step_results": [asdict(result) for result in step_results],
         }
-        run_dir = get_run_events_dir() / request_id
+        # Contrat canonique des ids (run_identity) : un id invalide ne doit
+        # jamais nommer un chemin — échec avalé comme toute autre IO.
+        run_dir = resolve_run_dir(get_run_events_dir(), request_id)
+        if run_dir is None:
+            raise ValueError(f"invalid request_id: {request_id!r}")
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / STATE_FILENAME).write_text(
             json.dumps(snapshot, ensure_ascii=False, default=str), encoding="utf-8"
@@ -92,8 +97,13 @@ def save_run_state(
 
 
 def load_run_state(request_id: str) -> Optional[dict[str, Any]]:
-    """Recharge le checkpoint. None si absent/corrompu/forme inattendue."""
-    path = get_run_events_dir() / request_id / STATE_FILENAME
+    """Recharge le checkpoint. None si absent/corrompu/forme inattendue,
+    ou si l'id viole le contrat canonique (jamais de résolution de chemin
+    sur un id non validé — /resume expose ce chemin au client)."""
+    run_dir = resolve_run_dir(get_run_events_dir(), request_id)
+    if run_dir is None:
+        return None
+    path = run_dir / STATE_FILENAME
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):

@@ -31,6 +31,7 @@ from fastapi.templating import Jinja2Templates
 from app.engine.executor import execute_request
 from app.engine.reproduce import reproduce_run
 from app.engine.run_events import EVENTS_FILENAME, get_run_events_dir
+from app.engine.run_identity import is_valid_request_id, resolve_run_dir
 from app.engine.runtime_debug import get_runtime_health
 
 # Chemins ancrés sur ce fichier, indépendants du répertoire courant.
@@ -67,9 +68,9 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 _RESULTS: OrderedDict[str, dict] = OrderedDict()
 _RESULTS_MAX = 50
 
-# request_id nomme un dossier sous outputs/runs/ : charset strict, jamais de
-# séparateur de chemin (anti-traversal, même garde d'esprit que /artifact).
-_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+# request_id nomme un dossier sous outputs/runs/ : le contrat canonique
+# (run_identity) est partagé avec l'API et la persistance — une seule regex
+# dans le repo, appliquée ici via is_valid_request_id.
 
 # Un run Blender/ComfyUI se compte en minutes ; au-delà, le flux s'arrête
 # proprement et le client tente le résultat (plutôt qu'un socket zombie).
@@ -532,8 +533,13 @@ def _load_json(p: Path) -> dict | None:
 # --------------------------------------------------------------------------- #
 def _load_run_events(request_id: str) -> list[dict]:
     """Événements du run, dans l'ordre d'écriture. Lecture seule, tolérante :
-    journal absent (runs antérieurs au chantier events) → liste vide."""
-    events_file = get_run_events_dir().resolve() / request_id / EVENTS_FILENAME
+    journal absent (runs antérieurs au chantier events) → liste vide.
+    L'id passe par le contrat canonique (run_identity) — les noms de dossiers
+    lus sur disque par build_run_detail empruntent aussi ce chemin."""
+    run_dir = resolve_run_dir(get_run_events_dir().resolve(), request_id)
+    if run_dir is None:
+        return []
+    events_file = run_dir / EVENTS_FILENAME
     if not events_file.is_file():
         return []
     events = []
@@ -1029,7 +1035,7 @@ def resume_from_console(request: Request, request_id: str, background_tasks: Bac
     """
     from app.engine.executor import resume_request
 
-    if not _REQUEST_ID_RE.match(request_id):
+    if not is_valid_request_id(request_id):
         raise HTTPException(status_code=404, detail="unknown run")
 
     _RESULTS.pop(request_id, None)  # l'issue précédente (pause) est périmée
@@ -1044,7 +1050,7 @@ def resume_from_console(request: Request, request_id: str, background_tasks: Bac
 @router.get("/stream/{request_id}")
 async def stream_run_events(request: Request, request_id: str, tail: int = 0):
     """Flux SSE des événements d'un run (consommé par _live_run.html)."""
-    if not _REQUEST_ID_RE.match(request_id):
+    if not is_valid_request_id(request_id):
         raise HTTPException(status_code=404, detail="unknown run")
     return StreamingResponse(
         _sse_event_stream(request, request_id, tail=bool(tail)),
@@ -1056,7 +1062,7 @@ async def stream_run_events(request: Request, request_id: str, tail: int = 0):
 @router.get("/run-result/{request_id}", response_class=HTMLResponse)
 def run_result(request: Request, request_id: str):
     """Fragment de résultat final d'un run lancé par cette Console."""
-    if not _REQUEST_ID_RE.match(request_id):
+    if not is_valid_request_id(request_id):
         raise HTTPException(status_code=404, detail="unknown run")
     entry = _RESULTS.get(request_id)
     if entry is None:

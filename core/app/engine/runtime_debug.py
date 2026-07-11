@@ -103,6 +103,7 @@ ACTIVE_AUXILIARY_MODULES = [
     "app/engine/blender_model_config.py",
     "app/engine/llm_trajectory_log.py",
     "app/engine/run_events.py",
+    "app/engine/run_identity.py",
     "app/engine/run_state.py",
     "app/engine/repro.py",
     "app/engine/artifact_manifest.py",

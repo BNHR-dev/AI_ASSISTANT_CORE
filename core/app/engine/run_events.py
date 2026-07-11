@@ -44,6 +44,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
+from app.engine.run_identity import resolve_run_dir
+
 RUN_EVENTS_ENABLED_ENV = "AAC_RUN_EVENTS_ENABLED"
 RUN_EVENTS_DIR_ENV = "AAC_RUN_EVENTS_DIR"
 DEFAULT_RUN_EVENTS_DIR = "outputs/runs"
@@ -163,7 +165,11 @@ def emit_run_event(
         line = json.dumps(record, ensure_ascii=False, default=str)
 
         base_dir = get_run_events_dir()
-        run_dir = base_dir / request_id
+        # Contrat canonique des ids (run_identity) : un id invalide ne doit
+        # jamais nommer un chemin — échec avalé comme toute autre IO.
+        run_dir = resolve_run_dir(base_dir, request_id)
+        if run_dir is None:
+            raise ValueError(f"invalid request_id: {request_id!r}")
         first_event = not run_dir.exists()
         run_dir.mkdir(parents=True, exist_ok=True)
         path = run_dir / EVENTS_FILENAME

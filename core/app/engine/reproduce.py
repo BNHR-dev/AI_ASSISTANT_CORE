@@ -48,6 +48,7 @@ from uuid import uuid4
 
 from app.engine import repro
 from app.engine.blender_ast_guard import analyze_security_gate
+from app.engine.run_identity import is_valid_request_id
 
 DHASH_THRESHOLD_ENV = "AAC_REPRO_DHASH_THRESHOLD"
 DEFAULT_DHASH_THRESHOLD = 4
@@ -210,7 +211,11 @@ def reproduce_comfyui(
     threshold = get_dhash_threshold()
     manifest_repro = manifest.get("repro") or {}
     recorded_variants = {v.get("index"): v for v in manifest_repro.get("variants") or []}
-    orig_request_id = manifest.get("request_id") or "unknown"
+    # Le manifest vient du CLIENT : son request_id nomme le dossier de rejeu
+    # (repro/<id>/<stamp>) et le filename_prefix envoyé à ComfyUI — contrat
+    # canonique obligatoire, sinon repli neutre (jamais de chemin non validé).
+    raw_request_id = manifest.get("request_id")
+    orig_request_id = raw_request_id if is_valid_request_id(raw_request_id) else "unknown"
     stamp = uuid4().hex[:8]
 
     # Même contrainte de droits que run_comfyui_workflow : pré-créer le dossier

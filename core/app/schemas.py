@@ -2,6 +2,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from app.engine.run_identity import REQUEST_ID_PATTERN
+
 
 class RouteRequest(BaseModel):
     message: str
@@ -126,7 +128,9 @@ class ReproduceResponse(BaseModel):
 class ResumeRequest(BaseModel):
     """Reprise d'un run interrompu depuis son checkpoint (state.json) :
     les steps déjà réussis sont restaurés, le reste est ré-exécuté."""
-    request_id: str
+    # Le contrat canonique (run_identity) est appliqué dès la frontière API :
+    # request_id nomme un dossier sous outputs/runs/, jamais un chemin libre.
+    request_id: str = Field(pattern=REQUEST_ID_PATTERN)
 
 
 class ExecuteRequest(BaseModel):
