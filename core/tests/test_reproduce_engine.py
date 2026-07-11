@@ -7,7 +7,13 @@ Invariants couverts :
   verdicts exact (pixels identiques) / perceptual (dHash ≤ seuil) /
   different / failed (pas d'output) ; écarts d'environnement rapportés ;
   EXHAUSTIVITÉ : le verdict couvre l'union manifest ∪ sidecars (variante
-  sans sidecar → failed, sidecar inconnu → refused, mal indexé → refused).
+  sans sidecar → failed, sidecar inconnu → refused, mal indexé → refused) ;
+  VALIDATION STRUCTURELLE avant tout appel client : index de manifest
+  entier strict ≥ 1 et unique, clés de sidecars idem (dupliqué, non
+  entier, ≤ 0, bool → refused sans toucher ComfyUI) ; aucun sidecar +
+  variantes attendues → rapport par variante failed, pas un refus opaque ;
+  handler API : clé non canonique ("01", "abc", "-1") → refused, jamais
+  ignorée ni fusionnée en silence.
 - Blender : intégrité du scene.py puis gate de sécurité C1a re-auditée à
   chaque rejeu (un scene.py malveillant est refusé même si son hash
   correspond au manifest) ; retarget fail-closed (jamais d'écrasement du
@@ -317,6 +323,101 @@ def test_comfyui_misindexed_sidecars_refused_without_replay(
     assert mocks.queued == []
 
 
+def _forbid_comfyui_calls(monkeypatch: pytest.MonkeyPatch) -> "ComfyMocks":
+    """Mocks + system_info piégé : la moindre requête ComfyUI fait échouer
+    le test (les refus structurels ne doivent RIEN appeler, pas même
+    /system_stats pour les environment_diffs)."""
+    mocks = ComfyMocks(None)
+    mocks.install(monkeypatch)
+    monkeypatch.setattr(
+        "app.clients.comfyui_client.get_comfyui_system_info",
+        lambda: (_ for _ in ()).throw(AssertionError("must not call ComfyUI")),
+    )
+    return mocks
+
+
+@pytest.mark.parametrize("bad_index", ["1", None, 0, -1, True])
+def test_comfyui_invalid_manifest_index_refused_without_calls(
+    bad_index, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = tmp_path / "orig.png"
+    _gradient(original)
+    workflow = _workflow()
+    manifest = _comfyui_manifest(original, workflow)
+    manifest["repro"]["variants"][0]["index"] = bad_index
+    mocks = _forbid_comfyui_calls(monkeypatch)
+
+    report = rep.reproduce_comfyui(manifest, {1: workflow})
+
+    assert report["verdict"] == rep.VERDICT_REFUSED
+    assert "index invalid" in report["error"]
+    assert mocks.queued == [] and mocks.free_calls == 0
+
+
+def test_comfyui_duplicate_manifest_index_refused_without_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deux variantes de même index s'écraseraient en silence dans le
+    mapping : refus global explicite, aucun appel client."""
+    original = tmp_path / "orig.png"
+    _gradient(original)
+    wf1, wf2 = _workflow(), _workflow(seed=8)
+    manifest = _comfyui_manifest(original, wf1)
+    manifest["repro"]["variants"].append(_variant_record(1, 8, original, wf2))
+    mocks = _forbid_comfyui_calls(monkeypatch)
+
+    report = rep.reproduce_comfyui(manifest, {1: wf1})
+
+    assert report["verdict"] == rep.VERDICT_REFUSED
+    assert "duplicated" in report["error"]
+    assert mocks.queued == [] and mocks.free_calls == 0
+
+
+@pytest.mark.parametrize("bad_key", [0, -3, True])
+def test_comfyui_invalid_sidecar_key_refused_engine_side(
+    bad_key, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Le moteur reste sûr appelé DIRECTEMENT (sans le parsing du handler)."""
+    original = tmp_path / "orig.png"
+    _gradient(original)
+    workflow = _workflow()
+    mocks = _forbid_comfyui_calls(monkeypatch)
+
+    report = rep.reproduce_comfyui(
+        _comfyui_manifest(original, workflow), {bad_key: workflow}
+    )
+
+    assert report["verdict"] == rep.VERDICT_REFUSED
+    assert "sidecar index invalid" in report["error"]
+    assert mocks.queued == [] and mocks.free_calls == 0
+
+
+def test_comfyui_no_sidecars_reports_missing_variants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Aucun sidecar fourni mais des variantes attendues : rapport PAR
+    variante (failed, « no sidecar »), jamais un rejeu prétendu réussi ni
+    un refus opaque — et aucun rejeu ne part."""
+    original = tmp_path / "orig.png"
+    _gradient(original)
+    wf1, wf2 = _workflow(), _workflow(seed=8)
+    manifest = _comfyui_manifest(original, wf1)
+    manifest["repro"]["variants"].append(_variant_record(2, 8, original, wf2))
+    mocks = ComfyMocks(None)
+    mocks.install(monkeypatch)
+
+    report = rep.reproduce_run("comfyui", manifest, workflows=None)
+
+    assert report["verdict"] == rep.VERDICT_FAILED
+    by_index = {v["index"]: v for v in report["variants"]}
+    assert sorted(by_index) == [1, 2]
+    assert all(
+        v["verdict"] == rep.VERDICT_FAILED and "no sidecar" in v["reason"]
+        for v in report["variants"]
+    )
+    assert mocks.queued == [] and mocks.free_calls == 0
+
+
 def test_comfyui_environment_diff_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     original = tmp_path / "orig.png"
     _gradient(original)
@@ -561,3 +662,53 @@ def test_api_handler_converts_keys_and_types(monkeypatch: pytest.MonkeyPatch) ->
 
     assert response.verdict == "exact"
     assert captured["workflows"] == {1: {"3": {}}}  # clés converties str → int
+
+
+@pytest.mark.parametrize("bad_key", ["01", "abc", "-1", "", "1.0"])
+def test_api_handler_refuses_non_canonical_keys(
+    monkeypatch: pytest.MonkeyPatch, bad_key: str
+) -> None:
+    """Une clé non canonique est REFUSÉE, jamais ignorée : l'ancien
+    `int(k) if k.isdigit()` laissait "abc"/"-1" disparaître en silence et
+    "01" écraser "1". L'engine n'est même pas appelé."""
+    from app.main import reproduce as api_reproduce
+    from app.schemas import ReproduceRequest
+
+    engine_calls: list[str] = []
+    monkeypatch.setattr(
+        "app.main.reproduce_run",
+        lambda *args, **kwargs: engine_calls.append("called") or {},
+    )
+
+    response = api_reproduce(
+        ReproduceRequest(pipeline="comfyui", manifest={}, workflows={bad_key: {}})
+    )
+
+    assert response.verdict == "refused"
+    assert bad_key in (response.error or "")
+    assert engine_calls == []
+
+
+def test_api_handler_refuses_colliding_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """"1" et "01" convergeraient vers la même variante après int() : la
+    forme canonique exigée rend la collision impossible — refus explicite."""
+    from app.main import reproduce as api_reproduce
+    from app.schemas import ReproduceRequest
+
+    engine_calls: list[str] = []
+    monkeypatch.setattr(
+        "app.main.reproduce_run",
+        lambda *args, **kwargs: engine_calls.append("called") or {},
+    )
+
+    response = api_reproduce(
+        ReproduceRequest(
+            pipeline="comfyui",
+            manifest={},
+            workflows={"1": {"a": {}}, "01": {"b": {}}},
+        )
+    )
+
+    assert response.verdict == "refused"
+    assert "01" in (response.error or "")
+    assert engine_calls == []

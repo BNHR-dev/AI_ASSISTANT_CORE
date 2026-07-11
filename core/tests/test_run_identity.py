@@ -11,6 +11,10 @@ appliquer LE MÊME contrat. Invariants couverts :
 - resolve_run_dir refuse ce qui sort de la racine (ceinture symlink) ;
 - run_events / run_state n'écrivent RIEN hors racine sur id invalide,
   sans lever (invariant non-bloquant conservé) ;
+- le MOTEUR applique le contrat dès l'entrée : execute_request /
+  resume_request avec un id fourni invalide → ValueError franche AVANT
+  tout verrou, routage, événement ou écriture (un id auto-généré reste
+  un uuid4 valide, un id explicite valide passe) ;
 - load_run_state → None sur id invalide → /resume répond 404 côté API,
   et un id non conforme au schéma est rejeté 422 dès pydantic ;
 - reproduce_comfyui n'utilise jamais un request_id de manifest non validé
@@ -149,6 +153,89 @@ def test_load_run_state_refuses_invalid_id(
         '{"message": "m", "decision": {}, "plan": {}}', encoding="utf-8"
     )
     assert rstate.load_run_state("../evil") is None
+
+
+# ---------------------------------------------------------------------------
+# Moteur : le contrat s'applique dès l'entrée de execute/resume
+# ---------------------------------------------------------------------------
+
+_ENGINE_DECISION = {
+    "task_type": "build",
+    "primary_agent": "AGENT_BUILDER_IA",
+    "selected_model": "qwen2.5-coder:14b",
+    "selected_tool": None,
+    "output_format": "code",
+    "needs_web": False,
+    "second_call": None,
+    "matched_rule": None,
+    "reason": "test",
+    "reason_debug": "test",
+    "classifier_reason": "test",
+    "decision_trace": ["classifier → build"],
+    "decision_path": ["classifier", "build"],
+}
+
+
+def test_execute_request_rejects_invalid_id_before_any_effect(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Un request_id fourni invalide est rejeté AVANT toute exécution :
+    pas de routage (donc aucun step, aucun dossier ComfyUI/Blender), pas
+    de verrou persistant, pas d'événement, pas de checkpoint."""
+    from app.engine.executor import execute_request
+    from app.engine.run_locks import is_run_active
+
+    base = tmp_path / "runs"
+    base.mkdir()
+    monkeypatch.setenv("AAC_RUN_EVENTS_ENABLED", "1")
+    monkeypatch.setenv("AAC_RUN_STATE_ENABLED", "1")
+    monkeypatch.setenv(revents.RUN_EVENTS_DIR_ENV, str(base))
+    routed: list[str] = []
+    monkeypatch.setattr(
+        "app.engine.executor.build_route_decision",
+        lambda message, has_image: routed.append(message) or dict(_ENGINE_DECISION),
+    )
+
+    with pytest.raises(ValueError, match="invalid request_id"):
+        execute_request("bonjour", request_id="../evil")
+
+    assert routed == []                       # le pipeline n'a jamais démarré
+    assert is_run_active("../evil") is False  # aucun verrou persistant
+    assert list(base.iterdir()) == []         # ni événement ni checkpoint
+    assert not (tmp_path / "evil").exists()   # rien hors racine
+
+
+def test_resume_request_rejects_invalid_id_before_lock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.engine.executor import resume_request
+    from app.engine.run_locks import is_run_active
+
+    monkeypatch.setenv(revents.RUN_EVENTS_DIR_ENV, str(tmp_path))
+    with pytest.raises(ValueError, match="invalid request_id"):
+        resume_request("../evil")
+    assert is_run_active("../evil") is False
+
+
+def test_execute_request_accepts_valid_explicit_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Le contrat ne casse pas l'usage légitime : la Console impose un id
+    valide et le retrouve dans la réponse."""
+    from app.engine.executor import execute_request
+
+    monkeypatch.setenv(revents.RUN_EVENTS_DIR_ENV, str(tmp_path))
+    monkeypatch.setattr(
+        "app.engine.executor.build_route_decision",
+        lambda message, has_image: dict(_ENGINE_DECISION),
+    )
+    monkeypatch.setattr(
+        "app.engine.step_executor.generate_with_ollama", lambda model, prompt: "OK"
+    )
+
+    result = execute_request("écris un script", request_id="req-console-1")
+    assert result["request_id"] == "req-console-1"
+    assert result["execution_summary"]["status"] == "success"
 
 
 # ---------------------------------------------------------------------------

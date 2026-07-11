@@ -17,9 +17,11 @@ Verdicts (du meilleur au pire) :
               chemins introuvables), ou une variante du manifest n'a pas
               reçu son sidecar (rejeu incomplet ≠ rejeu réussi).
   refused     on REFUSE de rejouer : intégrité cassée (le contenu fourni ne
-              re-hashe pas ce que le manifest enregistre) ou gate de sécurité
+              re-hashe pas ce que le manifest enregistre), gate de sécurité
               bloquante sur le scene.py (C1a — un endpoint qui exécute du
-              Python soumis sans gate serait un RCE).
+              Python soumis sans gate serait un RCE), ou structure AMBIGUË
+              du matériel (index de variante non entier, ≤ 0 ou dupliqué —
+              l'appariement variante↔sidecar devient invérifiable).
 
 Contraintes apprises en conditions réelles (2026-07-11) :
 - ComfyUI CACHE l'exécution : re-soumettre un graphe identique ne produit
@@ -188,6 +190,31 @@ def _comfyui_environment_diffs(manifest_repro: dict[str, Any]) -> list[dict[str,
     return diffs
 
 
+def _validate_replay_material(
+    manifest_repro: dict[str, Any],
+    workflows: dict[int, dict[str, Any]],
+) -> Optional[str]:
+    """Raison du refus structurel, ou None si le matériel est sain.
+
+    Index de variante : entier STRICT (pas de bool), ≥ 1, unique — côté
+    manifest comme côté sidecars. Tout écart rend l'appariement
+    variante↔sidecar ambigu (deux variantes qui s'écrasent, un sidecar
+    inattribuable) : on refuse AVANT le moindre appel client.
+    """
+    seen: set[int] = set()
+    for variant in manifest_repro.get("variants") or []:
+        index = variant.get("index") if isinstance(variant, dict) else None
+        if isinstance(index, bool) or not isinstance(index, int) or index < 1:
+            return f"manifest variant index invalid: {index!r} (expected a positive integer)"
+        if index in seen:
+            return f"manifest variant index duplicated: {index}"
+        seen.add(index)
+    for index in workflows:
+        if isinstance(index, bool) or not isinstance(index, int) or index < 1:
+            return f"workflow sidecar index invalid: {index!r} (expected a positive integer)"
+    return None
+
+
 def reproduce_comfyui(
     manifest: dict[str, Any],
     workflows: dict[int, dict[str, Any]],
@@ -212,13 +239,33 @@ def reproduce_comfyui(
     started = perf_counter()
     threshold = get_dhash_threshold()
     manifest_repro = manifest.get("repro") or {}
-    recorded_variants = {v.get("index"): v for v in manifest_repro.get("variants") or []}
     # Le manifest vient du CLIENT : son request_id nomme le dossier de rejeu
     # (repro/<id>/<stamp>) et le filename_prefix envoyé à ComfyUI — contrat
     # canonique obligatoire, sinon repli neutre (jamais de chemin non validé).
     raw_request_id = manifest.get("request_id")
     orig_request_id = raw_request_id if is_valid_request_id(raw_request_id) else "unknown"
     stamp = uuid4().hex[:8]
+
+    # Validation STRUCTURELLE avant tout effet : un index de manifest
+    # dupliqué s'écraserait en silence dans recorded_variants et rendrait le
+    # verdict invérifiable. Refus global explicite, sans pré-créer de dossier
+    # ni toucher ComfyUI (pas même /free ou system_stats).
+    structural_error = _validate_replay_material(manifest_repro, workflows)
+    if structural_error is not None:
+        return {
+            "pipeline": "comfyui",
+            "reproduced_request_id": orig_request_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "verdict": VERDICT_REFUSED,
+            "dhash_threshold": threshold,
+            "variants": [],
+            "environment_diffs": [],
+            "error": structural_error,
+            "duration_ms": max(0, int((perf_counter() - started) * 1000)),
+            "report_path": None,
+        }
+
+    recorded_variants = {v["index"]: v for v in manifest_repro.get("variants") or []}
 
     # Même contrainte de droits que run_comfyui_workflow : pré-créer le dossier
     # du rejeu AVANT que ComfyUI (conteneur root) n'y écrive l'image — sinon le
@@ -496,7 +543,12 @@ def reproduce_run(
 ) -> dict[str, Any]:
     """Point d'entrée unique du handler API. Valide le matériel fourni."""
     if pipeline == "comfyui":
-        if not workflows:
+        # Sans AUCUN matériel (ni sidecar fourni, ni variante attendue au
+        # manifest), il n'y a rien à rejouer ni à lister : refus sec. Avec
+        # des variantes attendues, l'engine produit un rapport PAR variante
+        # (sidecars manquants → failed) plutôt qu'un refus opaque.
+        manifest_variants = (manifest.get("repro") or {}).get("variants") or []
+        if not workflows and not manifest_variants:
             return {
                 "pipeline": "comfyui",
                 "verdict": VERDICT_REFUSED,
@@ -505,7 +557,7 @@ def reproduce_run(
                 "environment_diffs": [],
                 "dhash_threshold": get_dhash_threshold(),
             }
-        return reproduce_comfyui(manifest, workflows)
+        return reproduce_comfyui(manifest, workflows or {})
     if pipeline == "blender":
         if not scene_py:
             return {

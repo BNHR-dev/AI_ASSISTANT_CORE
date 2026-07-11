@@ -251,6 +251,34 @@ def test_purge_removes_state_only_run_and_stray_tmp(
     assert not state_only.exists()
 
 
+def test_purge_never_follows_symlinked_dirs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Un symlink sous outputs/runs/ pointant vers un dossier EXTÉRIEUR ne
+    doit jamais être suivi : is_dir() traverse les liens, et la purge
+    supprimerait des events.jsonl/state.json hors racine."""
+    base = tmp_path / "runs"
+    base.mkdir()
+    monkeypatch.setenv(revents.RUN_EVENTS_ENABLED_ENV, "1")
+    monkeypatch.setenv(revents.RUN_EVENTS_DIR_ENV, str(base))
+    monkeypatch.setenv(revents.RUN_EVENTS_RETENTION_DAYS_ENV, "30")
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    for name in (revents.EVENTS_FILENAME, revents.STATE_FILENAME):
+        target = outside / name
+        target.write_text('{"message": "prompt hors racine"}', encoding="utf-8")
+        _age_file(target, 40)  # expiré : la purge naïve le supprimerait
+    (base / "req-link").symlink_to(outside)
+
+    revents.emit_run_event(request_id="req-new", kind="run.started")
+
+    # Les fichiers extérieurs sont intacts, le lien lui-même n'est pas touché.
+    assert (outside / revents.EVENTS_FILENAME).exists()
+    assert (outside / revents.STATE_FILENAME).exists()
+    assert (base / "req-link").is_symlink()
+
+
 def test_purge_age_is_newest_data_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
