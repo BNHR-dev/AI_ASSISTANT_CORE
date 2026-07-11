@@ -34,10 +34,13 @@ SYS_PY = "/usr/bin/python3" if Path("/usr/bin/python3").is_file() else None
 BLENDER = "/usr/bin/blender" if Path("/usr/bin/blender").is_file() else shutil.which("blender")
 HAS_GPU = bool(sbx.gpu_device_paths())
 
-pytestmark = pytest.mark.skipif(
-    BWRAP is None or SYS_PY is None,
-    reason="bwrap + /usr/bin/python3 requis pour les tests d'intégration C1c",
-)
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        BWRAP is None or SYS_PY is None,
+        reason="bwrap + /usr/bin/python3 requis pour les tests d'intégration C1c",
+    ),
+]
 
 
 def _mk_output(tmp_path):

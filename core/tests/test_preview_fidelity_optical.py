@@ -31,7 +31,10 @@ PIL = pytest.importorskip("PIL")
 from PIL import Image, ImageChops  # noqa: E402
 
 _EXE = resolve_blender_exe()
-pytestmark = pytest.mark.skipif(_EXE is None, reason="Blender introuvable")
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(_EXE is None, reason="Blender introuvable"),
+]
 
 _FIXTURE_BUILDER = Path(__file__).parent / "fixtures" / "preview_fidelity_scene.py"
 _OBJECT_NAMES = [

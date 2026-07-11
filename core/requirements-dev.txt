@@ -1,10 +1,13 @@
 # Outils de dev/CI — jamais installés dans l'image Docker.
 # (iniconfig/packaging/pluggy/Pygments = dépendances transitives de pytest,
-#  épinglées ici pour garder l'install reproductible.)
+#  sortedcontainers = transitive de hypothesis ; épinglées ici pour garder
+#  l'install reproductible.)
 -r requirements.txt
+hypothesis==6.156.6
 iniconfig==2.3.0
 packaging==26.1
 pluggy==1.6.0
 Pygments==2.20.0
 pytest==9.0.3
 ruff==0.15.21
+sortedcontainers==2.4.0

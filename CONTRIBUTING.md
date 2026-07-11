@@ -26,3 +26,26 @@ git commit -S -s -m "your message"
 - Keep changes focused and reversible; do not break the `router → planner → executor` core.
 - Run the test suite before opening a PR.
 - Be honest in docs — no overselling.
+
+## Running the tests
+
+The suite is split into three tiers:
+
+| tier | selection | needs | when |
+|---|---|---|---|
+| unit | default (`python -m pytest`) | nothing — fully hermetic | every commit, CI |
+| integration | `-m integration` | a local Blender binary (self-skips when absent) | before a PR that touches the Blender pipeline |
+| live | `AAC_LIVE_TESTS=1`, or `scripts/linux/live-tests.sh` | the running Docker stack + GPU | daily / before a release |
+
+```bash
+# unit + whatever integration your machine supports (what CI runs):
+cd core && python -m pytest -q
+
+# live tier against the running stack (Linux, resolves container IPs itself):
+./scripts/linux/live-tests.sh
+```
+
+The live tier generates real images and Blender scenes, then **replays them
+through the reproduce engine** and asserts the verdicts — it is the net that
+hermetic tests cannot provide. Property-based fuzzing (Hypothesis) runs in the
+unit tier: `core/tests/test_fuzz_properties.py`.

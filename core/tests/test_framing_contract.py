@@ -219,6 +219,7 @@ _EXE = resolve_blender_exe()
 _ORACLE_FIXTURE = Path(__file__).parent / "fixtures" / "framing_oracle.py"
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(_EXE is None, reason="Blender introuvable")
 def test_pure_projection_matches_world_to_camera_view(tmp_path):
     out = tmp_path / "oracle.json"
