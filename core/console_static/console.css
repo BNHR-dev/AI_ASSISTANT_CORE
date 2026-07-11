@@ -363,3 +363,23 @@ table.eval tr:hover td { background: var(--surface); }
 .live-timeline:empty { display: none; }
 .run-ref code { font-size: .78rem; }
 .live-status { font-size: .85rem; }
+
+/* ---- Outputs: search + compare (5 v2b) ----------------------------------- */
+.outputs-toolbar { display: flex; gap: .6rem; align-items: center; margin: .8rem 0 1rem; }
+.outputs-toolbar input[type="search"] { flex: 1; max-width: 34rem; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text);
+  padding: .5rem .8rem; font-size: .9rem; }
+.outputs-toolbar input[type="search"]:focus { outline: none; border-color: var(--signal-line); }
+.run-prompt { font-size: .8rem; color: var(--muted); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; margin-top: .15rem; }
+.cmp { margin-left: auto; cursor: pointer; color: var(--faint); font-size: .8rem;
+  display: inline-flex; align-items: center; gap: .25rem; }
+.cmp:has(input:checked) { color: var(--signal); }
+.cmp input { accent-color: var(--signal); cursor: pointer; }
+.modal-wide { max-width: 62rem; }
+.compare-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: .8rem 0; }
+.compare-img { width: 100%; border-radius: var(--radius-sm); border: 1px solid var(--line); }
+.compare-table th { text-align: left; font-weight: 500; padding: .18rem .7rem .18rem 0; }
+.compare-table tr.diff-changed td { background: var(--signal-soft); }
+.compare-table tr.diff-changed td:first-child { color: var(--signal-hi); }
+@media (max-width: 760px) { .compare-cols { grid-template-columns: 1fr; } }
