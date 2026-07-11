@@ -125,7 +125,11 @@ def _purge_old_runs(base_dir: Path, now: datetime) -> None:
       répertoire n'est retiré que s'il finit vide ;
     - l'âge du run = mtime le plus récent parmi ses fichiers de données
       (= dernière écriture du run). Un répertoire sans aucun fichier de
-      données est étranger : jamais touché.
+      données est étranger : jamais touché ;
+    - un DOSSIER SYMBOLIQUE n'est jamais suivi : is_dir() traverse les
+      symlinks, et un lien vers l'extérieur ferait supprimer des
+      events.jsonl/state.json hors racine. Les vrais dossiers de run
+      naissent par mkdir — un symlink ici est forcément étranger.
 
     Une copie/restauration retarde la purge — acceptable pour du
     best-effort. Ne lève jamais (appelée sous le try enveloppant de
@@ -136,7 +140,7 @@ def _purge_old_runs(base_dir: Path, now: datetime) -> None:
         return
     cutoff = now - timedelta(days=retention_days)
     for run_dir in base_dir.iterdir():
-        if not run_dir.is_dir():
+        if run_dir.is_symlink() or not run_dir.is_dir():
             continue
         data_files = [run_dir / name for name in _USER_DATA_FILENAMES]
         data_files += sorted(run_dir.glob(STATE_FILENAME + ".*.tmp"))
