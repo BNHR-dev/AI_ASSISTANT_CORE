@@ -11,6 +11,7 @@ from app.engine.planner_service import build_execution_plan
 from app.engine.planner_types import StepResult
 from app.engine.result_assembler import assemble_final_output
 from app.engine.router_service import build_route_decision
+from app.engine.run_events import emit_run_event
 from app.engine.routing_conditions import enrich_route_config
 from app.engine.execution_state_factory import create_execution_state
 from app.engine.step_executor import execute_step
@@ -231,6 +232,17 @@ def execute_request(message: str, has_image: bool = False, mode: str = "auto") -
     started_at = _utc_now_iso()
     started_perf = perf_counter()
 
+    emit_run_event(
+        request_id=request_id,
+        kind="run.started",
+        data={
+            "message": message,
+            "mode": mode,
+            "has_image": has_image,
+            "started_at": started_at,
+        },
+    )
+
     if mode == "auto":
         decision = build_route_decision(message, has_image)
     else:
@@ -241,6 +253,21 @@ def execute_request(message: str, has_image: bool = False, mode: str = "auto") -
         print(item)
     print("======================")
 
+    emit_run_event(
+        request_id=request_id,
+        kind="route.decided",
+        data={
+            "task_type": decision.get("task_type"),
+            "primary_agent": decision.get("primary_agent"),
+            "selected_model": decision.get("selected_model"),
+            "selected_tool": decision.get("selected_tool"),
+            "needs_web": decision.get("needs_web"),
+            "second_call": decision.get("second_call"),
+            "matched_rule": decision.get("matched_rule"),
+            "decision_trace": decision.get("decision_trace"),
+        },
+    )
+
     plan = build_execution_plan(decision, message)
     state = create_execution_state(message, decision, plan)
     # Le pipeline Blender (prepare_blender_script) lit ce request_id pour nommer
@@ -249,6 +276,25 @@ def execute_request(message: str, has_image: bool = False, mode: str = "auto") -
     state.context["request_id"] = request_id
     state.add_trace(f"request_id → {request_id}")
     state.add_trace(f"executor → started_at:{started_at}")
+
+    emit_run_event(
+        request_id=request_id,
+        kind="plan.built",
+        data={
+            "strategy": plan.strategy,
+            "steps": [
+                {
+                    "step_id": step.step_id,
+                    "step_type": step.step_type,
+                    "agent": step.agent,
+                    "model": step.model,
+                    "tool": step.tool,
+                    "depends_on": step.depends_on,
+                }
+                for step in plan.steps
+            ],
+        },
+    )
 
     for step in plan.steps:
         step_started_at = _utc_now_iso()
@@ -281,9 +327,23 @@ def execute_request(message: str, has_image: bool = False, mode: str = "auto") -
             step.status = blocked_result.status
             state.add_result(blocked_result)
             state.add_trace(f"step_executor → {step.step_id}:blocked")
+            emit_run_event(
+                request_id=request_id,
+                kind="step.blocked",
+                data={
+                    "step_id": step.step_id,
+                    "step_type": step.step_type,
+                    "error": blocked_result.error,
+                },
+            )
             continue
 
         state.add_trace(f"step_executor → start:{step.step_id}")
+        emit_run_event(
+            request_id=request_id,
+            kind="step.started",
+            data={"step_id": step.step_id, "step_type": step.step_type},
+        )
         result = execute_step(state, step)
         result.started_at = result.started_at or step_started_at
         result.finished_at = result.finished_at or _utc_now_iso()
@@ -295,6 +355,19 @@ def execute_request(message: str, has_image: bool = False, mode: str = "auto") -
         step.status = result.status
         state.add_result(result)
         state.add_trace(f"step_executor → {step.step_id}:{result.status}")
+        emit_run_event(
+            request_id=request_id,
+            kind="step.finished",
+            data={
+                "step_id": step.step_id,
+                "step_type": step.step_type,
+                "status": result.status,
+                "duration_ms": result.duration_ms,
+                # Événements légers : erreur tronquée, la version complète
+                # reste dans step_results (réponse API) et les manifests.
+                "error": result.error[:2000] if result.error else None,
+            },
+        )
 
     final_output = assemble_final_output(state)
     execution_summary = _build_execution_summary(plan, state)
@@ -302,6 +375,16 @@ def execute_request(message: str, has_image: bool = False, mode: str = "auto") -
     duration_ms = max(0, int((perf_counter() - started_perf) * 1000))
     state.add_trace(f"executor → finished_at:{finished_at}")
     state.add_trace(f"executor → duration_ms:{duration_ms}")
+
+    emit_run_event(
+        request_id=request_id,
+        kind="run.finished",
+        data={
+            "execution_summary": execution_summary,
+            "finished_at": finished_at,
+            "duration_ms": duration_ms,
+        },
+    )
 
     visual_artifact = _extract_visual_artifact(state)
     blender_artifact = _extract_blender_artifact(state)
