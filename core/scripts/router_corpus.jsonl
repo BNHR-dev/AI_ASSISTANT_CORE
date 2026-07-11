@@ -1,0 +1,145 @@
+{"text": "j'aimerais un visuel d'un renard roux dans la neige au crépuscule", "task": "image_generation"}
+{"text": "fais-moi voir à quoi ressemblerait une bouteille de parfum sur fond noir", "task": "image_generation"}
+{"text": "une illustration pour la couverture de mon livre de science-fiction", "task": "image_generation"}
+{"text": "je voudrais un portrait d'une astronaute style peinture à l'huile", "task": "image_generation"}
+{"text": "peins-moi un paysage de montagne au lever du soleil", "task": "image_generation"}
+{"text": "un visuel produit pour ma marque de café, ambiance chaleureuse", "task": "image_generation"}
+{"text": "dessine un dragon qui survole une ville médiévale", "task": "image_generation"}
+{"text": "quelque chose de visuel pour illustrer mon article sur l'océan", "task": "image_generation"}
+{"text": "je veux voir une montre de luxe posée sur du marbre", "task": "image_generation"}
+{"text": "génère un fond d'écran cyberpunk pour mon téléphone", "task": "image_generation"}
+{"text": "make me a moody poster of a lighthouse in a storm", "task": "image_generation"}
+{"text": "I'd love a picture of a cat wearing a spacesuit", "task": "image_generation"}
+{"text": "something visual for my presentation cover, abstract and blue", "task": "image_generation"}
+{"text": "un joli visuel de tasse fumante sur une table en bois", "task": "image_generation"}
+{"text": "montre-moi une voiture de sport rouge sous la pluie, style cinéma", "task": "image_generation"}
+{"text": "il me faudrait une affiche rétro pour la fête du village", "task": "image_generation"}
+{"text": "crée un logo provisoire avec un hibou stylisé", "task": "image_generation"}
+{"text": "une vue d'artiste de la ville de demain, verte et lumineuse", "task": "image_generation"}
+{"text": "j'ai besoin d'un héros visuel pour ma landing page", "task": "image_generation"}
+{"text": "picture this: a samurai standing in a bamboo forest, misty morning", "task": "image_generation"}
+{"text": "une scène 3d avec trois cubes empilés et une lumière douce", "task": "blender_script"}
+{"text": "modélise une théière posée sur un socle", "task": "blender_script"}
+{"text": "je veux un fichier blend avec une pièce vide et une fenêtre", "task": "blender_script"}
+{"text": "prépare une scène avec une caméra qui cadre un vase de face", "task": "blender_script"}
+{"text": "construis-moi un packshot 3d d'une bouteille en verre ambré", "task": "blender_script"}
+{"text": "mets en place un plateau produit avec fond studio et deux lumières", "task": "blender_script"}
+{"text": "une scène blender minimaliste avec un tore doré", "task": "blender_script"}
+{"text": "set up a 3d scene with a sphere on a pedestal", "task": "blender_script"}
+{"text": "il me faut un rendu produit en 3d d'un casque audio", "task": "blender_script"}
+{"text": "fais une scène avec un sol réfléchissant et un cube flottant", "task": "blender_script"}
+{"text": "place une caméra en plongée sur une grille d'objets", "task": "blender_script"}
+{"text": "je voudrais tester un éclairage trois points sur un buste", "task": "blender_script"}
+{"text": "monte une petite scène de studio photo virtuelle", "task": "blender_script"}
+{"text": "build a simple 3d mockup of a perfume bottle on a backdrop", "task": "blender_script"}
+{"text": "une scène de démonstration avec un monolithe noir au centre", "task": "blender_script"}
+{"text": "génère la géométrie d'un escalier en colimaçon simple", "task": "blender_script"}
+{"text": "j'aimerais une maquette 3d d'une lampe de bureau", "task": "blender_script"}
+{"text": "crée un environnement 3d épuré pour présenter une chaussure", "task": "blender_script"}
+{"text": "prépare un plateau tournant virtuel pour mon produit", "task": "blender_script"}
+{"text": "scène 3d : une pomme sur une table, lumière naturelle", "task": "blender_script"}
+{"text": "fais-moi réviser la photosynthèse avec des questions", "task": "quiz"}
+{"text": "prépare une interro de dix questions sur la seconde guerre mondiale", "task": "quiz"}
+{"text": "teste mes connaissances en python", "task": "quiz"}
+{"text": "pose-moi des questions sur le système solaire", "task": "quiz"}
+{"text": "un petit questionnaire pour vérifier que j'ai compris les fractions", "task": "quiz"}
+{"text": "entraîne-moi pour mon examen de réseau, format qcm", "task": "quiz"}
+{"text": "j'aimerais m'auto-évaluer sur les bases de données", "task": "quiz"}
+{"text": "quiz me on european capitals", "task": "quiz"}
+{"text": "vérifie ce que je retiens du cours d'hier avec quelques questions", "task": "quiz"}
+{"text": "fais-moi plancher sur des questions de culture générale", "task": "quiz"}
+{"text": "interroge-moi sur les verbes irréguliers anglais", "task": "quiz"}
+{"text": "un qcm rapide sur la sécurité informatique", "task": "quiz"}
+{"text": "help me drill my knowledge of chemistry basics", "task": "quiz"}
+{"text": "prépare des questions type entretien sur docker", "task": "quiz"}
+{"text": "je veux réviser en mode question réponse sur l'histoire de france", "task": "quiz"}
+{"text": "donne ton avis sur ce paragraphe d'introduction", "task": "critique"}
+{"text": "qu'est-ce qui cloche dans mon plan de mémoire ?", "task": "critique"}
+{"text": "relis ce mail et dis-moi ce qui ne va pas", "task": "critique"}
+{"text": "évalue la clarté de cette documentation", "task": "critique"}
+{"text": "mon pitch est-il convaincant ? sois honnête", "task": "critique"}
+{"text": "trouve les faiblesses de cet argumentaire", "task": "critique"}
+{"text": "passe en revue ce code et signale les problèmes", "task": "critique"}
+{"text": "tear apart my cover letter, be brutal", "task": "critique"}
+{"text": "dis-moi franchement si cette maquette tient la route", "task": "critique"}
+{"text": "audite la structure de mon exposé", "task": "critique"}
+{"text": "ce titre d'article est-il accrocheur ou raté ?", "task": "critique"}
+{"text": "juge la pertinence de mes choix de couleurs", "task": "critique"}
+{"text": "what's weak in my product description?", "task": "critique"}
+{"text": "repère les incohérences dans ce scénario", "task": "critique"}
+{"text": "note mon cv sur dix et justifie", "task": "critique"}
+{"text": "quelles sont les dernières avancées en fusion nucléaire ?", "task": "web_research"}
+{"text": "que dit la presse aujourd'hui sur les élections ?", "task": "web_research"}
+{"text": "trouve-moi des articles récents sur les agents ia", "task": "web_research"}
+{"text": "quel est le prix actuel de la rtx 5090 ?", "task": "web_research"}
+{"text": "y a-t-il du nouveau côté blender 5 ?", "task": "web_research"}
+{"text": "qui a gagné le match d'hier soir ?", "task": "web_research"}
+{"text": "what's the latest on the mars sample return mission?", "task": "web_research"}
+{"text": "vérifie si cette librairie a été mise à jour récemment", "task": "web_research"}
+{"text": "quelles startups françaises ont levé des fonds ce mois-ci ?", "task": "web_research"}
+{"text": "la météo annonce quoi pour demain à paris ?", "task": "web_research"}
+{"text": "compare les prix des abonnements cloud gpu du moment", "task": "web_research"}
+{"text": "quoi de neuf dans la dernière version de comfyui ?", "task": "web_research"}
+{"text": "find recent benchmarks comparing open-source llms", "task": "web_research"}
+{"text": "l'actualité tech du jour en trois points", "task": "web_research"}
+{"text": "est-ce que le tarif du timbre a encore augmenté cette année ?", "task": "web_research"}
+{"text": "comment devrais-je découper mon application en services ?", "task": "architecture"}
+{"text": "monolithe ou microservices pour une petite équipe ?", "task": "architecture"}
+{"text": "propose une structure de dossiers pour mon projet fastapi", "task": "architecture"}
+{"text": "quel schéma de base de données pour un système de réservation ?", "task": "architecture"}
+{"text": "comment organiser la communication entre mes workers et mon api ?", "task": "architecture"}
+{"text": "design the high-level layout of a chat application backend", "task": "architecture"}
+{"text": "où placer la logique métier dans une app en couches ?", "task": "architecture"}
+{"text": "quelle stratégie de cache pour un site à fort trafic ?", "task": "architecture"}
+{"text": "aide-moi à découpler ce module devenu trop gros", "task": "architecture"}
+{"text": "event sourcing ou crud classique pour mon cas d'usage ?", "task": "architecture"}
+{"text": "esquisse le diagramme des composants de mon pipeline de données", "task": "architecture"}
+{"text": "comment versionner proprement une api publique ?", "task": "architecture"}
+{"text": "quelle séparation entre le front, le back et le worker gpu ?", "task": "architecture"}
+{"text": "how should I structure a plugin system for my app?", "task": "architecture"}
+{"text": "réfléchissons à la topologie réseau de mon homelab", "task": "architecture"}
+{"text": "détaille le fonctionnement interne du garbage collector de python", "task": "explain_advanced"}
+{"text": "creuse les mécanismes de l'attention dans les transformers", "task": "explain_advanced"}
+{"text": "pourquoi la descente de gradient converge-t-elle, mathématiquement ?", "task": "explain_advanced"}
+{"text": "va au fond des choses sur le fonctionnement de tcp", "task": "explain_advanced"}
+{"text": "explique en profondeur comment un os gère la mémoire virtuelle", "task": "explain_advanced"}
+{"text": "les subtilités du typage structurel vs nominal, en détail", "task": "explain_advanced"}
+{"text": "dig into how diffusion models actually denoise step by step", "task": "explain_advanced"}
+{"text": "je veux comprendre finement le consensus raft", "task": "explain_advanced"}
+{"text": "décortique le cycle de vie d'une requête http dans un serveur async", "task": "explain_advanced"}
+{"text": "quelles sont les implications théoriques du théorème cap ?", "task": "explain_advanced"}
+{"text": "analyse pointue du pipeline de rendu temps réel d'un moteur de jeu", "task": "explain_advanced"}
+{"text": "entre dans les détails du fonctionnement des index b-tree", "task": "explain_advanced"}
+{"text": "the internals of git's object model, thoroughly please", "task": "explain_advanced"}
+{"text": "explique rigoureusement la rétropropagation, équations comprises", "task": "explain_advanced"}
+{"text": "un cours avancé sur la cohérence de cache multi-cœurs", "task": "explain_advanced"}
+{"text": "c'est quoi un vpn en fait ?", "task": "explain_basic"}
+{"text": "explique-moi simplement la blockchain", "task": "explain_basic"}
+{"text": "je n'ai jamais compris ce qu'est le cloud, aide-moi", "task": "explain_basic"}
+{"text": "à quoi sert un dns ?", "task": "explain_basic"}
+{"text": "vulgarise la photosynthèse pour un enfant de dix ans", "task": "explain_basic"}
+{"text": "quelle est la différence entre ram et disque dur ?", "task": "explain_basic"}
+{"text": "what does open source actually mean?", "task": "explain_basic"}
+{"text": "un seed en génération d'images, ça veut dire quoi ?", "task": "explain_basic"}
+{"text": "je débute : c'est quoi une api ?", "task": "explain_basic"}
+{"text": "raconte-moi en deux phrases ce que fait un compilateur", "task": "explain_basic"}
+{"text": "pourquoi mon wifi est plus lent que le câble ?", "task": "explain_basic"}
+{"text": "définis le machine learning sans jargon", "task": "explain_basic"}
+{"text": "in plain words, what is a container?", "task": "explain_basic"}
+{"text": "je cherche à comprendre ce qu'est un embedding, simplement", "task": "explain_basic"}
+{"text": "ça sert à quoi concrètement un reverse proxy ?", "task": "explain_basic"}
+{"text": "écris une fonction qui déduplique une liste en gardant l'ordre", "task": "build"}
+{"text": "code un petit script qui renomme mes photos par date", "task": "build"}
+{"text": "implémente un rate limiter en python", "task": "build"}
+{"text": "j'ai besoin d'un parseur de csv robuste aux champs vides", "task": "build"}
+{"text": "développe une cli qui convertit du markdown en html", "task": "build"}
+{"text": "write a bash one-liner to find the ten biggest files", "task": "build"}
+{"text": "fais-moi un composant react pour un compteur", "task": "build"}
+{"text": "automatise la sauvegarde de ce dossier chaque nuit", "task": "build"}
+{"text": "programme un jeu du pendu en console", "task": "build"}
+{"text": "il me faut une regex qui valide un numéro de téléphone français", "task": "build"}
+{"text": "corrige ce script pour qu'il gère les erreurs réseau", "task": "build"}
+{"text": "ajoute la pagination à cette route fastapi", "task": "build"}
+{"text": "implement a debounce function in javascript", "task": "build"}
+{"text": "transforme cette boucle en version vectorisée", "task": "build"}
+{"text": "crée un dockerfile pour cette app flask", "task": "build"}

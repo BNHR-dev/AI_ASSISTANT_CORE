@@ -18,3 +18,4 @@ comfyui|upscale_models|4x-UltraSharp.pth|66961958|https://huggingface.co/Kim2091
 ollama|-|qwen3:8b|-|-
 ollama|-|qwen2.5-coder:7b|-|-
 ollama|-|qwen2.5vl:3b|-|-
+ollama|-|bge-m3|-|-

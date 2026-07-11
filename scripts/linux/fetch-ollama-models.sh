@@ -8,6 +8,7 @@
 #   qwen3:8b          chat / router / explanation / critique / architecture
 #   qwen2.5-coder:7b  code build + bpy generation (Blender pipeline)
 #   qwen2.5vl:3b      vision (VLM)
+#   bge-m3            embeddings (router semantic fallback, multilingual)
 #
 # Two modes (auto-detected, override via AAC_OLLAMA_MODE=native|docker):
 #   native  -> `ollama` binary installed on the host (https://ollama.com/download)
