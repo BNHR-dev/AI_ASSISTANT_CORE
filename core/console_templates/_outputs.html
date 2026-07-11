@@ -1,13 +1,31 @@
 {# Outputs fragment — loaded by HTMX into #panel-outputs when the tab is opened. #}
 <h1>🗂 Outputs <small>— every run, kept with its files on disk</small></h1>
 
+<div class="outputs-toolbar">
+  <input type="search" name="q" value="{{ q or '' }}" placeholder="Search prompts… (e.g. montre fond sombre)"
+         hx-get="/console/outputs" hx-trigger="input changed delay:300ms, search"
+         hx-target="#runs-grid" hx-select="#runs-grid" hx-swap="outerHTML"
+         aria-label="Search runs by prompt">
+  <button class="ghost" hx-get="/console/compare"
+          hx-include="#runs-grid input[name='sel']:checked"
+          hx-target="#run-detail" hx-swap="innerHTML"
+          title="Check two runs, then compare them side by side">⇄ Compare</button>
+</div>
+
+<div id="runs-grid">
 {% if not runs %}
   <div class="placeholder">
-    No run yet. Generate an image (2D) or a 3D scene — they'll appear here, each
-    with its files under <code>outputs/</code>.
+    {% if q %}
+      No run matches “{{ q }}” ({{ total }} run(s) on disk). The search covers
+      the prompt of each run.
+    {% else %}
+      No run yet. Generate an image (2D) or a 3D scene — they'll appear here,
+      each with its files under <code>outputs/</code>.
+    {% endif %}
   </div>
 {% else %}
-  <p class="muted">{{ runs|length }} run(s), newest first — click a card for details.</p>
+  <p class="muted">{{ runs|length }}{% if q %} / {{ total }}{% endif %} run(s),
+    newest first — click a card for details, check two to compare.</p>
   <div class="runs">
     {% for run in runs %}
       <div class="run-card" role="button" tabindex="0"
@@ -24,13 +42,20 @@
           <div class="run-head">
             <span class="badge">{{ '🧊 3D' if run.kind == '3d' else '🖼 2D' }}</span>
             <small class="muted">{{ run.date }}</small>
+            <label class="cmp" onclick="event.stopPropagation()" title="Select for compare">
+              <input type="checkbox" name="sel" value="{{ run.path }}">⇄
+            </label>
           </div>
+          {% if run.prompt %}
+            <div class="run-prompt" title="{{ run.prompt }}">{{ run.prompt }}</div>
+          {% endif %}
           <div class="run-id" title="{{ run.path }}">{{ run.id }}</div>
         </div>
       </div>
     {% endfor %}
   </div>
 {% endif %}
+</div>
 
-{# Detail modal target — filled by HTMX with _run_detail.html on a card click. #}
+{# Detail / compare modal target — filled by HTMX on card click or Compare. #}
 <div id="run-detail"></div>

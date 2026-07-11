@@ -1,0 +1,51 @@
+{# Compare modal — two runs side by side + aligned repro diff. #}
+<div class="modal-backdrop"
+     onclick="if(event.target===this)document.getElementById('run-detail').innerHTML=''">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <span class="badge">⇄ Compare</span>
+      <button class="ghost modal-close" title="Close"
+              onclick="document.getElementById('run-detail').innerHTML=''">✕</button>
+    </div>
+
+    <div class="compare-cols">
+      {% for side in [a, b] %}
+        <div class="compare-col">
+          <div class="run-head">
+            <span class="badge">{{ '🧊 3D' if side.kind == '3d' else '🖼 2D' }}</span>
+            <small class="muted">{{ side.date }}</small>
+          </div>
+          <div class="run-id" title="{{ side.path }}">{{ side.id }}</div>
+          {% set img = side.render_url or (side.gallery[0] if side.gallery else None) %}
+          {% if img %}
+            <img class="compare-img" src="{{ img }}" alt="{{ side.kind }} output">
+          {% else %}
+            <div class="placeholder">no image</div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+
+    {% if dhash_distance is not none %}
+      <div class="strip">
+        <span class="badge">👁 Visual distance</span>
+        <span>dHash {{ dhash_distance }}
+          <small class="muted">— 0 = same image, ≤ 4 = visually identical,
+            larger = different content</small></span>
+      </div>
+    {% endif %}
+
+    <table class="hash-table compare-table">
+      <tr><th></th><th class="muted">run A</th><th class="muted">run B</th></tr>
+      {% for row in rows %}
+        <tr class="{{ 'diff-changed' if row.changed else '' }}">
+          <td class="muted">{{ row.label }}</td>
+          <td>{{ row.a if row.a is not none else '—' }}</td>
+          <td>{{ row.b if row.b is not none else '—' }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+    <p class="legend muted">Highlighted rows differ between the two runs —
+      that's your “why are these different?” answer.</p>
+  </div>
+</div>

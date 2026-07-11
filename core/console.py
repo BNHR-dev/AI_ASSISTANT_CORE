@@ -24,7 +24,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
@@ -366,6 +366,9 @@ def _describe_run(d: Path, kind: str) -> dict:
     if img is None:
         pngs = sorted(d.glob("*.png"))
         img = pngs[0] if pngs else None
+    prompt = None
+    if isinstance(manifest, dict):
+        prompt = (manifest.get("input") or {}).get("prompt")
     return {
         "id": d.name,
         "kind": kind,
@@ -374,21 +377,144 @@ def _describe_run(d: Path, kind: str) -> dict:
         "mtime": mtime,
         "thumb_url": _artifact_url(str(img)) if img else None,
         "manifest": manifest,
+        "prompt": prompt,
     }
 
 
 def list_runs() -> list[dict]:
     """Tous les runs (2D ComfyUI + 3D Blender), du plus récent au plus ancien.
-    Ignore les dossiers techniques (`_eval_reports`, `_trajectories`)."""
+    Ignore les dossiers techniques (`_eval_reports`, `_trajectories`) et les
+    rejeux (`repro*` — des copies de vérification, pas des runs à part entière)."""
     runs: list[dict] = []
     for base, kind in ((COMFYUI_RUNS_DIR, "2d"), (BLENDER_RUNS_DIR, "3d")):
         if not base.is_dir():
             continue
         for d in base.iterdir():
-            if d.is_dir() and not d.name.startswith("_"):
+            if d.is_dir() and not d.name.startswith("_") and not d.name.startswith("repro"):
                 runs.append(_describe_run(d, kind))
     runs.sort(key=lambda r: r["mtime"], reverse=True)
     return runs
+
+
+# --------------------------------------------------------------------------- #
+# Recherche (5 v2b) — tokens normalisés sur les prompts
+# --------------------------------------------------------------------------- #
+# Matching en pur Python plutôt qu'un index FTS5 : la liste des runs (et
+# leurs manifests) est DÉJÀ chargée en mémoire à chaque affichage d'Outputs,
+# et à l'échelle locale (10³ runs) le scan coûte des millisecondes. Un index
+# persistant ajouterait invalidation, backfill et syntaxe de requête pour un
+# gain nul aujourd'hui — le contrat de route (?q=) ne changera pas si un
+# vrai moteur devient nécessaire.
+
+def _fold_text(text: str) -> str:
+    """Minuscule + accents retirés + ponctuation aplatie (même esprit que
+    normalize_text du classifieur : « théière » ⇔ « theiere »)."""
+    import unicodedata
+
+    text = unicodedata.normalize("NFKD", text.lower())
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return re.sub(r"[^\w\s]", " ", text)
+
+
+def filter_runs(query: str, runs: list[dict]) -> list[dict]:
+    """Runs dont le prompt contient TOUS les tokens de la requête (préfixe
+    inclus : « mont » matche « montre » — recherche au fil de la frappe).
+    Requête vide → tout ; l'ordre (plus récent d'abord) est préservé."""
+    tokens = _fold_text(query).split()
+    if not tokens:
+        return runs
+    matched = []
+    for run in runs:
+        haystack = _fold_text(f"{run.get('prompt') or ''} {run['id']}")
+        if all(token in haystack for token in tokens):
+            matched.append(run)
+    return matched
+
+
+# --------------------------------------------------------------------------- #
+# Comparaison (5 v2b) — deux runs côte à côte + diff des blocs repro
+# --------------------------------------------------------------------------- #
+
+def _repro_of(detail: dict) -> dict:
+    manifest = detail.get("manifest")
+    if not isinstance(manifest, dict):
+        return {}
+    repro_block = manifest.get("repro")
+    return repro_block if isinstance(repro_block, dict) else {}
+
+
+def _first_variant(repro_block: dict) -> dict:
+    variants = repro_block.get("variants") or []
+    return variants[0] if variants and isinstance(variants[0], dict) else {}
+
+
+def _compare_fields(detail: dict) -> dict[str, str | None]:
+    """Les champs comparables d'un run, extraits de son manifest. Chaque
+    valeur est une chaîne d'affichage (hash raccourci) ou None si absente."""
+    manifest = detail.get("manifest") if isinstance(detail.get("manifest"), dict) else {}
+    repro_block = _repro_of(detail)
+    variant = _first_variant(repro_block)
+    image = variant.get("image") if isinstance(variant.get("image"), dict) else {}
+    comfy = repro_block.get("comfyui") if isinstance(repro_block.get("comfyui"), dict) else {}
+    models = repro_block.get("models") if isinstance(repro_block.get("models"), dict) else {}
+    checkpoints = ", ".join(
+        f"{m.get('name')} ({_short_hash(m.get('sha256')) or 'sha —'})"
+        for m in models.get("checkpoints") or []
+    ) or None
+
+    seeds = ", ".join(
+        str(v.get("seed")) for v in repro_block.get("variants") or [] if v.get("seed") is not None
+    ) or None
+    engine = repro_block.get("blender_version") or (
+        f"ComfyUI {comfy['comfyui_version']}" if comfy.get("comfyui_version") else None
+    )
+    preview = repro_block.get("preview_png") if isinstance(repro_block.get("preview_png"), dict) else {}
+
+    return {
+        "prompt": (manifest.get("input") or {}).get("prompt"),
+        "pipeline": manifest.get("pipeline"),
+        "status": manifest.get("status"),
+        "seed": seeds,
+        "engine": engine,
+        "torch": comfy.get("pytorch_version"),
+        "AAC commit": _short_hash(repro_block.get("aac_git_commit"), keep=9),
+        "checkpoint": checkpoints,
+        "workflow hash": _short_hash(variant.get("workflow_sha256")),
+        "scene hash (semantic)": _short_hash(repro_block.get("scene_report_semantic_sha256")),
+        "image pixels": _short_hash(image.get("pixels_sha256") or preview.get("pixels_sha256")),
+    }
+
+
+def build_compare_view(detail_a: dict, detail_b: dict) -> dict:
+    """Vue de comparaison : les deux détails + lignes de diff alignées.
+    Une ligne est « changed » si les deux valeurs existent et diffèrent —
+    un champ absent d'un côté (pipelines différents) n'est pas un écart."""
+    fields_a = _compare_fields(detail_a)
+    fields_b = _compare_fields(detail_b)
+    rows = []
+    for label in fields_a:
+        a_value, b_value = fields_a[label], fields_b[label]
+        if a_value is None and b_value is None:
+            continue
+        rows.append({
+            "label": label,
+            "a": a_value,
+            "b": b_value,
+            "changed": a_value is not None and b_value is not None and a_value != b_value,
+        })
+
+    # Distance perceptuelle entre les deux images (dHash des manifests).
+    from app.engine import repro as repro_utils
+
+    def _dhash(detail: dict) -> str | None:
+        block = _repro_of(detail)
+        variant_image = _first_variant(block).get("image") or {}
+        preview = block.get("preview_png") if isinstance(block.get("preview_png"), dict) else {}
+        return variant_image.get("dhash") or preview.get("dhash")
+
+    distance = repro_utils.dhash_distance(_dhash(detail_a), _dhash(detail_b))
+
+    return {"a": detail_a, "b": detail_b, "rows": rows, "dhash_distance": distance}
 
 
 def _load_json(p: Path) -> dict | None:
@@ -752,9 +878,51 @@ def page(request: Request):
 
 
 @router.get("/outputs", response_class=HTMLResponse)
-def outputs_fragment(request: Request):
-    """Fragment Outputs (chargé par HTMX à l'ouverture de l'onglet)."""
-    return templates.TemplateResponse(request, "_outputs.html", {"runs": list_runs()})
+def outputs_fragment(request: Request, q: str | None = None):
+    """Fragment Outputs (chargé par HTMX à l'ouverture de l'onglet).
+    `q` filtre par tokens du prompt (recherche au fil de la frappe)."""
+    runs = list_runs()
+    total = len(runs)
+    if q:
+        runs = filter_runs(q, runs)
+    return templates.TemplateResponse(
+        request, "_outputs.html", {"runs": runs, "q": q or "", "total": total}
+    )
+
+
+@router.get("/compare", response_class=HTMLResponse)
+def compare_runs(request: Request, sel: list[str] = Query(default=[])):
+    """Deux runs côte à côte + diff de leurs blocs repro (modale HTMX).
+
+    `sel` = chemins des runs cochés dans Outputs. Même garde de chemins que
+    /run et /artifact ; il en faut EXACTEMENT deux.
+    """
+    selected = sel or []
+    if len(selected) != 2:
+        return HTMLResponse(
+            '<div class="modal-backdrop" onclick="if(event.target===this)this.remove()">'
+            '<div class="modal"><div class="modal-head"><span class="badge">⇄ Compare</span>'
+            '<button class="ghost modal-close" onclick="this.closest(\'.modal-backdrop\').remove()">✕</button></div>'
+            f'<p class="muted">Check exactly two runs to compare ({len(selected)} selected).</p>'
+            "</div></div>"
+        )
+
+    details = []
+    for raw in selected:
+        try:
+            resolved = Path(raw).resolve()
+        except (OSError, RuntimeError, ValueError):
+            raise HTTPException(status_code=404, detail="run not found")
+        if not _under_serve_roots(resolved) or not resolved.is_dir():
+            raise HTTPException(status_code=404, detail="run not found")
+        detail = build_run_detail(resolved)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="run not found")
+        details.append(detail)
+
+    return templates.TemplateResponse(
+        request, "_compare.html", build_compare_view(details[0], details[1])
+    )
 
 
 @router.get("/run", response_class=HTMLResponse)
