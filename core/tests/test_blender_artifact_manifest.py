@@ -397,3 +397,85 @@ class TestManifestH53PipelinePathPropagation:
         manifest = build_blender_manifest(request, result)
         assert manifest["future"]["pipeline_path"] == "legacy_llm_bpy_scaffold"
         assert manifest["future"]["product_render_intent"] is None
+
+
+# ---------------------------------------------------------------------------
+# Bloc repro (v2) — tiers 1/2/3, best-effort
+# ---------------------------------------------------------------------------
+
+class TestReproSection:
+    def _patch_probes(self, monkeypatch):
+        monkeypatch.setattr("app.engine.repro.aac_git_commit", lambda: "deadbeef" * 5)
+        monkeypatch.setattr("app.engine.repro.blender_version", lambda: "Blender 9.9.9")
+
+    def test_repro_block_present_with_fake_paths(self, monkeypatch):
+        self._patch_probes(monkeypatch)
+        manifest = build_blender_manifest(_make_request(), _make_result())
+        block = manifest["repro"]
+        assert block["repro_version"] == 1
+        assert block["aac_git_commit"] == "deadbeef" * 5
+        assert block["blender_version"] == "Blender 9.9.9"
+        # Fichiers inexistants -> hashes null, jamais d'exception.
+        assert block["scene_py_sha256"] is None
+        assert block["preview_png"] == {"sha256": None, "pixels_sha256": None, "dhash": None}
+        assert block["scene_report_semantic_sha256"] is None
+
+    def test_repro_hashes_real_artifacts(self, tmp_path, monkeypatch):
+        self._patch_probes(monkeypatch)
+        from PIL import Image
+
+        from app.engine import repro
+
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        script = run_dir / "scene.py"
+        script.write_text("import bpy\n", encoding="utf-8")
+        Image.new("RGB", (16, 16), (10, 120, 200)).save(run_dir / "preview.png")
+        report = {
+            "template_name": "product_render",
+            "object_count": 6,
+            "status": "passed",
+            "violations": [],
+            "scene_report_path": str(run_dir / "scene_report.json"),
+        }
+
+        request = _make_request()
+        result = BlenderResult(
+            status="success",
+            request_id=_FAKE_ID,
+            script_path=str(script),
+            output_path=str(run_dir / "scene.blend"),
+            render_path=str(run_dir / "preview.png"),
+            output_dir=str(run_dir),
+            returncode=0,
+            stdout=None,
+            stderr=None,
+            error=None,
+            scene_report=report,
+        )
+
+        block = build_blender_manifest(request, result)["repro"]
+        assert block["scene_py_sha256"] == repro.sha256_file(script)
+        assert block["preview_png"]["sha256"] == repro.sha256_file(run_dir / "preview.png")
+        assert block["preview_png"]["dhash"] is not None and len(block["preview_png"]["dhash"]) == 16
+        assert block["scene_report_semantic_sha256"] == repro.semantic_scene_report_hash(report)
+
+    def test_semantic_hash_invariant_to_report_paths(self, monkeypatch):
+        # Deux runs, même scène, chemins différents -> même hash sémantique.
+        self._patch_probes(monkeypatch)
+        base_report = {"template_name": "product_render", "object_count": 6, "status": "passed"}
+
+        def manifest_for(report_path: str):
+            result = _make_result()
+            result = BlenderResult(
+                **{**result.__dict__, "scene_report": {**base_report, "scene_report_path": report_path}}
+            )
+            return build_blender_manifest(_make_request(), result)
+
+        hash_a = manifest_for("/outputs/blender/run-a/scene_report.json")["repro"][
+            "scene_report_semantic_sha256"
+        ]
+        hash_b = manifest_for("/tmp/elsewhere/scene_report.json")["repro"][
+            "scene_report_semantic_sha256"
+        ]
+        assert hash_a is not None and hash_a == hash_b
