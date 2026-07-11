@@ -17,6 +17,9 @@ passent par step_results, qui EST restauré.
 Garanties (mêmes invariants que run_events / llm_trajectory_log) :
 - l'écriture ne lève JAMAIS (un checkpoint perdu est acceptable, un crash
   de pipeline ne l'est pas) ; la lecture retourne None sur tout problème ;
+- l'écriture est ATOMIQUE (temporaire même-dossier + fsync + os.replace) :
+  un crash ou un disque plein laisse l'ancien state.json intact ou le
+  nouveau complet, jamais un JSON tronqué ;
 - stdlib uniquement ;
 - désactivable via AAC_RUN_STATE_ENABLED (les tests le font par défaut) ;
 - la rétention est portée par la purge de run_events (state.json est
@@ -30,6 +33,7 @@ import sys
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, Optional
+from uuid import uuid4
 
 from app.engine.planner_types import ExecutionPlan, PlanStep, StepResult
 from app.engine.run_events import get_run_events_dir
@@ -86,9 +90,22 @@ def save_run_state(
         if run_dir is None:
             raise ValueError(f"invalid request_id: {request_id!r}")
         run_dir.mkdir(parents=True, exist_ok=True)
-        (run_dir / STATE_FILENAME).write_text(
-            json.dumps(snapshot, ensure_ascii=False, default=str), encoding="utf-8"
-        )
+        # Écriture ATOMIQUE : le checkpoint protège contre les interruptions,
+        # il ne peut pas être lui-même corruptible par une interruption. On
+        # écrit dans un temporaire du MÊME dossier (os.replace exige le même
+        # système de fichiers), flush + fsync (le rename ne garantit pas le
+        # contenu), puis remplacement atomique — un crash laisse soit l'ancien
+        # state.json intact, soit le nouveau complet, jamais un JSON tronqué.
+        final_path = run_dir / STATE_FILENAME
+        tmp_path = run_dir / f"{STATE_FILENAME}.{uuid4().hex}.tmp"
+        try:
+            with tmp_path.open("w", encoding="utf-8") as f:
+                f.write(json.dumps(snapshot, ensure_ascii=False, default=str))
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, final_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)  # no-op après un replace réussi
     except Exception as exc:  # noqa: BLE001 — invariant non-bloquant
         try:
             sys.stderr.write(f"[run_state] swallow {type(exc).__name__}: {exc}\n")
