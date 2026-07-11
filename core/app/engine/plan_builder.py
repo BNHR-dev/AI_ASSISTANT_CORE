@@ -1,7 +1,22 @@
 from __future__ import annotations
 
+import os
+
 from app.engine.blender_model_config import get_blender_llm_model
 from app.engine.planner_types import ExecutionPlan, PlanStep
+
+TOOL_RETRY_MAX_ATTEMPTS_ENV = "AAC_TOOL_RETRY_MAX_ATTEMPTS"
+
+
+def _tool_max_attempts() -> int:
+    """Tentatives des steps outils (tool_*) sur erreur. Défaut 1 = aucun
+    retry (comportement historique) : un outil GPU qui échoue coûte cher à
+    rejouer aveuglément, l'opt-in est explicite. Borné à [1, 5]."""
+    raw = (os.getenv(TOOL_RETRY_MAX_ATTEMPTS_ENV) or "1").strip()
+    try:
+        return min(5, max(1, int(raw)))
+    except ValueError:
+        return 1
 
 
 def build_plan_from_decision(decision: dict, message: str) -> ExecutionPlan:
@@ -31,6 +46,7 @@ def build_plan_from_decision(decision: dict, message: str) -> ExecutionPlan:
                 goal="Exécuter Blender en background et produire le fichier .blend",
                 tool="blender",
                 depends_on=["step_prepare_blender"],
+                max_attempts=_tool_max_attempts(),
             )
         )
         return ExecutionPlan(
@@ -57,6 +73,7 @@ def build_plan_from_decision(decision: dict, message: str) -> ExecutionPlan:
                 goal="Exécuter le workflow ComfyUI",
                 tool="comfyui",
                 depends_on=["step_prepare_visual"],
+                max_attempts=_tool_max_attempts(),
             )
         )
         return ExecutionPlan(
@@ -72,6 +89,7 @@ def build_plan_from_decision(decision: dict, message: str) -> ExecutionPlan:
                 step_type="tool_web_search",
                 goal="Récupérer des résultats web",
                 tool="web",
+                max_attempts=_tool_max_attempts(),
             )
         )
         steps.append(

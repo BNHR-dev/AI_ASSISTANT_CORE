@@ -58,7 +58,11 @@ EXECUTE_READ_TIMEOUT = 900.0  # un rendu ComfyUI/Blender se compte en minutes
 # Palettes distinctes : « degraded » côté runtime = backend requis KO (rouge),
 # côté exécution = succès partiel (jaune).
 RUNTIME_PALETTE = {"ok": "green", "partial": "yellow", "degraded": "red"}
-EXEC_PALETTE = {"success": "green", "degraded": "yellow", "empty": "yellow", "failed": "red"}
+EXEC_PALETTE = {"success": "green", "degraded": "yellow", "empty": "yellow",
+                "failed": "red", "paused": "yellow"}
+# Statuts « OK » pour le code de sortie : paused en fait partie quand la
+# pause a été DEMANDÉE (--pause-tools) — obtenir la pause n'est pas un échec.
+EXEC_OK_STATUSES = ("success", "empty")
 STEP_GLYPHS = {"success": ("✔", "green"), "error": ("✘", "red"), "blocked": ("⊘", "yellow")}
 REPRO_PALETTE = {
     "exact": "green",
@@ -257,19 +261,32 @@ def inspect(cfg: Settings, prompt: str, image: bool) -> None:
 @click.argument("prompt")
 @click.option("--image", is_flag=True,
               help="Marque la requête comme accompagnée d'une image (has_image).")
+@click.option("--pause-tools", is_flag=True,
+              help="S'arrêter AVANT chaque step outil (approbation via `aac resume`).")
 @click.pass_obj
-def execute(cfg: Settings, prompt: str, image: bool) -> None:
+def execute(cfg: Settings, prompt: str, image: bool, pause_tools: bool) -> None:
     """Exécute PROMPT de bout en bout : statut, plan, étapes, artefacts."""
     with make_client(cfg.base_url, cfg.token, EXECUTE_READ_TIMEOUT) as client:
-        result = _request(client, "POST", "/execute", {"message": prompt, "has_image": image})
+        result = _request(
+            client, "POST", "/execute",
+            {"message": prompt, "has_image": image, "pause_before_tools": pause_tools},
+        )
 
     if cfg.as_json:
         _echo_json(result)
     else:
         _render_execution(prompt, result)
+        summary_status = (result.get("execution_summary") or {}).get("status")
+        if summary_status == "paused" and result.get("request_id"):
+            click.echo()
+            click.secho(
+                f"⏸ en attente d'approbation — reprendre : aac resume {result['request_id']}",
+                fg="yellow",
+            )
 
     summary = result.get("execution_summary") or {}
-    if summary and summary.get("status") not in ("success", "empty"):
+    ok_statuses = EXEC_OK_STATUSES + (("paused",) if pause_tools else ())
+    if summary and summary.get("status") not in ok_statuses:
         sys.exit(EXIT_API_ERROR)
 
 
@@ -345,7 +362,7 @@ def resume(cfg: Settings, request_id: str) -> None:
         _render_execution(f"reprise du run {request_id}", result)
 
     summary = result.get("execution_summary") or {}
-    if summary and summary.get("status") not in ("success", "empty"):
+    if summary and summary.get("status") not in EXEC_OK_STATUSES:
         sys.exit(EXIT_API_ERROR)
 
 

@@ -72,6 +72,7 @@ def execute(payload: ExecuteRequest) -> ExecuteResponse:
     result = execute_request(
         payload.message,
         payload.has_image,
+        pause_before_tools=payload.pause_before_tools,
     )
     return ExecuteResponse(**result)
 

@@ -37,6 +37,9 @@ class ExecutionSummaryResponse(BaseModel):
     successful_step_ids: list[str] = Field(default_factory=list)
     error_step_ids: list[str] = Field(default_factory=list)
     blocked_step_ids: list[str] = Field(default_factory=list)
+    # 4B — steps en attente d'approbation (status global "paused") ;
+    # la reprise via POST /resume vaut approbation.
+    awaiting_step_ids: list[str] = Field(default_factory=list)
 
 
 class ToolStatusResponse(BaseModel):
@@ -129,6 +132,9 @@ class ResumeRequest(BaseModel):
 class ExecuteRequest(BaseModel):
     message: str
     has_image: bool = False
+    # 4B — human-in-the-loop opt-in : le run s'arrête AVANT chaque step
+    # outil (status "paused"), la reprise via POST /resume vaut approbation.
+    pause_before_tools: bool = False
 
 
 class ExecuteResponse(BaseModel):
