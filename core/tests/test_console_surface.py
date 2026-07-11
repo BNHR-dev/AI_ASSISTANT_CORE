@@ -299,7 +299,8 @@ def _make_run(run_dir, name, kind="comfyui", with_manifest=True):
 def _point_runs(monkeypatch, tmp_path):
     """Pointe les dossiers de runs + les racines servables sur un tmp."""
     comfy, blend = tmp_path / "comfyui", tmp_path / "blender"
-    comfy.mkdir(); blend.mkdir()
+    comfy.mkdir()
+    blend.mkdir()
     monkeypatch.setattr(console, "COMFYUI_RUNS_DIR", comfy)
     monkeypatch.setattr(console, "BLENDER_RUNS_DIR", blend)
     monkeypatch.setattr(console, "_SERVE_ROOTS", [tmp_path])

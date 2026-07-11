@@ -20,9 +20,8 @@ from pathlib import Path
 
 import pytest
 
-from app.engine.script_gen_eval_cases import DEFAULT_CASES, ScriptGenCase
+from app.engine.script_gen_eval_cases import DEFAULT_CASES
 from app.engine.script_gen_eval_harness import (
-    ScriptGenHarnessReport,
     run_harness,
 )
 from app.engine.script_gen_eval_runner import (
@@ -34,7 +33,6 @@ from app.engine.script_gen_eval_runner import (
     _safe_case_filename,
     _stats_block,
     aggregate_multirun,
-    build_multirun_payload,
     build_multirun_report_path,
     build_report_path,
     build_report_payload,

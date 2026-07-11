@@ -23,7 +23,6 @@ from app.engine.blender_runtime_corrector import (
     CORRECTION_REMOVE_SUN,
     CORRECTION_RERENDER_PREVIEW,
     NORMALIZATION_MINIMUM_OBJECTS,
-    REQUIRED_SUBJECT_NAME,
     apply_corrections,
     build_correction_script,
     plan_corrections,

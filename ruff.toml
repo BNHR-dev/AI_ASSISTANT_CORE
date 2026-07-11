@@ -1,0 +1,10 @@
+# Lint du backend (règles ruff par défaut : pyflakes + erreurs pycodestyle).
+# `ruff format` n'est PAS encore appliqué (diff massif sur l'existant) — le jour
+# où on l'adopte, le faire en un commit mécanique dédié.
+target-version = "py313"
+
+[lint.per-file-ignores]
+# load_dotenv() DOIT précéder les imports applicatifs (ils lisent l'env à l'import).
+"core/app/main.py" = ["E402"]
+# Pattern des tests : sys.path/env posés avant les imports applicatifs.
+"core/tests/*" = ["E402"]

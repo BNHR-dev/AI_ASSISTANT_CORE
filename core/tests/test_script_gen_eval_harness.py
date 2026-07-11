@@ -13,18 +13,12 @@ Aucun subprocess Blender. Lecture seule sur AST guard / templates.
 """
 from __future__ import annotations
 
-import pytest
 
-from app.engine.blender_templates import TEMPLATE_SPECS
 from app.engine.script_gen_eval_cases import (
     CHECK_AST_PARSEABLE,
-    CHECK_DELETE_DEFAULT_PRESENT,
     CHECK_GENERATION_OK,
-    CHECK_HAS_PRIMITIVE_GEOMETRY,
-    CHECK_NOT_FALLBACK_CUBE_SUN_ONLY,
     CHECK_TEMPLATE_REQUIRED_OBJECTS,
     DEFAULT_CASES,
-    ScriptGenCase,
 )
 from app.engine.script_gen_eval_harness import (
     case_score_to_dict,
@@ -527,7 +521,7 @@ def test_run_harness_uses_default_stabilised_fn_when_none_provided(monkeypatch) 
     monkeypatch.setattr(harness_mod, "generate_with_ollama", fake_generate_with_ollama)
 
     # Un seul cas pour limiter les appels
-    report = run_harness(
+    run_harness(
         cases=DEFAULT_CASES[:1],
         model="any",
         generate_fn=None,  # → utilise _default_generate_fn

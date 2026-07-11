@@ -306,7 +306,10 @@ class TestBackgroundLuminance:
             for y in range(64):
                 px[x, y] = 40 + x          # sombre à gauche, clair à droite
         cols = background_columns(img)
-        med = lambda c: sorted(c)[len(c) // 2]
+
+        def med(c):
+            return sorted(c)[len(c) // 2]
+
         assert med(cols[0]) < med(cols[w - 1])
 
 

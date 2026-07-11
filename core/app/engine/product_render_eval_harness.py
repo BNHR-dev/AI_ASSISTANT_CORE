@@ -44,7 +44,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional
 
 from app.engine.blender_model_config import get_blender_llm_model

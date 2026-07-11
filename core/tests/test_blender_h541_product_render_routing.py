@@ -205,7 +205,8 @@ def _build_with_mocks(message: str, extraction: ProductRenderExtractionResult | 
             )
         )
 
-    started = [p.start() for p in patches]
+    for p in patches:
+        p.start()
     try:
         return build_blender_script(message=message, context={}, request_id=_FAKE_ID)
     finally:

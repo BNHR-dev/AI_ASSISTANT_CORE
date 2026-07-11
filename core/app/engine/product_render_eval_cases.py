@@ -41,7 +41,7 @@ Aucune clé non listée n'est tolérée (validation à l'import).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Mapping
 
 from app.engine.product_render_ir import _validate_color_token

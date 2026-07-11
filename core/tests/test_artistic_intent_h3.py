@@ -12,9 +12,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-import pytest
 
 from app.engine.artistic_intent import ArtisticIntent, parse_artistic_intent, write_intent_json
 from app.engine.artifact_manifest import build_blender_manifest

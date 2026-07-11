@@ -18,7 +18,11 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: pip install -r core/requirements.txt
+        # requirements-dev.txt inclut requirements.txt (-r) + pytest/ruff épinglés.
+        run: pip install -r core/requirements-dev.txt
+
+      - name: Lint (ruff — config dans ruff.toml)
+        run: ruff check core/
 
       - name: Run tests (fully hermetic — no external services required)
         working-directory: core

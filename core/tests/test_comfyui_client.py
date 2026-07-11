@@ -2,7 +2,6 @@ from app.clients.comfyui_client import (
     enrich_visual_positive_prompt,
     extract_output_descriptors,
     extract_output_file,
-    inject_visual_request,
     load_workflow_template,
 )
 from app.engine.visual_types import VisualRequest

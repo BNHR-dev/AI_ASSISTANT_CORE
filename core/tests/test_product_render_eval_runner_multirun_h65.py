@@ -16,7 +16,6 @@ Aucun appel Ollama réel : `generate_fn` est mocké.
 from __future__ import annotations
 
 import json
-import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -24,14 +23,13 @@ from typing import Callable
 import pytest
 
 from app.engine.product_render_eval_cases import DEFAULT_CASES, EvalCase
-from app.engine.product_render_eval_harness import HarnessReport, run_harness
+from app.engine.product_render_eval_harness import run_harness
 from app.engine.product_render_eval_runner import (
     _stats_block,
     aggregate_multirun,
     build_multirun_report_path,
     format_summary_multirun,
     run_and_save_multi,
-    slugify_model,
 )
 
 

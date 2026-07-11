@@ -47,7 +47,7 @@ Aucune clé non listée n'est tolérée (validation à l'import).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Mapping
 
 from app.engine.blender_templates import TEMPLATE_SPECS

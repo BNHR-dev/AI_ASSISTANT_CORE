@@ -1,5 +1,6 @@
+# Dépendances RUNTIME uniquement (installées dans l'image Docker).
+# Outils de dev/CI (pytest, ruff…) -> requirements-dev.txt.
 annotated-doc==0.0.4
-Pillow>=10.0.0
 annotated-types==0.7.0
 anyio==4.13.0
 certifi==2026.2.25
@@ -10,15 +11,11 @@ h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
 idna==3.11
-iniconfig==2.3.0
 Jinja2==3.1.6
 MarkupSafe==3.0.3
-packaging==26.1
-pluggy==1.6.0
+Pillow==12.2.0
 pydantic==2.12.5
 pydantic_core==2.41.5
-Pygments==2.20.0
-pytest==9.0.3
 python-dotenv==1.2.2
 requests==2.33.1
 starlette==1.0.0

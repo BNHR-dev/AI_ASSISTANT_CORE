@@ -20,7 +20,6 @@ Pillow, best-effort). Pas d'import bpy.
 """
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 # ---------------------------------------------------------------------------

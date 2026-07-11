@@ -40,8 +40,6 @@ from app.engine.product_render_ir import (
     ProductRenderIntent,
     ProductSubjectIR,
     SUBJECT_LABEL_MAX_LEN,
-    SubjectKind,
-    SubjectMaterial,
     V1_DEFAULTS,
     _validate_color_token,
 )
@@ -468,7 +466,6 @@ _HEX_TO_PALETTE_SYNONYMS: dict[str, str] = {
     "#f00":    "red",
     "#00ff00": "green",
     "#0f0":    "green",
-    "#0000ff": "blue",
     "#0000ff": "blue",
     "#00f":    "blue",
     "#ffff00": "yellow",

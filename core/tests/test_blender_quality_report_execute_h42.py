@@ -31,7 +31,6 @@ def test_quality_report_violation_for_empty_named_mesh():
 
 
 def test_quality_report_does_not_block_execute_assembly(monkeypatch):
-    from unittest.mock import MagicMock
     from app.engine.blender_types import BlenderRequest, BlenderResult
     from app.engine.executor import execute_request
 

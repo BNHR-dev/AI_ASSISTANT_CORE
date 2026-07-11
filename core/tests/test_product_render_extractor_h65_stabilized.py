@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
 
 from app.engine import product_render_extractor as ext
 from app.engine.product_render_extractor import (

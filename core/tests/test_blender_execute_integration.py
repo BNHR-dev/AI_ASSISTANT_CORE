@@ -4,7 +4,7 @@ Vérifie que execute_request retourne les bons champs artifact pour blender_pipe
 """
 from __future__ import annotations
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from app.engine.blender_types import BlenderRequest, BlenderResult
 

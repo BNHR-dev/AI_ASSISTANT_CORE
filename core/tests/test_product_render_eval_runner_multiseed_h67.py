@@ -23,7 +23,7 @@ from unittest.mock import patch
 import pytest
 
 from app.engine.product_render_eval_cases import DEFAULT_CASES, EvalCase
-from app.engine.product_render_eval_harness import HarnessReport, run_harness
+from app.engine.product_render_eval_harness import run_harness
 from app.engine.product_render_eval_runner import (
     DEFAULT_SEEDS,
     aggregate_multiseed,

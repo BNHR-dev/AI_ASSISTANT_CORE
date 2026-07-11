@@ -23,7 +23,6 @@ import pytest
 
 from app.engine.product_render_extractor import (
     _INVALID_COLOR_SAFETY_DEFAULT,
-    _apply_normalizers,
     _is_valid_color_token,
     _normalize_color_safety_default,
     _normalize_schema_version,

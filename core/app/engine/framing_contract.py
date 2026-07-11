@@ -158,7 +158,9 @@ def screen_bbox(view_matrix, half_w: float, half_h: float, corners_world):
     us, vs, zs, n_behind = [], [], [], 0
     for c in corners_world:
         u, v, z = project_point(view_matrix, half_w, half_h, c)
-        us.append(u); vs.append(v); zs.append(z)
+        us.append(u)
+        vs.append(v)
+        zs.append(z)
         if z <= 0:
             n_behind += 1
     return (min(us), min(vs), max(us), max(vs), min(zs), n_behind)

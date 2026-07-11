@@ -28,7 +28,6 @@ import argparse
 import json
 import re
 import statistics
-import sys
 import time
 import traceback
 from collections import Counter
