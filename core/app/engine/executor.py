@@ -401,8 +401,11 @@ def execute_request(
     has_image: bool = False,
     mode: str = "auto",
     pause_before_tools: bool = False,
+    request_id: str | None = None,
 ) -> dict:
-    request_id = str(uuid4())
+    # request_id imposable par l'appelant (5 v2 : la Console asynchrone doit
+    # connaître l'id AVANT de lancer le run pour s'abonner au flux d'événements).
+    request_id = request_id or str(uuid4())
     started_at = _utc_now_iso()
     started_perf = perf_counter()
 

@@ -11,17 +11,21 @@ exposition internet. Voir la note portfolio « Console — UI dédiée ».
 """
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import os
+import re
 import subprocess
 import sys
+from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, quote
+from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from app.engine.executor import execute_request
@@ -53,6 +57,101 @@ EVAL_DIR = BLENDER_RUNS_DIR / "_eval_reports"
 
 router = APIRouter(prefix="/console", tags=["console"])
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# --------------------------------------------------------------------------- #
+# Runs asynchrones (5 v2) — registre des résultats + flux SSE
+# --------------------------------------------------------------------------- #
+# Résultats des runs lancés en arrière-plan par CETTE Console. En mémoire,
+# borné : la Console est locale et mono-process (contrat V0 conservé) ; la
+# vérité durable reste sur disque (events.jsonl, state.json, manifests).
+_RESULTS: OrderedDict[str, dict] = OrderedDict()
+_RESULTS_MAX = 50
+
+# request_id nomme un dossier sous outputs/runs/ : charset strict, jamais de
+# séparateur de chemin (anti-traversal, même garde d'esprit que /artifact).
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+
+# Un run Blender/ComfyUI se compte en minutes ; au-delà, le flux s'arrête
+# proprement et le client tente le résultat (plutôt qu'un socket zombie).
+_STREAM_TIMEOUT_SECONDS = 45 * 60
+_STREAM_POLL_SECONDS = 0.5
+
+
+def _store_result(request_id: str, entry: dict) -> None:
+    _RESULTS[request_id] = entry
+    _RESULTS.move_to_end(request_id)
+    while len(_RESULTS) > _RESULTS_MAX:
+        _RESULTS.popitem(last=False)
+
+
+def _run_in_background(request_id: str, runner) -> None:
+    """Exécute `runner()` et range résultat OU exception dans le registre —
+    la Console ne perd jamais l'issue d'un run qu'elle a lancé."""
+    try:
+        _store_result(request_id, {"result": runner()})
+    except Exception as exc:  # noqa: BLE001 — l'issue doit atterrir dans l'UI
+        _store_result(request_id, {"exception": f"{type(exc).__name__}: {exc}"})
+
+
+def _render_timeline_row(event: dict) -> str:
+    """Une ligne de timeline (même partial que le détail de run)."""
+    row = _event_row(event, max_step_ms=0)
+    return templates.get_template("_tl_row.html").render(row=row)
+
+
+async def _sse_event_stream(request: Request, request_id: str, *, tail: bool):
+    """Suit events.jsonl du run et pousse chaque événement en SSE.
+
+    `tail=True` (reprise) : ne rejoue pas l'historique, ne pousse que les
+    événements POSTÉRIEURS à la connexion. Fin de flux (`done`) sur
+    run.finished, sur résultat déjà rangé au registre (run éclair ou crash
+    avant tout événement), sur déconnexion client, ou au timeout.
+    """
+    events_file = get_run_events_dir().resolve() / request_id / EVENTS_FILENAME
+    offset = events_file.stat().st_size if (tail and events_file.is_file()) else 0
+    deadline = asyncio.get_event_loop().time() + _STREAM_TIMEOUT_SECONDS
+
+    def _sse(event_name: str, payload: str) -> str:
+        data = "".join(f"data: {line}\n" for line in payload.splitlines() or [""])
+        return f"event: {event_name}\n{data}\n"
+
+    while True:
+        if await request.is_disconnected():
+            return
+        if asyncio.get_event_loop().time() > deadline:
+            yield _sse("done", "timeout")
+            return
+
+        finished = False
+        if events_file.is_file():
+            try:
+                with events_file.open("r", encoding="utf-8") as f:
+                    f.seek(offset)
+                    chunk = f.read()
+                    offset = f.tell()
+            except OSError:
+                chunk = ""
+            for line in chunk.splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(event, dict):
+                    yield _sse("row", _render_timeline_row(event))
+                    if event.get("kind") == "run.finished":
+                        finished = True
+
+        if finished:
+            yield _sse("done", "finished")
+            return
+        if request_id in _RESULTS:
+            # Résultat rangé sans run.finished visible : run éclair (events
+            # désactivés) ou exception avant le premier événement.
+            yield _sse("done", "result-ready")
+            return
+        await asyncio.sleep(_STREAM_POLL_SECONDS)
 
 
 def _under_serve_roots(p: Path) -> bool:
@@ -710,8 +809,10 @@ def health_strip(request: Request):
 
 
 @router.post("/run", response_class=HTMLResponse)
-async def run(request: Request):
-    """Lance une demande et renvoie le fragment de résultat (cible HTMX).
+async def run(request: Request, background_tasks: BackgroundTasks):
+    """Lance une demande EN ARRIÈRE-PLAN et renvoie le fragment de trace
+    en direct (5 v2) : la page n'est plus bloquée pendant le run, la
+    timeline se remplit via SSE, le résultat final arrive au signal `done`.
 
     Le corps `urlencoded` est parsé à la main (`parse_qs`) pour éviter la
     dépendance python-multipart qu'exige `request.form()`.
@@ -735,41 +836,76 @@ async def run(request: Request):
     # 4B — "Review before…" checkbox: pause ahead of the tool step, the
     # result fragment then shows an Approve & continue button (/console/resume).
     pause = bool(parsed.get("pause", [""])[0])
-    try:
-        result = execute_request(message, mode=mode, pause_before_tools=pause)
-    except Exception as exc:  # noqa: BLE001 — la Console ne doit jamais planter
-        return templates.TemplateResponse(
-            request,
-            "result.html",
-            {"exception": f"{type(exc).__name__}: {exc}", "r": None},
-        )
-    return templates.TemplateResponse(request, "result.html", build_view(result))
+
+    request_id = str(uuid4())
+    background_tasks.add_task(
+        _run_in_background,
+        request_id,
+        lambda: execute_request(
+            message, mode=mode, pause_before_tools=pause, request_id=request_id
+        ),
+    )
+    return templates.TemplateResponse(
+        request, "_live_run.html", {"request_id": request_id, "tail": False}
+    )
 
 
 @router.post("/resume", response_class=HTMLResponse)
-def resume_from_console(request: Request, request_id: str):
+def resume_from_console(request: Request, request_id: str, background_tasks: BackgroundTasks):
     """Approuve et reprend un run en pause (ou interrompu) — cible HTMX.
 
-    Même moteur que POST /resume (API) et `aac resume` (CLI), appelé
-    in-process ; renvoie le même fragment de résultat que POST /console/run.
+    Même moteur que POST /resume (API) et `aac resume` (CLI), lancé en
+    arrière-plan comme POST /console/run ; le fragment de trace s'abonne en
+    mode `tail` (l'historique du run figure déjà dans la modale/le résultat,
+    seuls les événements de la reprise sont poussés).
     """
     from app.engine.executor import resume_request
 
-    try:
-        result = resume_request(request_id)
-    except LookupError:
+    if not _REQUEST_ID_RE.match(request_id):
+        raise HTTPException(status_code=404, detail="unknown run")
+
+    _RESULTS.pop(request_id, None)  # l'issue précédente (pause) est périmée
+    background_tasks.add_task(
+        _run_in_background, request_id, lambda: resume_request(request_id)
+    )
+    return templates.TemplateResponse(
+        request, "_live_run.html", {"request_id": request_id, "tail": True}
+    )
+
+
+@router.get("/stream/{request_id}")
+async def stream_run_events(request: Request, request_id: str, tail: int = 0):
+    """Flux SSE des événements d'un run (consommé par _live_run.html)."""
+    if not _REQUEST_ID_RE.match(request_id):
+        raise HTTPException(status_code=404, detail="unknown run")
+    return StreamingResponse(
+        _sse_event_stream(request, request_id, tail=bool(tail)),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/run-result/{request_id}", response_class=HTMLResponse)
+def run_result(request: Request, request_id: str):
+    """Fragment de résultat final d'un run lancé par cette Console."""
+    if not _REQUEST_ID_RE.match(request_id):
+        raise HTTPException(status_code=404, detail="unknown run")
+    entry = _RESULTS.get(request_id)
+    if entry is None:
         return templates.TemplateResponse(
             request,
             "result.html",
-            {"exception": f"No saved state for run {request_id}.", "r": None},
+            {"exception": f"Run {request_id} is still executing (or this Console "
+                          "was restarted since). The artifacts land in Outputs "
+                          "either way.", "r": None},
         )
-    except Exception as exc:  # noqa: BLE001 — la Console ne doit jamais planter
+    if "exception" in entry:
         return templates.TemplateResponse(
-            request,
-            "result.html",
-            {"exception": f"{type(exc).__name__}: {exc}", "r": None},
+            request, "result.html", {"exception": entry["exception"], "r": None}
         )
-    return templates.TemplateResponse(request, "result.html", build_view(result))
+    return templates.TemplateResponse(
+        request, "result.html", build_view(entry["result"])
+    )
 
 
 @router.post("/reproduce", response_class=HTMLResponse)

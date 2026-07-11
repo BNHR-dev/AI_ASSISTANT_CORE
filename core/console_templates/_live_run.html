@@ -1,0 +1,39 @@
+{# Live run fragment — returned immediately by POST /console/run|/resume.
+   Subscribes to the SSE stream, fills the timeline as the run executes,
+   then swaps in the final result on `done`. #}
+<div class="strip">
+  <span class="badge">🛰 Live run</span>
+  <span class="run-ref"><code>{{ request_id }}</code></span>
+  <span class="muted live-status" id="live-status-{{ request_id }}">running — you can
+    switch tabs, the run keeps going.</span>
+</div>
+<div class="timeline live-timeline" id="tl-{{ request_id }}">
+  <div class="timeline-head"><span class="badge">⏱ Run trace</span>
+    <small class="muted">live</small></div>
+</div>
+<div id="final-{{ request_id }}"></div>
+<script>
+(function () {
+  var tl = document.getElementById("tl-{{ request_id }}");
+  var final = document.getElementById("final-{{ request_id }}");
+  var status = document.getElementById("live-status-{{ request_id }}");
+  var es = new EventSource("/console/stream/{{ request_id }}{{ '?tail=1' if tail else '' }}");
+  var loadResult = function () {
+    fetch("/console/run-result/{{ request_id }}")
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        final.innerHTML = html;
+        if (window.htmx) { htmx.process(final); }
+        if (status) { status.textContent = "finished."; }
+      });
+  };
+  es.addEventListener("row", function (e) {
+    tl.insertAdjacentHTML("beforeend", e.data);
+  });
+  es.addEventListener("done", function () { es.close(); loadResult(); });
+  es.onerror = function () {
+    // Flux interrompu (Console redémarrée, réseau) : tenter le résultat.
+    es.close(); loadResult();
+  };
+})();
+</script>

@@ -358,3 +358,8 @@ table.eval tr:hover td { background: var(--surface); }
 .hash-table { margin: .5rem 0 0; border-collapse: collapse; font-size: .8rem; }
 .hash-table td { padding: .18rem .7rem .18rem 0; vertical-align: baseline; }
 .repro-report { margin-top: .6rem; animation: fade-in .2s ease; }
+
+/* ---- Live run (SSE) ------------------------------------------------------ */
+.live-timeline:empty { display: none; }
+.run-ref code { font-size: .78rem; }
+.live-status { font-size: .85rem; }

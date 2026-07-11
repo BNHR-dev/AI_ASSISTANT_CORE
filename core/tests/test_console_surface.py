@@ -4,6 +4,7 @@ Conventions alignées sur `tests/test_fastapi_surface.py` : TestClient(app) et
 mock de `execute_request` via monkeypatch. Aucun appel réel au moteur.
 """
 import json
+import re
 import sys
 
 from fastapi.testclient import TestClient
@@ -75,6 +76,20 @@ def _error_result():
 # --------------------------------------------------------------------------- #
 # Page + exécution
 # --------------------------------------------------------------------------- #
+
+def _run_and_fetch_result(message: str) -> str:
+    """5 v2 : POST /console/run répond le fragment LIVE (le run part en
+    arrière-plan — TestClient l'exécute pendant l'appel) ; le fragment de
+    résultat final se lit ensuite sur /console/run-result/<id>."""
+    live = client.post("/console/run", data={"message": message})
+    assert live.status_code == 200
+    match = re.search(r"/console/stream/([A-Za-z0-9-]+)", live.text)
+    assert match, live.text
+    result = client.get(f"/console/run-result/{match.group(1)}")
+    assert result.status_code == 200
+    return result.text
+
+
 def test_console_page_served():
     response = client.get("/console")
     assert response.status_code == 200
@@ -84,9 +99,7 @@ def test_console_page_served():
 
 def test_run_renders_success_result(monkeypatch):
     monkeypatch.setattr(console, "execute_request", lambda message, **kw: _blender_result())
-    response = client.post("/console/run", data={"message": "scène 3d blender : théière"})
-    assert response.status_code == 200
-    body = response.text
+    body = _run_and_fetch_result("scène 3d blender : théière")
     assert "blender_script" in body
     assert "qwen2.5-coder:7b" in body
     # rendu Blender exposé via la route artefact protégée
@@ -96,9 +109,7 @@ def test_run_renders_success_result(monkeypatch):
 
 def test_run_renders_error_result(monkeypatch):
     monkeypatch.setattr(console, "execute_request", lambda message, **kw: _error_result())
-    response = client.post("/console/run", data={"message": "scène qui casse"})
-    assert response.status_code == 200
-    body = response.text
+    body = _run_and_fetch_result("scène qui casse")
     assert "Error" in body
     assert "Blender a échoué" in body
 
@@ -108,9 +119,8 @@ def test_run_handles_engine_exception(monkeypatch):
         raise RuntimeError("moteur indisponible")
 
     monkeypatch.setattr(console, "execute_request", _boom)
-    response = client.post("/console/run", data={"message": "peu importe"})
-    assert response.status_code == 200
-    assert "RuntimeError" in response.text
+    body = _run_and_fetch_result("peu importe")
+    assert "RuntimeError" in body
 
 
 def test_run_rejects_empty_message():
@@ -157,7 +167,7 @@ def test_run_renders_framing_overlay(monkeypatch):
     monkeypatch.setattr(
         console, "execute_request", lambda message, **kw: _blender_result_with_observability()
     )
-    body = client.post("/console/run", data={"message": "flacon"}).text
+    body = _run_and_fetch_result("flacon")
     # deux rectangles colorés (perceptuel rouge / projeté vert) + score divergence
     assert "#e5484d" in body and "#30a46c" in body
     assert "<svg" in body and "<rect" in body
@@ -169,7 +179,7 @@ def test_run_renders_semantic_fidelity(monkeypatch):
     monkeypatch.setattr(
         console, "execute_request", lambda message, **kw: _blender_result_with_observability()
     )
-    body = client.post("/console/run", data={"message": "flacon"}).text
+    body = _run_and_fetch_result("flacon")
     assert "flacon de parfum noir" in body
     assert "bottle" in body
     assert "fidelity: exact" in body
