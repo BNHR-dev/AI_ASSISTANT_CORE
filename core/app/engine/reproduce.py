@@ -14,7 +14,8 @@ Verdicts (du meilleur au pire) :
               défaut 4) — le repli cross-machine (bruit GPU).
   different   les artefacts ne correspondent pas.
   failed      le rejeu n'a pas pu produire d'artefact (service KO, timeout,
-              chemins introuvables).
+              chemins introuvables), ou une variante du manifest n'a pas
+              reçu son sidecar (rejeu incomplet ≠ rejeu réussi).
   refused     on REFUSE de rejouer : intégrité cassée (le contenu fourni ne
               re-hashe pas ce que le manifest enregistre) ou gate de sécurité
               bloquante sur le scene.py (C1a — un endpoint qui exécute du
@@ -197,7 +198,8 @@ def reproduce_comfyui(
     `workflows` : index de variante (1-based, celui du manifest) → contenu du
     sidecar. L'intégrité de CHAQUE workflow est vérifiée contre le hash du
     manifest avant tout rejeu — on ne rejoue pas ce qu'on ne peut pas
-    authentifier.
+    authentifier. Le verdict global couvre TOUTES les variantes du manifest :
+    absentes → failed, inconnues → refused (voir la boucle d'union).
     """
     from app.clients.comfyui_client import (
         COMFYUI_OUTPUT_DIR,
@@ -233,10 +235,25 @@ def reproduce_comfyui(
     variant_reports: list[dict[str, Any]] = []
     report_dir: Optional[str] = None
 
-    for index in sorted(workflows):
+    # Exhaustivité : le verdict couvre l'UNION des variantes attendues par le
+    # manifest et des sidecars reçus. Une variante enregistrée mais jamais
+    # transmise entre au rapport en "failed" et pèse sur le verdict global —
+    # sinon un manifest à 4 variantes rejoué avec un seul sidecar rendrait
+    # un verdict trompeur fondé sur cette seule variante.
+    expected_indexes = {i for i in recorded_variants if isinstance(i, int)}
+    for index in sorted(expected_indexes | set(workflows)):
+        entry: dict[str, Any] = {"index": index}
+
+        if index not in workflows:
+            entry.update(
+                verdict=VERDICT_FAILED,
+                reason="variant recorded in manifest but no sidecar provided",
+            )
+            variant_reports.append(entry)
+            continue
+
         workflow = workflows[index]
         recorded = recorded_variants.get(index)
-        entry: dict[str, Any] = {"index": index}
 
         if recorded is None:
             entry.update(verdict=VERDICT_REFUSED, reason="variant not present in manifest")

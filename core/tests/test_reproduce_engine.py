@@ -5,7 +5,9 @@ Invariants couverts :
 - ComfyUI : intégrité du sidecar vérifiée AVANT tout rejeu ; cache busté
   (POST /free + filename_prefix retargeté vers repro/<orig>/<stamp>) ;
   verdicts exact (pixels identiques) / perceptual (dHash ≤ seuil) /
-  different / failed (pas d'output) ; écarts d'environnement rapportés.
+  different / failed (pas d'output) ; écarts d'environnement rapportés ;
+  EXHAUSTIVITÉ : le verdict couvre l'union manifest ∪ sidecars (variante
+  sans sidecar → failed, sidecar inconnu → refused, mal indexé → refused).
 - Blender : intégrité du scene.py puis gate de sécurité C1a re-auditée à
   chaque rejeu (un scene.py malveillant est refusé même si son hash
   correspond au manifest) ; retarget fail-closed (jamais d'écrasement du
@@ -225,6 +227,94 @@ def test_comfyui_no_output_is_failed(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     assert report["verdict"] == rep.VERDICT_FAILED
     assert "cache" in report["variants"][0]["reason"]
+
+
+def _variant_record(index: int, seed: int, image: Path, workflow: dict) -> dict:
+    return {
+        "index": index,
+        "seed": seed,
+        "workflow_sha256": repro.sha256_canonical_json(workflow),
+        "workflow_file": f"workflow_resolved_v{index}.json",
+        "image": {
+            "filename": image.name,
+            "sha256": repro.sha256_file(image),
+            "pixels_sha256": repro.sha256_image_pixels(image),
+            "dhash": repro.dhash_image(image),
+        },
+    }
+
+
+def test_comfyui_missing_sidecar_variant_degrades_verdict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un manifest à DEUX variantes rejoué avec UN seul sidecar : la variante
+    absente figure au rapport en failed et pèse sur le verdict global — un
+    rejeu incomplet ne peut pas conclure « exact » sur la seule variante
+    transmise."""
+    original = tmp_path / "orig.png"
+    _gradient(original)
+    replay = tmp_path / "replay" / "img.png"
+    replay.parent.mkdir()
+    _gradient(replay)  # variante 1 : pixels identiques
+
+    wf1, wf2 = _workflow(), _workflow(seed=8)
+    manifest = _comfyui_manifest(original, wf1)
+    manifest["repro"]["variants"].append(_variant_record(2, 8, original, wf2))
+    ComfyMocks(replay).install(monkeypatch)
+
+    report = rep.reproduce_comfyui(manifest, {1: wf1})
+
+    by_index = {v["index"]: v for v in report["variants"]}
+    assert sorted(by_index) == [1, 2]
+    assert by_index[1]["verdict"] == rep.VERDICT_EXACT
+    assert by_index[2]["verdict"] == rep.VERDICT_FAILED
+    assert "no sidecar" in by_index[2]["reason"]
+    assert report["verdict"] == rep.VERDICT_FAILED
+
+
+def test_comfyui_unknown_extra_sidecar_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un sidecar dont l'index n'existe pas dans le manifest ne peut pas être
+    authentifié : refused, et le verdict global suit (le pire gagne)."""
+    original = tmp_path / "orig.png"
+    _gradient(original)
+    replay = tmp_path / "replay" / "img.png"
+    replay.parent.mkdir()
+    _gradient(replay)
+
+    workflow = _workflow()
+    ComfyMocks(replay).install(monkeypatch)
+
+    report = rep.reproduce_comfyui(
+        _comfyui_manifest(original, workflow), {1: workflow, 3: _workflow(seed=9)}
+    )
+
+    by_index = {v["index"]: v for v in report["variants"]}
+    assert by_index[1]["verdict"] == rep.VERDICT_EXACT
+    assert by_index[3]["verdict"] == rep.VERDICT_REFUSED
+    assert report["verdict"] == rep.VERDICT_REFUSED
+
+
+def test_comfyui_misindexed_sidecars_refused_without_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deux sidecars intervertis : chaque hash contredit sa variante →
+    intégrité refusée des deux côtés, rien n'est soumis à ComfyUI."""
+    original = tmp_path / "orig.png"
+    _gradient(original)
+
+    wf1, wf2 = _workflow(), _workflow(seed=8)
+    manifest = _comfyui_manifest(original, wf1)
+    manifest["repro"]["variants"].append(_variant_record(2, 8, original, wf2))
+    mocks = ComfyMocks(None)
+    mocks.install(monkeypatch)
+
+    report = rep.reproduce_comfyui(manifest, {1: wf2, 2: wf1})
+
+    assert report["verdict"] == rep.VERDICT_REFUSED
+    assert all(v["verdict"] == rep.VERDICT_REFUSED for v in report["variants"])
+    assert mocks.queued == []
 
 
 def test_comfyui_environment_diff_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
