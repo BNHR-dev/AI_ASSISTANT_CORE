@@ -194,6 +194,27 @@ def test_comfyui_integrity_mismatch_refuses_without_replay(
     assert mocks.free_calls == 0
 
 
+def test_comfyui_precreates_replay_dir_before_queueing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Le dossier du rejeu doit naître côté BACKEND avant que ComfyUI (root)
+    # n'y écrive — sinon reproduce_report.json devient inécrivable (droits).
+    original = tmp_path / "orig.png"
+    _gradient(original)
+    replay = tmp_path / "replay" / "img.png"
+    replay.parent.mkdir()
+    _gradient(replay)
+    out_root = tmp_path / "comfy-out"
+    monkeypatch.setattr("app.clients.comfyui_client.COMFYUI_OUTPUT_DIR", str(out_root))
+
+    workflow = _workflow()
+    ComfyMocks(replay).install(monkeypatch)
+    rep.reproduce_comfyui(_comfyui_manifest(original, workflow), {1: workflow})
+
+    stamps = list((out_root / "repro" / "orig-run").iterdir())
+    assert len(stamps) == 1 and stamps[0].is_dir()
+
+
 def test_comfyui_no_output_is_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     original = tmp_path / "orig.png"
     _gradient(original)

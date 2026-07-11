@@ -64,6 +64,63 @@
       <p class="muted">No image file in this run folder.</p>
     {% endif %}
 
+    {% if provenance %}
+      <div class="strip provenance">
+        <span class="badge">🧾 Provenance</span>
+        {% if provenance.last_reproduce %}
+          {% set v = provenance.last_reproduce.verdict %}
+          <span class="verdict verdict-{{ v }}">
+            {{ '✓ reproduced — exact' if v == 'exact'
+               else '≈ reproduced — perceptual' if v == 'perceptual'
+               else '✗ ' + v }}</span>
+          <small class="muted">{{ provenance.last_reproduce.created_at }}</small>
+        {% endif %}
+        {% for b in provenance.badges %}
+          <span class="chip"><small class="muted">{{ b.label }}</small> {{ b.value }}</span>
+        {% endfor %}
+      </div>
+      {% if provenance.hashes %}
+        <details>
+          <summary>▸ Fingerprints ({{ provenance.hashes | length }} hashes — what "the same" means, verifiably)</summary>
+          <table class="hash-table">
+            {% for h in provenance.hashes %}
+              <tr>
+                <td class="muted">{{ h.label }}</td>
+                <td><code title="{{ h.full }}">{{ h.short }}</code></td>
+                <td><button type="button" class="ghost copy-btn" data-p="{{ h.full }}"
+                            onclick="navigator.clipboard.writeText(this.dataset.p)">📋</button></td>
+              </tr>
+            {% endfor %}
+          </table>
+        </details>
+      {% endif %}
+    {% endif %}
+
+    {% if timeline %}
+      <div class="timeline">
+        <div class="timeline-head">
+          <span class="badge">⏱ Run trace</span>
+          {% if timeline.total_ms is not none %}
+            <small class="muted">total {{ "%.1f"|format(timeline.total_ms / 1000) }} s</small>
+          {% endif %}
+        </div>
+        {% for row in timeline.rows %}
+          <div class="tl-row{% if row.error %} tl-err{% endif %}">
+            <span class="tl-time">{{ row.time }}</span>
+            <span class="tl-dot tl-{{ row.family }}"></span>
+            <span class="tl-kind">{{ row.kind }}</span>
+            <span class="tl-label" {% if row.error_text %}title="{{ row.error_text }}"{% endif %}>{{ row.label }}</span>
+            {% if row.bar_pct %}
+              <span class="tl-bar"><i style="width:{{ row.bar_pct }}%"></i></span>
+            {% endif %}
+            {% if row.duration_ms is not none %}
+              <span class="tl-ms">{{ row.duration_ms }} ms</span>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
     {% if scene_report %}
       <details>
         <summary>▸ Quality report (scene_report.json)</summary>
@@ -83,5 +140,16 @@
               hx-target="next .reveal-out" hx-swap="outerHTML">📂 Open / locate folder</button>
       <span class="reveal-out muted">— click to open it (native) or see its path on disk (Docker)</span>
     </div>
+
+    {% if can_reproduce %}
+      <div class="reveal-row">
+        <button class="ghost"
+                hx-post="/console/reproduce?path={{ path | urlencode }}"
+                hx-target="#repro-result" hx-swap="innerHTML"
+                hx-indicator="#repro-busy">↺ Reproduce this run</button>
+        <span id="repro-busy" class="htmx-indicator muted">replaying — a real re-generation, ≈1 min…</span>
+      </div>
+      <div id="repro-result"></div>
+    {% endif %}
   </div>
 </div>

@@ -4,9 +4,14 @@
 <div class="strip{% if st in ['degraded', 'unknown'] %} err{% endif %}">
   <span class="badge">🩺 stack: {{ st or "—" }}</span>
   {% for name, s in (h.get("services") or {}).items() %}
-    <span class="{{ 'ok' if s.get('ready') else 'ko' }}">
-      {{ '✅' if s.get('ready') else '❌' }} {{ name }}
+    <span class="{{ 'ok' if s.get('ready') else 'ko' }}"
+          {% if s.get('reason') %}title="{{ s.get('reason') }}"{% endif %}>
+      {{ '✅' if s.get('ready') else ('🟡' if s.get('reachable') else '❌') }} {{ name }}
     </span>
+    {% if s.get('missing') %}
+      <small class="ko">missing: {{ s.get('missing') | join(', ') }}</small>
+    {% endif %}
   {% endfor %}
+  {% if h.get("version") %}<small class="muted">v{{ h.get("version") }}</small>{% endif %}
   {% if h.get("summary") %}<small>{{ h.get("summary") }}</small>{% endif %}
 </div>

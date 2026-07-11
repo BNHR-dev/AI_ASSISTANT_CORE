@@ -25,6 +25,8 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app.engine.executor import execute_request
+from app.engine.reproduce import reproduce_run
+from app.engine.run_events import EVENTS_FILENAME, get_run_events_dir
 from app.engine.runtime_debug import get_runtime_health
 
 # Chemins ancrés sur ce fichier, indépendants du répertoire courant.
@@ -300,6 +302,230 @@ def _load_json(p: Path) -> dict | None:
         return None
 
 
+# --------------------------------------------------------------------------- #
+# Timeline — lecture du journal d'événements du run (events.jsonl)
+# --------------------------------------------------------------------------- #
+def _load_run_events(request_id: str) -> list[dict]:
+    """Événements du run, dans l'ordre d'écriture. Lecture seule, tolérante :
+    journal absent (runs antérieurs au chantier events) → liste vide."""
+    events_file = get_run_events_dir().resolve() / request_id / EVENTS_FILENAME
+    if not events_file.is_file():
+        return []
+    events = []
+    try:
+        for line in events_file.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict):
+                events.append(event)
+    except OSError:
+        return []
+    return events
+
+
+def _event_row(event: dict, max_step_ms: int) -> dict:
+    """Une ligne de timeline : heure, famille (pour la couleur), libellé court,
+    durée + barre proportionnelle pour les fins de step."""
+    kind = event.get("kind") or "?"
+    data = event.get("data") or {}
+    family = kind.split(".", 1)[0]  # run | route | plan | step
+
+    label = ""
+    if kind == "route.decided":
+        label = " · ".join(
+            str(x) for x in (data.get("task_type"), data.get("selected_model")) if x
+        )
+    elif kind == "plan.built":
+        steps = data.get("steps") or []
+        label = f"{len(steps)} step{'s' if len(steps) != 1 else ''} · {data.get('strategy') or ''}".strip(" ·")
+    elif family == "step":
+        label = str(data.get("step_id") or "")
+        if kind == "step.finished" and data.get("status"):
+            label += f" → {data['status']}"
+    elif kind == "run.finished":
+        label = str((data.get("execution_summary") or {}).get("status") or "")
+
+    duration_ms = data.get("duration_ms") if kind in ("step.finished", "run.finished") else None
+    ts = str(event.get("ts") or "")
+    time_short = ts[11:23] if len(ts) >= 23 else ts
+
+    is_error = (
+        kind == "step.blocked"
+        or (kind == "step.finished" and data.get("status") in ("error", "blocked"))
+        or (kind == "run.finished" and label in ("failed", "degraded"))
+    )
+    bar_pct = None
+    if kind == "step.finished" and isinstance(duration_ms, int) and max_step_ms > 0:
+        bar_pct = max(1, round(duration_ms / max_step_ms * 100))
+
+    return {
+        "time": time_short,
+        "kind": kind,
+        "family": family,
+        "label": label,
+        "duration_ms": duration_ms,
+        "bar_pct": bar_pct,
+        "error": is_error,
+        "error_text": (data.get("error") or "") if is_error else "",
+    }
+
+
+def _timeline_view(request_id: str) -> dict | None:
+    """Vue timeline du run : lignes + durée totale. None si aucun journal."""
+    events = _load_run_events(request_id)
+    if not events:
+        return None
+    max_step_ms = max(
+        (
+            (e.get("data") or {}).get("duration_ms") or 0
+            for e in events
+            if e.get("kind") == "step.finished"
+        ),
+        default=0,
+    )
+    total_ms = next(
+        (
+            (e.get("data") or {}).get("duration_ms")
+            for e in reversed(events)
+            if e.get("kind") == "run.finished"
+        ),
+        None,
+    )
+    return {
+        "rows": [_event_row(e, max_step_ms) for e in events],
+        "total_ms": total_ms,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Provenance — badges lisibles d'abord, hashes bruts dans un repli
+# --------------------------------------------------------------------------- #
+def _short_hash(value: str | None, keep: int = 10) -> str | None:
+    """`46e82a…88a51ab` : identifiable et copiable, sans mur d'hexadécimal."""
+    if not value:
+        return None
+    return value if len(value) <= 2 * keep else f"{value[:keep]}…{value[-6:]}"
+
+
+def _latest_reproduce_verdict(run_dir: Path, run_id: str) -> dict | None:
+    """Verdict du dernier rejeu de ce run, si un rapport existe sur disque.
+
+    ComfyUI range ses rejeux sous `<runs>/repro/<run_id>/<stamp>/`, Blender
+    sous `<runs>/repro-<stamp>/` (le rapport porte `reproduced_request_id`).
+    Balayage borné aux dossiers les plus récents : lecture seule, best-effort.
+    """
+    candidates: list[Path] = []
+    comfy_repro = run_dir.parent / "repro" / run_id
+    if comfy_repro.is_dir():
+        candidates += list(comfy_repro.glob("*/reproduce_report.json"))
+    blender_root = run_dir.parent
+    repro_dirs = sorted(
+        (d for d in blender_root.glob("repro-*") if d.is_dir()),
+        key=lambda d: d.stat().st_mtime if d.exists() else 0,
+        reverse=True,
+    )[:25]
+    candidates += [d / "reproduce_report.json" for d in repro_dirs]
+
+    best: dict | None = None
+    best_at = ""
+    for path in candidates:
+        report = _load_json(path)
+        if not report:
+            continue
+        if report.get("reproduced_request_id") not in (run_id, None):
+            continue
+        created = str(report.get("created_at") or "")
+        if created >= best_at:
+            best, best_at = report, created
+    if not best:
+        return None
+    return {"verdict": best.get("verdict"), "created_at": best_at[:16].replace("T", " ")}
+
+
+def _provenance_view(manifest: dict | None, run_dir: Path, run_id: str) -> dict | None:
+    """Le bloc repro du manifest, mis en forme : badges (seed, versions,
+    commit) d'abord, hashes bruts en liste repliable. None si manifest v1."""
+    if not isinstance(manifest, dict):
+        return None
+    repro = manifest.get("repro")
+    if not isinstance(repro, dict):
+        return None
+
+    badges: list[dict] = []
+    variants = repro.get("variants") or []
+    seeds = [v.get("seed") for v in variants if v.get("seed") is not None]
+    if seeds:
+        badges.append({"label": "seed", "value": ", ".join(str(s) for s in seeds)})
+    if repro.get("blender_version"):
+        badges.append({"label": "engine", "value": repro["blender_version"]})
+    comfy = repro.get("comfyui") or {}
+    if comfy.get("comfyui_version"):
+        badges.append({"label": "engine", "value": f"ComfyUI {comfy['comfyui_version']}"})
+    if comfy.get("pytorch_version"):
+        badges.append({"label": "torch", "value": comfy["pytorch_version"]})
+    if repro.get("aac_git_commit"):
+        badges.append({"label": "commit", "value": repro["aac_git_commit"][:9]})
+
+    hashes: list[dict] = []
+
+    def _add_hash(label: str, value: str | None) -> None:
+        if value:
+            hashes.append({"label": label, "short": _short_hash(value), "full": value})
+
+    _add_hash("scene.py", repro.get("scene_py_sha256"))
+    _add_hash("scene (semantic)", repro.get("scene_report_semantic_sha256"))
+    preview = repro.get("preview_png") or {}
+    _add_hash("preview pixels", preview.get("pixels_sha256"))
+    _add_hash("preview dHash", preview.get("dhash"))
+    for variant in variants:
+        i = variant.get("index")
+        _add_hash(f"workflow v{i}", variant.get("workflow_sha256"))
+        image = variant.get("image") or {}
+        _add_hash(f"image v{i} pixels", image.get("pixels_sha256"))
+        _add_hash(f"image v{i} dHash", image.get("dhash"))
+    for subdir, entries in (repro.get("models") or {}).items():
+        for entry in entries or []:
+            _add_hash(f"{subdir}/{entry.get('name')}", entry.get("sha256"))
+
+    return {
+        "badges": badges,
+        "hashes": hashes,
+        "last_reproduce": _latest_reproduce_verdict(run_dir, run_id),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Reproduce — rejouer un run depuis la Console (même moteur que POST /reproduce)
+# --------------------------------------------------------------------------- #
+def _gather_reproduce_material(run_dir: Path, manifest: dict) -> dict:
+    """Matériel de rejeu lu À CÔTÉ du manifest (sidecars workflow / scene.py),
+    comme le CLI — jamais via les chemins absolus du manifest."""
+    workflows: dict[int, dict] = {}
+    for variant in (manifest.get("repro") or {}).get("variants") or []:
+        name = variant.get("workflow_file")
+        index = variant.get("index")
+        if not name or not isinstance(index, int):
+            continue
+        sidecar = _safe_resolve(run_dir, name)
+        workflow = _load_json(sidecar) if sidecar else None
+        if isinstance(workflow, dict):
+            workflows[index] = workflow
+
+    scene_py = None
+    scene_path = run_dir / "scene.py"
+    if scene_path.is_file():
+        try:
+            scene_py = scene_path.read_text(encoding="utf-8")
+        except OSError:
+            scene_py = None
+
+    return {"workflows": workflows, "scene_py": scene_py}
+
+
 def build_run_detail(run_dir: Path) -> dict | None:
     """Vue détail d'un run sur disque (lecture seule).
 
@@ -343,6 +569,9 @@ def build_run_detail(run_dir: Path) -> dict | None:
         "intent": intent,
         "framing": _framing_overlay(scene_report),
         "semantic": _semantic_fidelity(manifest),
+        "timeline": _timeline_view(run_dir.name),
+        "provenance": _provenance_view(manifest, run_dir, run_dir.name),
+        "can_reproduce": bool(isinstance(manifest, dict) and manifest.get("repro")),
     }
 
 
@@ -508,6 +737,51 @@ async def run(request: Request):
             {"exception": f"{type(exc).__name__}: {exc}", "r": None},
         )
     return templates.TemplateResponse(request, "result.html", build_view(result))
+
+
+@router.post("/reproduce", response_class=HTMLResponse)
+def reproduce_from_console(request: Request, path: str):
+    """Rejoue un run et renvoie le fragment de verdict (cible HTMX).
+
+    Même moteur que `POST /reproduce` (API) et `aac reproduce` (CLI) — la
+    Console est un troisième client de la même logique, appelée ici en
+    process (le backend voit déjà ComfyUI/Blender et les dossiers de runs).
+    Même garde de chemins que /run et /artifact. Synchrone comme POST
+    /console/run (contrat V0) : une vraie re-génération prend ~1 min.
+    """
+    try:
+        resolved = Path(path).resolve()
+    except (OSError, RuntimeError, ValueError):
+        raise HTTPException(status_code=404, detail="run not found")
+    if not _under_serve_roots(resolved) or not resolved.is_dir():
+        raise HTTPException(status_code=404, detail="run not found")
+
+    manifest = _load_json(resolved / "manifest.json")
+    if not isinstance(manifest, dict) or not manifest.get("repro"):
+        return templates.TemplateResponse(
+            request,
+            "_reproduce_result.html",
+            {"report": None, "exception": "This run has no repro block (pre-v2 manifest) — only runs captured since manifests v2 can be replayed."},
+        )
+
+    pipeline = manifest.get("pipeline")
+    material = _gather_reproduce_material(resolved, manifest)
+    try:
+        report = reproduce_run(
+            pipeline,
+            manifest,
+            workflows=material["workflows"],
+            scene_py=material["scene_py"],
+        )
+    except Exception as exc:  # noqa: BLE001 — la Console ne doit jamais planter
+        return templates.TemplateResponse(
+            request,
+            "_reproduce_result.html",
+            {"report": None, "exception": f"{type(exc).__name__}: {exc}"},
+        )
+    return templates.TemplateResponse(
+        request, "_reproduce_result.html", {"report": report, "exception": None}
+    )
 
 
 @router.get("/artifact")

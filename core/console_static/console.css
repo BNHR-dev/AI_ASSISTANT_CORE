@@ -317,3 +317,44 @@ table.eval tr:hover td { background: var(--surface); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---- Run trace (timeline) ----------------------------------------------- */
+/* Une bande d'enregistreur : heure · marqueur · événement · barre de durée
+   proportionnelle (cuivre) — la durée se lit d'un coup d'œil. */
+.timeline { margin-top: 1rem; border: 1px solid var(--line);
+  border-radius: var(--radius-sm); background: var(--rail); padding: .5rem .7rem; }
+.timeline-head { display: flex; align-items: baseline; gap: .6rem; margin-bottom: .35rem; }
+.tl-row { display: grid; grid-template-columns: 7.2em 10px minmax(9em, auto) 1fr minmax(0, 160px) 5.5em;
+  gap: .55rem; align-items: center; padding: .18rem 0;
+  font-family: var(--mono); font-size: .78rem; border-top: 1px solid var(--line-soft); }
+.tl-row:first-of-type { border-top: 0; }
+.tl-time { color: var(--faint); }
+.tl-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.tl-run   { background: var(--signal); }
+.tl-route { background: var(--signal-hi); }
+.tl-plan  { background: var(--signal-line); }
+.tl-step  { background: var(--data); }
+.tl-kind { color: var(--muted); }
+.tl-label { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-bar { height: 6px; border-radius: 3px; background: var(--line-soft); overflow: hidden; }
+.tl-bar i { display: block; height: 100%; background: var(--signal); border-radius: 3px; }
+.tl-ms { color: var(--muted); text-align: right; }
+.tl-err .tl-kind, .tl-err .tl-label, .tl-err .tl-ms { color: var(--ko); }
+.tl-err .tl-dot, .tl-err .tl-bar i { background: var(--ko); }
+
+/* ---- Provenance + verdicts ---------------------------------------------- */
+.provenance { flex-wrap: wrap; }
+.chip { display: inline-flex; gap: .35rem; align-items: baseline;
+  border: 1px solid var(--line); border-radius: 999px; padding: .1rem .6rem;
+  font-family: var(--mono); font-size: .78rem; }
+.verdict { font-family: var(--mono); font-size: .78rem; font-weight: 600;
+  letter-spacing: .04em; text-transform: uppercase;
+  border: 1px solid; border-radius: 4px; padding: .12rem .5rem; }
+.verdict-exact      { color: var(--ok);   border-color: var(--ok);   background: rgba(87,209,153,.08); }
+.verdict-perceptual { color: var(--warn); border-color: var(--warn); background: var(--signal-soft); }
+.verdict-different, .verdict-failed, .verdict-refused, .verdict-skipped
+  { color: var(--ko); border-color: var(--ko); background: rgba(240,112,107,.07); }
+.verdict-skipped { color: var(--faint); border-color: var(--line); background: none; }
+.hash-table { margin: .5rem 0 0; border-collapse: collapse; font-size: .8rem; }
+.hash-table td { padding: .18rem .7rem .18rem 0; vertical-align: baseline; }
+.repro-report { margin-top: .6rem; animation: fade-in .2s ease; }

@@ -199,6 +199,7 @@ def reproduce_comfyui(
     authentifier.
     """
     from app.clients.comfyui_client import (
+        COMFYUI_OUTPUT_DIR,
         extract_output_file,
         free_execution_cache,
         queue_prompt,
@@ -211,6 +212,18 @@ def reproduce_comfyui(
     recorded_variants = {v.get("index"): v for v in manifest_repro.get("variants") or []}
     orig_request_id = manifest.get("request_id") or "unknown"
     stamp = uuid4().hex[:8]
+
+    # Même contrainte de droits que run_comfyui_workflow : pré-créer le dossier
+    # du rejeu AVANT que ComfyUI (conteneur root) n'y écrive l'image — sinon le
+    # dossier naît root sur le volume partagé et le backend ne peut plus y
+    # écrire reproduce_report.json (bug attrapé live 2026-07-11). Best-effort.
+    if COMFYUI_OUTPUT_DIR:
+        try:
+            Path(COMFYUI_OUTPUT_DIR, "repro", orig_request_id, stamp).mkdir(
+                parents=True, exist_ok=True
+            )
+        except OSError:
+            pass
 
     variant_reports: list[dict[str, Any]] = []
     report_dir: Optional[str] = None
