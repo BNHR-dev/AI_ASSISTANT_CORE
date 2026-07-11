@@ -16,6 +16,7 @@ from app.auth import (
 )
 from app.engine.executor import execute_request, resume_request
 from app.engine.reproduce import reproduce_run
+from app.engine.run_locks import RunBusyError
 from app.engine.router_service import build_route_decision
 from app.engine.runtime_debug import (
     get_canonical_boundaries,
@@ -82,6 +83,10 @@ def resume(payload: ResumeRequest) -> ExecuteResponse:
         result = resume_request(payload.request_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except RunBusyError as exc:
+        # Double /resume, ou reprise pendant que le run tourne encore : le
+        # run N'est PAS relancé — 409 explicite plutôt que double exécution.
+        raise HTTPException(status_code=409, detail=str(exc))
     return ExecuteResponse(**result)
 
 

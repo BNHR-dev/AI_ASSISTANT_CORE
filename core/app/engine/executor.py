@@ -12,6 +12,7 @@ from app.engine.planner_types import StepResult
 from app.engine.result_assembler import assemble_final_output
 from app.engine.router_service import build_route_decision
 from app.engine.run_events import emit_run_event
+from app.engine.run_locks import run_execution_lock
 from app.engine.run_state import (
     load_run_state,
     rebuild_plan,
@@ -406,6 +407,22 @@ def execute_request(
     # request_id imposable par l'appelant (5 v2 : la Console asynchrone doit
     # connaître l'id AVANT de lancer le run pour s'abonner au flux d'événements).
     request_id = request_id or str(uuid4())
+    # Verrou par run (run_locks, mono-process) : deux exécutions simultanées
+    # du même id écriraient en même temps events.jsonl et state.json et
+    # doubleraient les steps outils. RunBusyError immédiate si déjà actif.
+    with run_execution_lock(request_id):
+        return _execute_request_locked(
+            message, has_image, mode, pause_before_tools, request_id
+        )
+
+
+def _execute_request_locked(
+    message: str,
+    has_image: bool,
+    mode: str,
+    pause_before_tools: bool,
+    request_id: str,
+) -> dict:
     started_at = _utc_now_iso()
     started_perf = perf_counter()
 
@@ -501,8 +518,15 @@ def resume_request(request_id: str) -> dict:
     en attente d'approbation. Un plan à plusieurs steps gated repasse en
     pause avant chacun — approbation par outil, jamais en bloc.
 
-    LookupError si aucun checkpoint exploitable n'existe pour ce request_id.
+    LookupError si aucun checkpoint exploitable n'existe pour ce request_id ;
+    RunBusyError (run_locks) si le run est déjà en cours dans ce process
+    (double /resume, double clic Console, reprise pendant l'exécution).
     """
+    with run_execution_lock(request_id):
+        return _resume_request_locked(request_id)
+
+
+def _resume_request_locked(request_id: str) -> dict:
     saved = load_run_state(request_id)
     if saved is None:
         raise LookupError(f"no saved state for request_id {request_id}")

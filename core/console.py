@@ -32,6 +32,7 @@ from app.engine.executor import execute_request
 from app.engine.reproduce import reproduce_run
 from app.engine.run_events import EVENTS_FILENAME, get_run_events_dir
 from app.engine.run_identity import is_valid_request_id, resolve_run_dir
+from app.engine.run_locks import RunBusyError, is_run_active
 from app.engine.runtime_debug import get_runtime_health
 
 # Chemins ancrés sur ce fichier, indépendants du répertoire courant.
@@ -90,6 +91,12 @@ def _run_in_background(request_id: str, runner) -> None:
     la Console ne perd jamais l'issue d'un run qu'elle a lancé."""
     try:
         _store_result(request_id, {"result": runner()})
+    except RunBusyError:
+        # Course perdue face à une exécution déjà partie (double clic passé
+        # entre le check du handler et l'acquisition du verrou) : ne RIEN
+        # ranger — l'exécution gagnante publiera son résultat, le flux SSE
+        # du client continue de suivre le run en cours.
+        pass
     except Exception as exc:  # noqa: BLE001 — l'issue doit atterrir dans l'UI
         _store_result(request_id, {"exception": f"{type(exc).__name__}: {exc}"})
 
@@ -1039,6 +1046,14 @@ def resume_from_console(request: Request, request_id: str, background_tasks: Bac
 
     if not is_valid_request_id(request_id):
         raise HTTPException(status_code=404, detail="unknown run")
+
+    # Idempotence (double clic, reprise déjà partie) : si le run tourne déjà
+    # dans ce process, on ne relance RIEN — le client est simplement
+    # ré-abonné au flux d'événements du run en cours.
+    if is_run_active(request_id):
+        return templates.TemplateResponse(
+            request, "_live_run.html", {"request_id": request_id, "tail": True}
+        )
 
     _RESULTS.pop(request_id, None)  # l'issue précédente (pause) est périmée
     background_tasks.add_task(
