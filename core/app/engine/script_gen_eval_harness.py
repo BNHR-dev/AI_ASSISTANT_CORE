@@ -47,7 +47,7 @@ Exécution en bench réel :
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 from app.clients.blender_client import (
@@ -64,7 +64,6 @@ from app.engine.blender_ast_guard import (
 )
 from app.engine.blender_model_config import get_blender_llm_model
 from app.engine.blender_templates import (
-    TEMPLATE_SPECS,
     get_template_name,
     get_template_name_from_intent,
     select_template,

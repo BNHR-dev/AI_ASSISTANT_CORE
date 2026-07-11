@@ -55,7 +55,7 @@ ACTIVE_RUNTIME_MODULES = [
     "app/engine/planner_service.py",
     "app/engine/plan_builder.py",
     "app/engine/planner_types.py",
-    "app/engine/state_store.py",
+    "app/engine/execution_state_factory.py",
     "app/engine/executor.py",
     "app/engine/step_executor.py",
     "app/engine/fallbacks.py",

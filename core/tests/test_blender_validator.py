@@ -10,7 +10,6 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from app.engine.blender_validator import (
     V_MISSING_BLEND_FILE,

@@ -12,7 +12,7 @@ from app.engine.planner_types import StepResult
 from app.engine.result_assembler import assemble_final_output
 from app.engine.router_service import build_route_decision
 from app.engine.routing_conditions import enrich_route_config
-from app.engine.state_store import create_execution_state
+from app.engine.execution_state_factory import create_execution_state
 from app.engine.step_executor import execute_step
 from app.engine.task_routing import TASK_ROUTING
 from app.tool_selector import select_tool

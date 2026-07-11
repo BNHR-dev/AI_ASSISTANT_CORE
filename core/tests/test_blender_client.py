@@ -8,7 +8,6 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from app.clients.blender_client import (
     _BLENDER_SYSTEM_PROMPT,
@@ -803,11 +802,6 @@ class TestBuildBlenderScriptH53Branching:
     def _setup_basic_mocks(self, tmp_path, mock_intent_dict=None):
         """Patches minimal communs aux 4 cas : output dir + parse_artistic_intent
         + write_intent_json. Retourne le dict de patches actifs pour ajout."""
-        from app.engine.product_render_ir import (
-            BackdropIR,
-            ProductRenderIntent,
-            ProductSubjectIR,
-        )
         # Fake ArtisticIntent : on instancie le vrai modèle Pydantic ou un mock
         # avec .model_dump() ; ici on patch carrément parse_artistic_intent.
         fake_intent = MagicMock()

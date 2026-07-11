@@ -699,6 +699,18 @@ def run_comfyui_workflow(request_or_prompt: str | VisualRequest) -> dict[str, An
     request = _normalize_request(request_or_prompt)
     request = finalize_visual_request(request)
 
+    # Backend non-root : pré-créer le dossier du run sur le volume partagé AVANT
+    # que ComfyUI (conteneur root) ne le crée — sinon le dossier naît root et le
+    # backend ne peut plus y écrire le manifest. Best-effort : en cas d'échec,
+    # l'écriture du manifest loggue déjà la sienne (non bloquant).
+    if COMFYUI_OUTPUT_DIR and request.output_subfolder:
+        try:
+            Path(COMFYUI_OUTPUT_DIR, request.output_subfolder).mkdir(
+                parents=True, exist_ok=True
+            )
+        except OSError:
+            pass
+
     ensure_comfyui_ready()
 
     print(

@@ -2,8 +2,6 @@
 Tests : contrat des champs blender_* dans ExecuteResponse (schemas.py).
 Vérifie que tous les champs Blender sont bien déclarés et optionnels.
 """
-import pytest
-from pydantic import ValidationError
 
 from app.schemas import ExecuteResponse
 

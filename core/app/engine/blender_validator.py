@@ -21,6 +21,8 @@ from pathlib import Path
 
 from app.clients.blender_sandbox import build_sandbox_plan, PROFILE_STRICT
 from app.engine import framing_contract
+from app.engine.blender_runtime_contract import evaluate_runtime_contract
+from app.engine.blender_runtime_corrector import apply_corrections, plan_corrections
 from app.engine.blender_templates import get_template_spec
 from app.engine.blender_qa_visual import (
     V_SUBJECT_OFFCENTER,
@@ -41,8 +43,6 @@ FRAMING_PIXEL_SIGNAL_ONLY = frozenset({
     V_SUBJECT_OUT_OF_FRAME,
     V_SUBJECT_OFFCENTER,
 })
-from app.engine.blender_runtime_contract import evaluate_runtime_contract
-from app.engine.blender_runtime_corrector import apply_corrections, plan_corrections
 
 
 # ---------------------------------------------------------------------------

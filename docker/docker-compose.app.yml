@@ -25,7 +25,10 @@ services:
       - COMFYUI_UPSCALE_MODEL_NAME=${COMFYUI_UPSCALE_MODEL_NAME:-4x-UltraSharp.pth}
       # Registre ComfyUI : OS hôte réel à stamper (le conteneur reste Linux). Vide -> Linux.
       - AAC_HOST_OS=${AAC_HOST_OS:-}
-      # Le backend (root) écrit le manifest -> le redonne à l'UID hôte (fichiers non-root).
+      # Le backend tourne non-root (aac, UID 1000 — voir Dockerfile) : ses fichiers
+      # naissent déjà à l'UID hôte standard. Le chown applicatif reste best-effort
+      # (no-op ici) ; les fichiers écrits par ComfyUI (conteneur root) sont repris
+      # par run.sh au démarrage suivant.
       - AAC_OUTPUT_UID=${AAC_UID:-1000}
       - AAC_OUTPUT_GID=${AAC_GID:-1000}
       # Chemin ABSOLU des outputs sur l'HÔTE (renseigné par run.sh) -> la Console affiche

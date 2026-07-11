@@ -67,7 +67,7 @@ produce a readable final decision.
 - `app/engine/planner_types.py`
 - `app/engine/plan_builder.py`
 - `app/engine/planner_service.py`
-- `app/engine/state_store.py`
+- `app/engine/execution_state_factory.py`
 
 Role: turn the decision into an explicit `ExecutionPlan`.
 

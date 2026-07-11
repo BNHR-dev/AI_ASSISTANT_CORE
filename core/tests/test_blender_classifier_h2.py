@@ -1,4 +1,4 @@
-from app.task_classifier import classify_task, normalize_text
+from app.task_classifier import classify_task
 
 
 def test_classifier_routes_blender_keyword_to_blender_script_fr():

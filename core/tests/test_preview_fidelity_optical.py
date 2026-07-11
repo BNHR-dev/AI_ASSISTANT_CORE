@@ -28,7 +28,7 @@ from app.clients.blender_client import resolve_blender_exe
 from app.engine.blender_runtime_corrector import apply_corrections
 
 PIL = pytest.importorskip("PIL")
-from PIL import Image, ImageChops, ImageStat  # noqa: E402
+from PIL import Image, ImageChops  # noqa: E402
 
 _EXE = resolve_blender_exe()
 pytestmark = pytest.mark.skipif(_EXE is None, reason="Blender introuvable")

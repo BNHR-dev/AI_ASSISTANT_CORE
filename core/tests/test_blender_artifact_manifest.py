@@ -9,7 +9,6 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from app.engine.artifact_manifest import (
     MANIFEST_VERSION,

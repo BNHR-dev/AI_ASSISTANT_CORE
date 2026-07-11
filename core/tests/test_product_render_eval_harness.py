@@ -23,8 +23,6 @@ from app.engine.product_render_eval_cases import (
     EvalCase,
 )
 from app.engine.product_render_eval_harness import (
-    CaseScore,
-    HarnessReport,
     _flatten_intent,
     _values_match,
     report_to_dict,
@@ -33,7 +31,6 @@ from app.engine.product_render_eval_harness import (
 )
 from app.engine.product_render_extractor import (
     ProductRenderExtractionResult,
-    extract_product_render_intent,
 )
 from app.engine.product_render_ir import (
     BackdropIR,

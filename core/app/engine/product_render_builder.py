@@ -833,7 +833,7 @@ def _build_v1_script(intent: ProductRenderIntent) -> str:
         cap_loc = (0.0, 0.0, cap_z)
         cap_mat_params = MATERIAL_PROFILES["matte"]
         lines += [
-            f"# --- Product_Cap (V1 cap=present) ---",
+            "# --- Product_Cap (V1 cap=present) ---",
             f"bpy.ops.mesh.primitive_cylinder_add(radius={cap_radius}, "
             f"depth={cap_height}, location={cap_loc})",
             "cap = bpy.context.object",

@@ -79,7 +79,7 @@ def _perfect_factory(seed: int) -> Callable[[str, str], str]:
         for c in DEFAULT_CASES:
             if c.prompt in prompt:
                 return json.dumps(_build_ideal_ir(c))
-        raise AssertionError(f"unmatched prompt")
+        raise AssertionError("unmatched prompt")
     return _fn
 
 

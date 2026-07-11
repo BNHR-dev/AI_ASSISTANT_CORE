@@ -22,8 +22,6 @@ from app.engine.blender_templates import (
     get_template_name,
     get_template_name_from_intent,
     select_template,
-    select_template_from_intent,
-    TEMPLATE_INTERIOR_SPACE,
     TEMPLATE_PRODUCT_RENDER,
 )
 

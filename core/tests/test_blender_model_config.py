@@ -3,8 +3,6 @@ H.6.1 — Tests unitaires de la configuration centralisée du modèle LLM Blende
 """
 from __future__ import annotations
 
-import importlib
-import os
 
 import pytest
 
