@@ -34,7 +34,7 @@ def test_v1_models_endpoint_registered():
 def test_execute_endpoint_exposes_execution_summary(monkeypatch):
     monkeypatch.setattr(
         "app.main.execute_request",
-        lambda message, has_image: {
+        lambda message, has_image, **kwargs: {
             "task_type": "build",
             "primary_agent": "AGENT_BUILDER_IA",
             "selected_model": "qwen2.5-coder:14b",
@@ -76,7 +76,7 @@ def test_execute_endpoint_exposes_execution_summary(monkeypatch):
 def test_execute_endpoint_exposes_observability_fields(monkeypatch):
     monkeypatch.setattr(
         "app.main.execute_request",
-        lambda message, has_image: {
+        lambda message, has_image, **kwargs: {
             "task_type": "build",
             "primary_agent": "AGENT_BUILDER_IA",
             "selected_model": "qwen2.5-coder:14b",

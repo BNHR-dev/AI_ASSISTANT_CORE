@@ -51,8 +51,17 @@ def _build_execution_summary(plan, state) -> dict:
     blocked_step_ids = [
         result.step_id for result in state.step_results if result.status == "blocked"
     ]
+    awaiting_step_ids = [
+        result.step_id
+        for result in state.step_results
+        if result.status == "awaiting_user"
+    ]
 
-    if error_step_ids or blocked_step_ids:
+    # 4B — un run en attente d'approbation n'est ni un échec ni un succès :
+    # "paused" (la reprise vaut approbation). Une erreur déjà survenue prime.
+    if awaiting_step_ids and not error_step_ids:
+        status = "paused"
+    elif error_step_ids or blocked_step_ids:
         status = "degraded" if successful_step_ids else "failed"
     elif successful_step_ids:
         status = "success"
@@ -65,6 +74,7 @@ def _build_execution_summary(plan, state) -> dict:
         "successful_step_ids": successful_step_ids,
         "error_step_ids": error_step_ids,
         "blocked_step_ids": blocked_step_ids,
+        "awaiting_step_ids": awaiting_step_ids,
     }
 
 
@@ -282,7 +292,31 @@ def _execute_one_step(state, step, request_id: str) -> None:
         kind="step.started",
         data={"step_id": step.step_id, "step_type": step.step_type},
     )
+
+    # 4B — retry déclaré sur le step : ré-exécution bornée sur "error"
+    # (défaut max_attempts=1 = aucun retry). Seul le résultat FINAL entre
+    # dans step_results ; les tentatives intermédiaires vivent dans la
+    # trace et le journal d'événements (step.retry).
+    max_attempts = max(1, getattr(step, "max_attempts", 1))
+    attempt = 1
     result = execute_step(state, step)
+    while result.status == "error" and attempt < max_attempts:
+        state.add_trace(
+            f"step_executor → {step.step_id}:error attempt {attempt}/{max_attempts} → retry"
+        )
+        emit_run_event(
+            request_id=request_id,
+            kind="step.retry",
+            data={
+                "step_id": step.step_id,
+                "attempt": attempt,
+                "max_attempts": max_attempts,
+                "error": result.error[:2000] if result.error else None,
+            },
+        )
+        attempt += 1
+        result = execute_step(state, step)
+
     result.started_at = result.started_at or step_started_at
     result.finished_at = result.finished_at or _utc_now_iso()
     result.duration_ms = (
@@ -290,6 +324,8 @@ def _execute_one_step(state, step, request_id: str) -> None:
         if result.duration_ms is not None
         else max(0, int((perf_counter() - step_started_perf) * 1000))
     )
+    if attempt > 1:
+        result.meta = {**(result.meta or {}), "attempts": attempt}
     step.status = result.status
     state.add_result(result)
     state.add_trace(f"step_executor → {step.step_id}:{result.status}")
@@ -301,6 +337,7 @@ def _execute_one_step(state, step, request_id: str) -> None:
             "step_type": step.step_type,
             "status": result.status,
             "duration_ms": result.duration_ms,
+            "attempts": attempt,
             # Événements légers : erreur tronquée, la version complète
             # reste dans step_results (réponse API) et les manifests.
             "error": result.error[:2000] if result.error else None,
@@ -312,10 +349,41 @@ def _run_pending_steps(
     state, plan, request_id: str, *, message: str, has_image: bool, mode: str, decision: dict
 ) -> None:
     """Exécute les steps non encore réussis, avec CHECKPOINT après chacun :
-    un run interrompu reprend là où il s'est arrêté (chantier 4A)."""
+    un run interrompu reprend là où il s'est arrêté (4A). Un step marqué
+    requires_approval ARRÊTE le run avant son exécution (4B) : status
+    awaiting_user, checkpoint, et la reprise (resume_request) vaut
+    approbation."""
     for step in plan.steps:
         if step.status == "success":
             continue
+
+        if step.requires_approval:
+            step.status = "awaiting_user"
+            awaiting = StepResult(
+                step_id=step.step_id,
+                step_type=step.step_type,
+                status="awaiting_user",
+                error=None,
+                started_at=_utc_now_iso(),
+            )
+            state.add_result(awaiting)
+            state.add_trace(f"step_executor → {step.step_id}:awaiting_user")
+            emit_run_event(
+                request_id=request_id,
+                kind="step.awaiting_user",
+                data={"step_id": step.step_id, "step_type": step.step_type},
+            )
+            save_run_state(
+                request_id,
+                message=message,
+                has_image=has_image,
+                mode=mode,
+                decision=decision,
+                plan=plan,
+                step_results=state.step_results,
+            )
+            break  # rien après le step en attente : le run est en pause
+
         _execute_one_step(state, step, request_id)
         save_run_state(
             request_id,
@@ -328,7 +396,12 @@ def _run_pending_steps(
         )
 
 
-def execute_request(message: str, has_image: bool = False, mode: str = "auto") -> dict:
+def execute_request(
+    message: str,
+    has_image: bool = False,
+    mode: str = "auto",
+    pause_before_tools: bool = False,
+) -> dict:
     request_id = str(uuid4())
     started_at = _utc_now_iso()
     started_perf = perf_counter()
@@ -340,6 +413,7 @@ def execute_request(message: str, has_image: bool = False, mode: str = "auto") -
             "message": message,
             "mode": mode,
             "has_image": has_image,
+            "pause_before_tools": pause_before_tools,
             "started_at": started_at,
         },
     )
@@ -370,6 +444,13 @@ def execute_request(message: str, has_image: bool = False, mode: str = "auto") -
     )
 
     plan = build_execution_plan(decision, message)
+    # 4B — pause demandée par l'appelant : chaque step OUTIL exige une
+    # approbation avant exécution (inspection du plan/des steps amont, puis
+    # resume). Opt-in par requête : aucun changement sans le flag.
+    if pause_before_tools:
+        for step in plan.steps:
+            if step.step_type.startswith("tool_"):
+                step.requires_approval = True
     state = create_execution_state(message, decision, plan)
     # Le pipeline Blender (prepare_blender_script) lit ce request_id pour nommer
     # outputs/blender/<request_id>/ — sans cette propagation, il génère un uuid
@@ -439,11 +520,15 @@ def resume_request(request_id: str) -> dict:
     state = create_execution_state(message, decision, plan)
     state.context["request_id"] = request_id
 
-    # Seuls les succès sont restaurés ; les steps error/blocked repartent
-    # de zéro (statut pending), leurs anciens résultats ne sont pas rejoués.
+    # Seuls les succès sont restaurés ; les steps error/blocked/awaiting
+    # repartent de zéro (statut pending), leurs anciens résultats ne sont
+    # pas rejoués. 4B : la reprise VAUT approbation — les gates
+    # requires_approval sont levées pour toute la continuation (sinon le
+    # run se remettrait en pause au même step, indéfiniment).
     restored_ids = {result.step_id for result in restored}
     for step in plan.steps:
         step.status = "success" if step.step_id in restored_ids else "pending"
+        step.requires_approval = False
     for result in restored:
         state.add_result(result)
 

@@ -16,6 +16,14 @@ class PlanStep:
     depends_on: list[str] = field(default_factory=list)
     meta: dict[str, Any] = field(default_factory=dict)
     status: str = "pending"
+    # 4B — politique de reprise DÉCLARÉE sur le step (l'executor l'honore) :
+    # max_attempts       : ré-exécutions du step sur status "error" (défaut 1
+    #                      = comportement historique, aucun retry).
+    # requires_approval  : l'executor s'arrête AVANT ce step (status
+    #                      awaiting_user, run "paused") ; la reprise
+    #                      (resume_request) vaut approbation.
+    max_attempts: int = 1
+    requires_approval: bool = False
 
 
 @dataclass

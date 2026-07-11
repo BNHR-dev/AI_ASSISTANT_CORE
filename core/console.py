@@ -637,6 +637,7 @@ def build_view(result: dict) -> dict:
         "summary": summary,
         "step_errors": step_errors,
         "has_error": has_error,
+        "is_paused": summary.get("status") == "paused",
         "framing": _framing_overlay(result.get("blender_scene_report")),
         "semantic": _semantic_fidelity(result.get("blender_manifest")),
         "exception": None,
@@ -731,8 +732,37 @@ async def run(request: Request):
     # Forced mode from the active tab (2D -> image_generation, 3D -> blender_script).
     # Absent/empty -> "auto" (the Run tab lets the router decide).
     mode = (parsed.get("mode", ["auto"])[0]).strip() or "auto"
+    # 4B — "Review before…" checkbox: pause ahead of the tool step, the
+    # result fragment then shows an Approve & continue button (/console/resume).
+    pause = bool(parsed.get("pause", [""])[0])
     try:
-        result = execute_request(message, mode=mode)
+        result = execute_request(message, mode=mode, pause_before_tools=pause)
+    except Exception as exc:  # noqa: BLE001 — la Console ne doit jamais planter
+        return templates.TemplateResponse(
+            request,
+            "result.html",
+            {"exception": f"{type(exc).__name__}: {exc}", "r": None},
+        )
+    return templates.TemplateResponse(request, "result.html", build_view(result))
+
+
+@router.post("/resume", response_class=HTMLResponse)
+def resume_from_console(request: Request, request_id: str):
+    """Approuve et reprend un run en pause (ou interrompu) — cible HTMX.
+
+    Même moteur que POST /resume (API) et `aac resume` (CLI), appelé
+    in-process ; renvoie le même fragment de résultat que POST /console/run.
+    """
+    from app.engine.executor import resume_request
+
+    try:
+        result = resume_request(request_id)
+    except LookupError:
+        return templates.TemplateResponse(
+            request,
+            "result.html",
+            {"exception": f"No saved state for run {request_id}.", "r": None},
+        )
     except Exception as exc:  # noqa: BLE001 — la Console ne doit jamais planter
         return templates.TemplateResponse(
             request,

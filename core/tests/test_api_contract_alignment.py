@@ -7,7 +7,7 @@ from app.schemas import ExecuteRequest, RouteRequest
 def test_route_response_exposes_decision_trace_fields(monkeypatch):
     monkeypatch.setattr(
         "app.main.build_route_decision",
-        lambda message, has_image: {
+        lambda message, has_image, **kwargs: {
             "task_type": "build",
             "primary_agent": "AGENT_BUILDER_IA",
             "selected_model": "qwen2.5-coder:14b",
@@ -35,7 +35,7 @@ def test_route_response_exposes_decision_trace_fields(monkeypatch):
 def test_execute_response_exposes_plan_and_trace(monkeypatch):
     monkeypatch.setattr(
         "app.main.execute_request",
-        lambda message, has_image: {
+        lambda message, has_image, **kwargs: {
             "task_type": "explain_basic",
             "primary_agent": "AGENT_PROF_IA",
             "selected_model": "qwen3:8b",
@@ -112,7 +112,7 @@ def test_execute_response_exposes_plan_and_trace(monkeypatch):
 def test_execute_response_exposes_runtime_observability_fields(monkeypatch):
     monkeypatch.setattr(
         "app.main.execute_request",
-        lambda message, has_image: {
+        lambda message, has_image, **kwargs: {
             "task_type": "build",
             "primary_agent": "AGENT_BUILDER_IA",
             "selected_model": "qwen2.5-coder:14b",

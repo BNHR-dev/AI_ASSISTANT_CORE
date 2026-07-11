@@ -8,10 +8,22 @@
     <span class="badge">🧩 {{ r.task_type or "—" }}</span>
     <span>model: {{ r.selected_model or "—" }}</span>
     {% if r.duration_ms is not none %}<span>⏱ {{ "%.1f"|format(r.duration_ms / 1000) }} s</span>{% endif %}
-    <span class="{{ 'ko' if has_error else 'ok' }}">
-      {{ "⚠️" if has_error else "✅" }} {{ summary.get("status") or "—" }}
+    <span class="{{ 'ko' if has_error else ('warn' if is_paused else 'ok') }}">
+      {{ "⚠️" if has_error else ("⏸" if is_paused else "✅") }} {{ summary.get("status") or "—" }}
     </span>
   </div>
+
+  {% if is_paused %}
+    <div class="strip">
+      <span class="badge">⏸ Awaiting approval</span>
+      <span>the run stopped before
+        {{ (summary.get("awaiting_step_ids") or ["the tool step"]) | join(", ") }} —
+        review the plan below, then continue.</span>
+      <button hx-post="/console/resume?request_id={{ r.request_id }}"
+              hx-target="closest div[id^='result-']" hx-swap="innerHTML"
+              hx-disabled-elt="this">✓ Approve &amp; continue</button>
+    </div>
+  {% endif %}
 
   {# Signature: the execution route, made visible (router ▸ planner ▸ executor). #}
   {% if r.decision_path %}

@@ -5,7 +5,7 @@ from app.schemas import ExecuteRequest
 def test_execute_response_exposes_visual_artifact_fields(monkeypatch):
     monkeypatch.setattr(
         "app.main.execute_request",
-        lambda message, has_image: {
+        lambda message, has_image, **kwargs: {
             "task_type": "image_generation",
             "primary_agent": "AGENT_CREATIVE_IA",
             "selected_model": "qwen3:14b",

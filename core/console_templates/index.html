@@ -30,6 +30,10 @@
           <input type="checkbox" name="final"> Final quality
           <small>(refiner + upscale, slower)</small>
         </label>
+        <label class="muted toggle">
+          <input type="checkbox" name="pause"> Review before generating
+          <small>(pause, inspect, then approve)</small>
+        </label>
       </div>
     </form>
     <p id="spin-2d" class="htmx-indicator">⏳ generating… (you can switch tabs — it keeps running)</p>
@@ -47,7 +51,13 @@
           hx-disabled-elt="find button[type='submit']">
       <textarea name="message" placeholder="Describe a 3D scene…"></textarea>
       <input type="hidden" name="mode" value="blender_script">
-      <button type="submit">Render ▶</button>
+      <div class="form-actions">
+        <button type="submit">Render ▶</button>
+        <label class="muted toggle">
+          <input type="checkbox" name="pause"> Review before rendering
+          <small>(pause, inspect, then approve)</small>
+        </label>
+      </div>
     </form>
     <p id="spin-3d" class="htmx-indicator">⏳ rendering… (you can switch tabs — it keeps running)</p>
     <p class="muted">The framing overlay 🔴🟢 appears in the result · 📊 quality → use the Eval tab.</p>
