@@ -1,0 +1,53 @@
+{# Reproduce verdict — fragment returned by POST /console/reproduce. #}
+{% if exception %}
+  <div class="strip err"><span class="badge">↺ Reproduce</span> {{ exception }}</div>
+{% elif report %}
+  {% set v = report.verdict %}
+  <div class="repro-report">
+    <div class="strip{% if v not in ['exact', 'perceptual'] %} err{% endif %}">
+      <span class="verdict verdict-{{ v }}">
+        {{ '✓ reproduced — pixel-identical' if v == 'exact'
+           else '≈ reproduced — visually identical' if v == 'perceptual'
+           else '✗ diverged' if v == 'different'
+           else '✗ replay failed' if v == 'failed'
+           else '✗ refused (integrity / security gate)' }}</span>
+      {% if report.get('duration_ms') is not none %}
+        <small class="muted">{{ "%.1f"|format(report.get('duration_ms') / 1000) }} s</small>
+      {% endif %}
+      {% if report.error %}<small>{{ report.error }}</small>{% endif %}
+    </div>
+
+    {% set checks = (report.variants or []) + (report.checks or []) %}
+    {% if checks %}
+      <table class="hash-table">
+        {% for c in checks %}
+          <tr>
+            <td class="muted">{{ c.name or ('variant ' ~ c.index) }}</td>
+            <td><span class="verdict verdict-{{ c.verdict }}">{{ c.verdict }}</span></td>
+            <td class="muted">
+              {% set img = c.get('image') or c %}
+              {% if img.get('dhash_distance') is not none %}dHash distance {{ img.get('dhash_distance') }}{% endif %}
+              {% if c.get('reason') %}{{ c.get('reason') }}{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    {% endif %}
+
+    {% if report.environment_diffs %}
+      <p class="legend">Environment changed since the recording:</p>
+      <table class="hash-table">
+        {% for d in report.environment_diffs %}
+          <tr>
+            <td class="muted">{{ d.field }}</td>
+            <td><code>{{ d.recorded }}</code> → <code>{{ d.current }}</code></td>
+          </tr>
+        {% endfor %}
+      </table>
+    {% endif %}
+
+    {% if report.report_path %}
+      <p class="legend muted">Full report: <code>{{ report.report_path }}</code></p>
+    {% endif %}
+  </div>
+{% endif %}
