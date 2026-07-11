@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import re
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -15,7 +16,7 @@ from app.auth import (
     validate_startup_auth,
 )
 from app.engine.executor import execute_request, resume_request
-from app.engine.reproduce import reproduce_run
+from app.engine.reproduce import get_dhash_threshold, reproduce_run
 from app.engine.run_locks import RunBusyError
 from app.engine.router_service import build_route_decision
 from app.engine.runtime_debug import (
@@ -94,13 +95,27 @@ def resume(payload: ResumeRequest) -> ExecuteResponse:
     return ExecuteResponse(**result)
 
 
+# Clé de sidecar en forme CANONIQUE (pas de zéro de tête, pas de signe) :
+# int() est alors injectif sur les clés acceptées — "1" et "01" ne peuvent
+# plus converger en silence vers la même variante.
+_WORKFLOW_KEY_RE = re.compile(r"[1-9][0-9]*")
+
+
 def reproduce(payload: ReproduceRequest) -> ReproduceResponse:
-    # Clés JSON = str ; l'engine indexe les variantes en int (index du manifest).
-    workflows = {
-        int(index): workflow
-        for index, workflow in payload.workflows.items()
-        if index.isdigit()
-    }
+    # Clés JSON = str ; l'engine indexe les variantes en int (index du
+    # manifest). Parsing STRICT : une clé non canonique ("01", "abc", "-1")
+    # refuse le rejeu au lieu d'être ignorée ou fusionnée en silence.
+    workflows: dict[int, dict] = {}
+    for key, workflow in payload.workflows.items():
+        if not _WORKFLOW_KEY_RE.fullmatch(key):
+            return ReproduceResponse(
+                pipeline=payload.pipeline,
+                verdict="refused",
+                dhash_threshold=get_dhash_threshold(),
+                error=f"invalid workflow variant key: {key!r} "
+                      "(expected a canonical positive integer)",
+            )
+        workflows[int(key)] = workflow
     report = reproduce_run(
         payload.pipeline,
         payload.manifest,
