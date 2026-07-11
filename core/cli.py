@@ -8,7 +8,9 @@ déjà dans requirements.txt) :
     aac execute "<prompt>"   POST /execute → statut, plan/étapes, artefacts
     aac resume <request_id>  POST /resume  → reprend un run interrompu depuis
                              son checkpoint (steps réussis restaurés, le
-                             reste ré-exécuté)
+                             reste ré-exécuté) ; sur un run en pause HITL,
+                             chaque resume approuve LE prochain step outil
+                             (le run repasse en pause avant le suivant)
     aac reproduce <run>      POST /reproduce → rejoue un run depuis son
                              manifest v2 et compare les artefacts (verdict
                              exact / perceptual / different / failed / refused)
@@ -262,7 +264,8 @@ def inspect(cfg: Settings, prompt: str, image: bool) -> None:
 @click.option("--image", is_flag=True,
               help="Marque la requête comme accompagnée d'une image (has_image).")
 @click.option("--pause-tools", is_flag=True,
-              help="S'arrêter AVANT chaque step outil (approbation via `aac resume`).")
+              help="S'arrêter AVANT chaque step outil (une approbation par "
+                   "outil, via `aac resume`).")
 @click.pass_obj
 def execute(cfg: Settings, prompt: str, image: bool, pause_tools: bool) -> None:
     """Exécute PROMPT de bout en bout : statut, plan, étapes, artefacts."""
@@ -352,7 +355,11 @@ def _render_execution(prompt: str, result: dict) -> None:
 @click.argument("request_id")
 @click.pass_obj
 def resume(cfg: Settings, request_id: str) -> None:
-    """Reprend le run REQUEST_ID depuis son checkpoint (state.json)."""
+    """Reprend le run REQUEST_ID depuis son checkpoint (state.json).
+
+    Sur un run en pause HITL, approuve le prochain step outil seulement :
+    un plan à plusieurs outils repasse en pause avant chacun ("paused"
+    n'est donc pas un échec de reprise)."""
     with make_client(cfg.base_url, cfg.token, EXECUTE_READ_TIMEOUT) as client:
         result = _request(client, "POST", "/resume", {"request_id": request_id})
 
@@ -360,9 +367,17 @@ def resume(cfg: Settings, request_id: str) -> None:
         _echo_json(result)
     else:
         _render_execution(f"reprise du run {request_id}", result)
+        summary_status = (result.get("execution_summary") or {}).get("status")
+        if summary_status == "paused" and result.get("request_id"):
+            click.echo()
+            click.secho(
+                "⏸ prochain outil en attente d'approbation — reprendre : "
+                f"aac resume {result['request_id']}",
+                fg="yellow",
+            )
 
     summary = result.get("execution_summary") or {}
-    if summary and summary.get("status") not in EXEC_OK_STATUSES:
+    if summary and summary.get("status") not in EXEC_OK_STATUSES + ("paused",):
         sys.exit(EXIT_API_ERROR)
 
 

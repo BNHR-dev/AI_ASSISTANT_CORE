@@ -20,8 +20,10 @@ class PlanStep:
     # max_attempts       : ré-exécutions du step sur status "error" (défaut 1
     #                      = comportement historique, aucun retry).
     # requires_approval  : l'executor s'arrête AVANT ce step (status
-    #                      awaiting_user, run "paused") ; la reprise
-    #                      (resume_request) vaut approbation.
+    #                      awaiting_user, run "paused") ; chaque reprise
+    #                      (resume_request) approuve LE prochain step gated
+    #                      seulement — un plan à plusieurs outils repasse
+    #                      en pause avant chacun.
     max_attempts: int = 1
     requires_approval: bool = False
 

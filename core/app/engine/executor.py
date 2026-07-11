@@ -351,8 +351,8 @@ def _run_pending_steps(
     """Exécute les steps non encore réussis, avec CHECKPOINT après chacun :
     un run interrompu reprend là où il s'est arrêté (4A). Un step marqué
     requires_approval ARRÊTE le run avant son exécution (4B) : status
-    awaiting_user, checkpoint, et la reprise (resume_request) vaut
-    approbation."""
+    awaiting_user, checkpoint, et la reprise (resume_request) approuve CE
+    step seulement — le run se remettra en pause avant le suivant."""
     for step in plan.steps:
         if step.status == "success":
             continue
@@ -497,6 +497,10 @@ def resume_request(request_id: str) -> dict:
     déjà RÉUSSIS sont restaurés tels quels (leurs sorties redeviennent
     disponibles pour les steps dépendants), tout le reste est ré-exécuté.
 
+    Sémantique HITL (4B) : une reprise approuve UNIQUEMENT le prochain step
+    en attente d'approbation. Un plan à plusieurs steps gated repasse en
+    pause avant chacun — approbation par outil, jamais en bloc.
+
     LookupError si aucun checkpoint exploitable n'existe pour ce request_id.
     """
     saved = load_run_state(request_id)
@@ -525,13 +529,20 @@ def resume_request(request_id: str) -> dict:
 
     # Seuls les succès sont restaurés ; les steps error/blocked/awaiting
     # repartent de zéro (statut pending), leurs anciens résultats ne sont
-    # pas rejoués. 4B : la reprise VAUT approbation — les gates
-    # requires_approval sont levées pour toute la continuation (sinon le
-    # run se remettrait en pause au même step, indéfiniment).
+    # pas rejoués.
     restored_ids = {result.step_id for result in restored}
     for step in plan.steps:
         step.status = "success" if step.step_id in restored_ids else "pending"
-        step.requires_approval = False
+    # 4B — la reprise vaut approbation du PROCHAIN step gated SEULEMENT :
+    # on lève la gate du premier step non réussi qui en exige une, les
+    # suivantes restent en place — un plan à plusieurs outils repasse en
+    # pause avant chacun (approbation par outil). Sans levée, le run se
+    # remettrait en pause au même step indéfiniment ; en levant tout,
+    # une approbation d'étape approuverait tous les outils restants.
+    for step in plan.steps:
+        if step.status != "success" and step.requires_approval:
+            step.requires_approval = False
+            break
     for result in restored:
         state.add_result(result)
 

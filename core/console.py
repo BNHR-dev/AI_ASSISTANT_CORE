@@ -1031,7 +1031,9 @@ def resume_from_console(request: Request, request_id: str, background_tasks: Bac
     Même moteur que POST /resume (API) et `aac resume` (CLI), lancé en
     arrière-plan comme POST /console/run ; le fragment de trace s'abonne en
     mode `tail` (l'historique du run figure déjà dans la modale/le résultat,
-    seuls les événements de la reprise sont poussés).
+    seuls les événements de la reprise sont poussés). Une approbation vaut
+    pour LE prochain step outil : un plan à plusieurs outils réaffiche le
+    bandeau ⏸ avant chacun.
     """
     from app.engine.executor import resume_request
 

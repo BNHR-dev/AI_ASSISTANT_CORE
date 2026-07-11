@@ -18,7 +18,8 @@
       <span class="badge">⏸ Awaiting approval</span>
       <span>the run stopped before
         {{ (summary.get("awaiting_step_ids") or ["the tool step"]) | join(", ") }} —
-        review the plan below, then continue.</span>
+        review the plan below, then approve. Approval covers this step only;
+        a plan with several tools pauses before each one.</span>
       <button hx-post="/console/resume?request_id={{ r.request_id }}"
               hx-target="closest div[id^='result-']" hx-swap="innerHTML"
               hx-disabled-elt="this">✓ Approve &amp; continue</button>
