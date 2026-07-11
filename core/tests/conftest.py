@@ -4,6 +4,8 @@ H.6.1 — Conftest racine pour la suite de tests `core/tests`.
 Désactive par défaut l'écriture du journal de trajectoires LLM
 (`app.engine.llm_trajectory_log`) pendant les tests, afin qu'aucun test
 ne crée par effet de bord un fichier sous `outputs/blender/_trajectories/`.
+Même traitement pour le journal d'événements de run (`app.engine.run_events`)
+qui écrirait sinon sous `outputs/runs/` à chaque execute_request testé.
 
 Les tests qui veulent vérifier le journal lui-même réactivent localement
 le module via `monkeypatch.delenv(...)` ou `monkeypatch.setenv(..., "1")`,
@@ -42,3 +44,10 @@ def _disable_trajectory_logging_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("AAC_TRAJECTORY_LOG_ENABLED", "false")
+
+
+@pytest.fixture(autouse=True)
+def _disable_run_events_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AAC_RUN_EVENTS_ENABLED", "false")
