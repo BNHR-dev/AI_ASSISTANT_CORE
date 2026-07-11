@@ -49,6 +49,7 @@ ACTIVE_RUNTIME_MODULES = [
     "app/schemas.py",
     "app/task_classifier.py",
     "app/tool_selector.py",
+    "app/engine/router_embeddings.py",
     "app/engine/task_routing.py",
     "app/engine/routing_conditions.py",
     "app/engine/router_service.py",

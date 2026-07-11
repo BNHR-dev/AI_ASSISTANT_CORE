@@ -76,6 +76,31 @@ def test_explain_end_to_end() -> None:
     assert result["output"] and len(result["output"]) > 20
 
 
+@needs_ollama
+def test_router_embedding_fallback_on_dead_zone_prompts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Formulations HORS corpus d'entraînement et hors signaux mots-clés :
+    la couche embeddings (bge-m3 réel) doit router par le sens. Tolérance
+    1 erreur sur 4 (classifieur à 89 % en CV — pas un oracle)."""
+    monkeypatch.setenv("AAC_ROUTER_EMBEDDINGS", "1")
+    from app.task_classifier import classify_task
+
+    cases = [
+        ("il me faudrait une jolie représentation visuelle d'un port breton", "image_generation"),
+        ("un décor 3d sobre pour photographier virtuellement ma lampe", "blender_script"),
+        ("sois sans pitié avec mon paragraphe de conclusion", "critique"),
+        ("que s'est-il passé cette semaine dans le monde de l'ia", "web_research"),
+    ]
+    correct = 0
+    for text, expected in cases:
+        task, reason = classify_task(text)
+        if "embedding_fallback" not in reason:
+            pytest.skip(f"couche embeddings inactive (modèle absent ?) : {reason[:80]}")
+        correct += task == expected
+    assert correct >= 3, f"{correct}/4 seulement"
+
+
 # ---------------------------------------------------------------------------
 # ComfyUI — génération réelle + manifest v2 + rejeu
 # ---------------------------------------------------------------------------

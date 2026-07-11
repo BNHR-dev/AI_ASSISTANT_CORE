@@ -88,3 +88,12 @@ def _disable_run_events_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("AAC_RUN_EVENTS_ENABLED", "false")
+
+
+@pytest.fixture(autouse=True)
+def _disable_router_embeddings_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La couche embeddings du routeur ferait un appel HTTP (Ollama) sur les
+    prompts sans signal : hermétisme d'abord, les tests dédiés réactivent."""
+    monkeypatch.setenv("AAC_ROUTER_EMBEDDINGS", "0")

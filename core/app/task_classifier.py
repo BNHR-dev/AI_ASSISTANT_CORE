@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from app.engine import router_embeddings
+
 
 TASKS = [
     "vision",
@@ -619,6 +621,20 @@ def classify_task_v2(message: str, has_image: bool = False) -> tuple[str, str]:
 
     apply_blender_guardrails(text, scores, reasons)
     apply_visual_guardrails(text, scores, reasons)
+
+    # Zone morte des règles : AUCUN signal n'a matché — best_task retomberait
+    # aveuglément sur explain_basic. La couche embeddings (chantier 3) classe
+    # alors par le SENS. Les règles gardent la main dès qu'elles matchent ;
+    # couche indisponible (modèle/poids/Ollama) → comportement historique.
+    if max(scores.values()) == 0:
+        prediction = router_embeddings.classify_with_embeddings(text)
+        if prediction is not None and prediction[0] in TASKS:
+            task, prob = prediction
+            return task, (
+                f"{locale_reason}; no keyword signal matched; "
+                f"embedding_fallback task={task} prob={prob:.2f} "
+                f"model={router_embeddings.get_embed_model()}"
+            )
 
     task = best_task(scores, PRIORITY)
     reason = (
