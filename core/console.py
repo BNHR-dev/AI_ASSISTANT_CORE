@@ -348,6 +348,9 @@ def _event_row(event: dict, max_step_ms: int) -> dict:
             label += f" → {data['status']}"
     elif kind == "run.finished":
         label = str((data.get("execution_summary") or {}).get("status") or "")
+    elif kind == "run.resumed":
+        restored = data.get("restored_step_ids") or []
+        label = f"restored {len(restored)} step{'s' if len(restored) != 1 else ''}"
 
     duration_ms = data.get("duration_ms") if kind in ("step.finished", "run.finished") else None
     ts = str(event.get("ts") or "")

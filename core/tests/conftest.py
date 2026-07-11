@@ -91,6 +91,15 @@ def _disable_run_events_by_default(
 
 
 @pytest.fixture(autouse=True)
+def _disable_run_state_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Même hermétisme que les events : pas de state.json sous outputs/runs/
+    par effet de bord des tests d'executor."""
+    monkeypatch.setenv("AAC_RUN_STATE_ENABLED", "false")
+
+
+@pytest.fixture(autouse=True)
 def _disable_router_embeddings_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -446,3 +446,41 @@ def test_reproduce_environment_diffs_rendered(runner, monkeypatch, tmp_path):
 
     result = runner.invoke(cli.aac, ["reproduce", str(run_dir)])
     assert "comfyui_version : 0.20.0 → 0.25.0" in result.output
+
+
+# ---------------------------------------------------------------------------
+# aac resume
+# ---------------------------------------------------------------------------
+
+def test_resume_happy_path(runner, monkeypatch):
+    resumed = {**EXECUTE_OK, "request_id": "req-42"}
+    api = FakeAPI({("POST", "/resume"): resumed})
+    _install(monkeypatch, api)
+
+    result = runner.invoke(cli.aac, ["resume", "req-42"])
+
+    assert result.exit_code == 0, result.output
+    assert "req-42" in result.output
+    body = json.loads(api.requests[0].content)
+    assert body == {"request_id": "req-42"}
+
+
+def test_resume_failed_run_exits_one(runner, monkeypatch):
+    degraded = {
+        **EXECUTE_OK,
+        "execution_summary": {**EXECUTE_OK["execution_summary"],
+                              "status": "degraded"},
+    }
+    api = FakeAPI({("POST", "/resume"): degraded})
+    _install(monkeypatch, api)
+
+    result = runner.invoke(cli.aac, ["resume", "req-42"])
+    assert result.exit_code == 1
+
+
+def test_resume_unknown_run_is_api_error(runner, monkeypatch):
+    api = FakeAPI({("POST", "/resume"): 404})
+    _install(monkeypatch, api)
+
+    result = runner.invoke(cli.aac, ["resume", "nope"])
+    assert result.exit_code == 1

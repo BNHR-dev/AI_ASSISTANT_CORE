@@ -136,6 +136,44 @@ def test_comfyui_generate_capture_and_reproduce() -> None:
     assert replayed["image"]["dhash_distance"] <= 4
 
 
+@needs_ollama
+@needs_comfyui
+def test_outage_then_resume_completes_the_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Le scénario checkpoint/reprise en conditions réelles : ComfyUI « en
+    panne » (URL morte) → run degraded avec checkpoint ; service « rétabli »
+    → resume ne rejoue QUE le step outil et produit l'image sous le MÊME
+    request_id."""
+    from app.clients import comfyui_client, comfyui_runtime
+    from app.engine.executor import execute_request, resume_request
+    from app.engine.run_state import load_run_state
+
+    monkeypatch.setenv("AAC_RUN_STATE_ENABLED", "1")
+    monkeypatch.setenv("AAC_RUN_EVENTS_ENABLED", "1")
+    monkeypatch.setenv("AAC_RUN_EVENTS_DIR", str(tmp_path))
+
+    real_url = comfyui_client.COMFYUI_URL
+    monkeypatch.setattr(comfyui_client, "COMFYUI_URL", "http://127.0.0.1:9")
+    monkeypatch.setattr(comfyui_runtime, "COMFYUI_URL", "http://127.0.0.1:9")
+    failed = execute_request(
+        "génère une image d'une lanterne en cuivre sur fond sombre",
+        mode="image_generation",
+    )
+    assert failed["execution_summary"]["status"] in ("degraded", "failed")
+    saved = load_run_state(failed["request_id"])
+    assert saved is not None and saved["run_status"] in ("degraded", "failed")
+
+    monkeypatch.setattr(comfyui_client, "COMFYUI_URL", real_url)
+    monkeypatch.setattr(comfyui_runtime, "COMFYUI_URL", real_url)
+    resumed = resume_request(failed["request_id"])
+
+    assert resumed["request_id"] == failed["request_id"]
+    assert resumed["execution_summary"]["status"] == "success"
+    assert resumed["artifact_path"] and Path(resumed["artifact_path"]).exists()
+    assert failed["request_id"] in resumed["artifact_path"]
+
+
 # ---------------------------------------------------------------------------
 # Blender — génération réelle + manifest v2 + rejeu exact
 # ---------------------------------------------------------------------------

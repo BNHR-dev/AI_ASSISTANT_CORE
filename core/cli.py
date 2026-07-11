@@ -6,6 +6,9 @@ déjà dans requirements.txt) :
     aac health               GET /health + /health/runtime + /debug/canonical
     aac inspect "<prompt>"   POST /route   → décision de routage + arbre
     aac execute "<prompt>"   POST /execute → statut, plan/étapes, artefacts
+    aac resume <request_id>  POST /resume  → reprend un run interrompu depuis
+                             son checkpoint (steps réussis restaurés, le
+                             reste ré-exécuté)
     aac reproduce <run>      POST /reproduce → rejoue un run depuis son
                              manifest v2 et compare les artefacts (verdict
                              exact / perceptual / different / failed / refused)
@@ -326,6 +329,24 @@ def _render_execution(prompt: str, result: dict) -> None:
         click.echo()
         click.echo("Sortie")
         click.echo(result["output"])
+
+
+@aac.command()
+@click.argument("request_id")
+@click.pass_obj
+def resume(cfg: Settings, request_id: str) -> None:
+    """Reprend le run REQUEST_ID depuis son checkpoint (state.json)."""
+    with make_client(cfg.base_url, cfg.token, EXECUTE_READ_TIMEOUT) as client:
+        result = _request(client, "POST", "/resume", {"request_id": request_id})
+
+    if cfg.as_json:
+        _echo_json(result)
+    else:
+        _render_execution(f"reprise du run {request_id}", result)
+
+    summary = result.get("execution_summary") or {}
+    if summary and summary.get("status") not in ("success", "empty"):
+        sys.exit(EXIT_API_ERROR)
 
 
 def _load_reproduce_material(run_path: Path) -> dict:

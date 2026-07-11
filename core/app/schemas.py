@@ -120,6 +120,12 @@ class ReproduceResponse(BaseModel):
     duration_ms: Optional[int] = None
 
 
+class ResumeRequest(BaseModel):
+    """Reprise d'un run interrompu depuis son checkpoint (state.json) :
+    les steps déjà réussis sont restaurés, le reste est ré-exécuté."""
+    request_id: str
+
+
 class ExecuteRequest(BaseModel):
     message: str
     has_image: bool = False
