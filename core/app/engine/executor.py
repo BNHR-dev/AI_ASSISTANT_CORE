@@ -12,6 +12,12 @@ from app.engine.planner_types import StepResult
 from app.engine.result_assembler import assemble_final_output
 from app.engine.router_service import build_route_decision
 from app.engine.run_events import emit_run_event
+from app.engine.run_state import (
+    load_run_state,
+    rebuild_plan,
+    rebuild_step_result,
+    save_run_state,
+)
 from app.engine.routing_conditions import enrich_route_config
 from app.engine.execution_state_factory import create_execution_state
 from app.engine.step_executor import execute_step
@@ -227,6 +233,101 @@ def _build_forced_mode_decision(message: str, mode: str) -> dict:
     return final_decision
 
 
+def _execute_one_step(state, step, request_id: str) -> None:
+    """Un step : garde de dépendances, exécution, timings, traces, événements."""
+    step_started_at = _utc_now_iso()
+    step_started_perf = perf_counter()
+
+    unmet_dependencies = [
+        dep
+        for dep in step.depends_on
+        if not any(
+            result.step_id == dep and result.status == "success"
+            for result in state.step_results
+        )
+    ]
+
+    if unmet_dependencies:
+        blocked_finished_at = _utc_now_iso()
+        blocked_duration_ms = max(
+            0,
+            int((perf_counter() - step_started_perf) * 1000),
+        )
+        blocked_result = StepResult(
+            step_id=step.step_id,
+            step_type=step.step_type,
+            status="blocked",
+            error=f"Blocked by unmet dependencies: {', '.join(unmet_dependencies)}",
+            started_at=step_started_at,
+            finished_at=blocked_finished_at,
+            duration_ms=blocked_duration_ms,
+        )
+        step.status = blocked_result.status
+        state.add_result(blocked_result)
+        state.add_trace(f"step_executor → {step.step_id}:blocked")
+        emit_run_event(
+            request_id=request_id,
+            kind="step.blocked",
+            data={
+                "step_id": step.step_id,
+                "step_type": step.step_type,
+                "error": blocked_result.error,
+            },
+        )
+        return
+
+    state.add_trace(f"step_executor → start:{step.step_id}")
+    emit_run_event(
+        request_id=request_id,
+        kind="step.started",
+        data={"step_id": step.step_id, "step_type": step.step_type},
+    )
+    result = execute_step(state, step)
+    result.started_at = result.started_at or step_started_at
+    result.finished_at = result.finished_at or _utc_now_iso()
+    result.duration_ms = (
+        result.duration_ms
+        if result.duration_ms is not None
+        else max(0, int((perf_counter() - step_started_perf) * 1000))
+    )
+    step.status = result.status
+    state.add_result(result)
+    state.add_trace(f"step_executor → {step.step_id}:{result.status}")
+    emit_run_event(
+        request_id=request_id,
+        kind="step.finished",
+        data={
+            "step_id": step.step_id,
+            "step_type": step.step_type,
+            "status": result.status,
+            "duration_ms": result.duration_ms,
+            # Événements légers : erreur tronquée, la version complète
+            # reste dans step_results (réponse API) et les manifests.
+            "error": result.error[:2000] if result.error else None,
+        },
+    )
+
+
+def _run_pending_steps(
+    state, plan, request_id: str, *, message: str, has_image: bool, mode: str, decision: dict
+) -> None:
+    """Exécute les steps non encore réussis, avec CHECKPOINT après chacun :
+    un run interrompu reprend là où il s'est arrêté (chantier 4A)."""
+    for step in plan.steps:
+        if step.status == "success":
+            continue
+        _execute_one_step(state, step, request_id)
+        save_run_state(
+            request_id,
+            message=message,
+            has_image=has_image,
+            mode=mode,
+            decision=decision,
+            plan=plan,
+            step_results=state.step_results,
+        )
+
+
 def execute_request(message: str, has_image: bool = False, mode: str = "auto") -> dict:
     request_id = str(uuid4())
     started_at = _utc_now_iso()
@@ -296,79 +397,86 @@ def execute_request(message: str, has_image: bool = False, mode: str = "auto") -
         },
     )
 
-    for step in plan.steps:
-        step_started_at = _utc_now_iso()
-        step_started_perf = perf_counter()
+    _run_pending_steps(
+        state, plan, request_id,
+        message=message, has_image=has_image, mode=mode, decision=decision,
+    )
+    return _finalize_run(
+        state, plan, decision, request_id, started_at, started_perf,
+        message=message, has_image=has_image, mode=mode,
+    )
 
-        unmet_dependencies = [
-            dep
-            for dep in step.depends_on
-            if not any(
-                result.step_id == dep and result.status == "success"
-                for result in state.step_results
-            )
+
+def resume_request(request_id: str) -> dict:
+    """
+    Reprend un run interrompu depuis son checkpoint (state.json) : les steps
+    déjà RÉUSSIS sont restaurés tels quels (leurs sorties redeviennent
+    disponibles pour les steps dépendants), tout le reste est ré-exécuté.
+
+    LookupError si aucun checkpoint exploitable n'existe pour ce request_id.
+    """
+    saved = load_run_state(request_id)
+    if saved is None:
+        raise LookupError(f"no saved state for request_id {request_id}")
+    try:
+        plan = rebuild_plan(saved["plan"])
+        restored = [
+            rebuild_step_result(raw)
+            for raw in saved.get("step_results") or []
+            if isinstance(raw, dict) and raw.get("status") == "success"
         ]
+    except (TypeError, KeyError) as exc:
+        raise LookupError(f"unusable saved state for request_id {request_id}: {exc}") from exc
 
-        if unmet_dependencies:
-            blocked_finished_at = _utc_now_iso()
-            blocked_duration_ms = max(
-                0,
-                int((perf_counter() - step_started_perf) * 1000),
-            )
-            blocked_result = StepResult(
-                step_id=step.step_id,
-                step_type=step.step_type,
-                status="blocked",
-                error=f"Blocked by unmet dependencies: {', '.join(unmet_dependencies)}",
-                started_at=step_started_at,
-                finished_at=blocked_finished_at,
-                duration_ms=blocked_duration_ms,
-            )
-            step.status = blocked_result.status
-            state.add_result(blocked_result)
-            state.add_trace(f"step_executor → {step.step_id}:blocked")
-            emit_run_event(
-                request_id=request_id,
-                kind="step.blocked",
-                data={
-                    "step_id": step.step_id,
-                    "step_type": step.step_type,
-                    "error": blocked_result.error,
-                },
-            )
-            continue
+    message = saved["message"]
+    has_image = bool(saved.get("has_image"))
+    mode = saved.get("mode") or "auto"
+    decision = saved["decision"]
 
-        state.add_trace(f"step_executor → start:{step.step_id}")
-        emit_run_event(
-            request_id=request_id,
-            kind="step.started",
-            data={"step_id": step.step_id, "step_type": step.step_type},
-        )
-        result = execute_step(state, step)
-        result.started_at = result.started_at or step_started_at
-        result.finished_at = result.finished_at or _utc_now_iso()
-        result.duration_ms = (
-            result.duration_ms
-            if result.duration_ms is not None
-            else max(0, int((perf_counter() - step_started_perf) * 1000))
-        )
-        step.status = result.status
+    started_at = _utc_now_iso()
+    started_perf = perf_counter()
+
+    state = create_execution_state(message, decision, plan)
+    state.context["request_id"] = request_id
+
+    # Seuls les succès sont restaurés ; les steps error/blocked repartent
+    # de zéro (statut pending), leurs anciens résultats ne sont pas rejoués.
+    restored_ids = {result.step_id for result in restored}
+    for step in plan.steps:
+        step.status = "success" if step.step_id in restored_ids else "pending"
+    for result in restored:
         state.add_result(result)
-        state.add_trace(f"step_executor → {step.step_id}:{result.status}")
-        emit_run_event(
-            request_id=request_id,
-            kind="step.finished",
-            data={
-                "step_id": step.step_id,
-                "step_type": step.step_type,
-                "status": result.status,
-                "duration_ms": result.duration_ms,
-                # Événements légers : erreur tronquée, la version complète
-                # reste dans step_results (réponse API) et les manifests.
-                "error": result.error[:2000] if result.error else None,
-            },
-        )
 
+    state.add_trace(f"request_id → {request_id}")
+    state.add_trace(
+        f"executor → resumed_at:{started_at} restored:{sorted(restored_ids)}"
+    )
+    emit_run_event(
+        request_id=request_id,
+        kind="run.resumed",
+        data={
+            "restored_step_ids": sorted(restored_ids),
+            "pending_step_ids": [
+                step.step_id for step in plan.steps if step.status != "success"
+            ],
+            "resumed_at": started_at,
+        },
+    )
+
+    _run_pending_steps(
+        state, plan, request_id,
+        message=message, has_image=has_image, mode=mode, decision=decision,
+    )
+    return _finalize_run(
+        state, plan, decision, request_id, started_at, started_perf,
+        message=message, has_image=has_image, mode=mode,
+    )
+
+
+def _finalize_run(
+    state, plan, decision: dict, request_id: str, started_at: str, started_perf: float,
+    *, message: str, has_image: bool, mode: str,
+) -> dict:
     final_output = assemble_final_output(state)
     execution_summary = _build_execution_summary(plan, state)
     finished_at = _utc_now_iso()
@@ -384,6 +492,19 @@ def execute_request(message: str, has_image: bool = False, mode: str = "auto") -
             "finished_at": finished_at,
             "duration_ms": duration_ms,
         },
+    )
+
+    # Checkpoint final avec le statut du run : un run degraded/failed reste
+    # repris (resume_request), un run success garde sa photo pour audit.
+    save_run_state(
+        request_id,
+        message=message,
+        has_image=has_image,
+        mode=mode,
+        decision=decision,
+        plan=plan,
+        step_results=state.step_results,
+        run_status=execution_summary["status"],
     )
 
     visual_artifact = _extract_visual_artifact(state)

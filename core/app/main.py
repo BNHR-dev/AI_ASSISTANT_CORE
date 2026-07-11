@@ -3,7 +3,7 @@ load_dotenv()
 
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 
 from openai_compat import router as openai_compat_router
 
@@ -14,7 +14,7 @@ from app.auth import (
     require_api_token,
     validate_startup_auth,
 )
-from app.engine.executor import execute_request
+from app.engine.executor import execute_request, resume_request
 from app.engine.reproduce import reproduce_run
 from app.engine.router_service import build_route_decision
 from app.engine.runtime_debug import (
@@ -27,6 +27,7 @@ from app.schemas import (
     ExecuteResponse,
     ReproduceRequest,
     ReproduceResponse,
+    ResumeRequest,
     RouteRequest,
     RouteResponse,
     RuntimeHealthResponse,
@@ -72,6 +73,14 @@ def execute(payload: ExecuteRequest) -> ExecuteResponse:
         payload.message,
         payload.has_image,
     )
+    return ExecuteResponse(**result)
+
+
+def resume(payload: ResumeRequest) -> ExecuteResponse:
+    try:
+        result = resume_request(payload.request_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
     return ExecuteResponse(**result)
 
 
@@ -135,6 +144,10 @@ def create_app() -> FastAPI:
     )
     app.add_api_route(
         "/execute", execute, methods=["POST"],
+        response_model=ExecuteResponse, dependencies=protected,
+    )
+    app.add_api_route(
+        "/resume", resume, methods=["POST"],
         response_model=ExecuteResponse, dependencies=protected,
     )
     app.add_api_route(
