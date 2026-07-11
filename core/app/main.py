@@ -81,6 +81,10 @@ def execute(payload: ExecuteRequest) -> ExecuteResponse:
 def resume(payload: ResumeRequest) -> ExecuteResponse:
     try:
         result = resume_request(payload.request_id)
+    except ValueError as exc:
+        # Ceinture : le schéma (pattern) bloque déjà les ids invalides en 422 ;
+        # si le moteur en rejette un quand même, même réponse — jamais un 500.
+        raise HTTPException(status_code=422, detail=str(exc))
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except RunBusyError as exc:
