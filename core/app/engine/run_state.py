@@ -36,11 +36,10 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from app.engine.planner_types import ExecutionPlan, PlanStep, StepResult
-from app.engine.run_events import get_run_events_dir
+from app.engine.run_events import STATE_FILENAME, get_run_events_dir
 from app.engine.run_identity import resolve_run_dir
 
 RUN_STATE_ENABLED_ENV = "AAC_RUN_STATE_ENABLED"
-STATE_FILENAME = "state.json"
 STATE_VERSION = 1
 
 _DISABLED_VALUES: frozenset[str] = frozenset({"0", "false", "no", "off"})

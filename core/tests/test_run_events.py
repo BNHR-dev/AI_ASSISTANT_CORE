@@ -7,8 +7,11 @@ Invariants couverts :
   BLENDER_OUTPUT_DIR (conteneur read-only) > défaut relatif.
 - Écriture JSONL valide, append-only, un fichier par run.
 - Non-bloquant : une IO impossible n'élève jamais d'exception.
-- Purge par rétention : conservatrice (events.jsonl seul, répertoire
-  gardé s'il contient d'autres artefacts, répertoires étrangers intacts).
+- Purge par rétention : politique par fichier — events.jsonl ET state.json
+  (données utilisateur, temporaires d'écriture atomique inclus) supprimés
+  à expiration, tout autre fichier conservé (le répertoire n'est retiré
+  que s'il finit vide), répertoires étrangers intacts, âge = mtime le plus
+  récent des fichiers de données.
 - Intégration executor : execute_request émet la séquence attendue
   run.started → route.decided → plan.built → step.* → run.finished.
 """
@@ -162,13 +165,17 @@ def test_emit_never_raises_on_io_failure(
 # Purge par rétention
 # ---------------------------------------------------------------------------
 
+def _age_file(path: Path, age_days: int) -> None:
+    old = datetime.now(timezone.utc) - timedelta(days=age_days)
+    os.utime(path, (old.timestamp(), old.timestamp()))
+
+
 def _make_run(base: Path, request_id: str, age_days: int) -> Path:
     run_dir = base / request_id
     run_dir.mkdir(parents=True)
     events = run_dir / revents.EVENTS_FILENAME
     events.write_text('{"kind": "run.started"}\n', encoding="utf-8")
-    old = datetime.now(timezone.utc) - timedelta(days=age_days)
-    os.utime(events, (old.timestamp(), old.timestamp()))
+    _age_file(events, age_days)
     return run_dir
 
 
@@ -181,10 +188,10 @@ def test_purge_removes_expired_keeps_recent_and_foreign(
 
     expired = _make_run(tmp_path, "req-old", age_days=40)
     recent = _make_run(tmp_path, "req-recent", age_days=5)
-    # Répertoire étranger sans events.jsonl : jamais touché.
+    # Répertoire étranger sans aucun fichier de données : jamais touché.
     foreign = tmp_path / "foreign"
     foreign.mkdir()
-    (foreign / "state.json").write_text("{}", encoding="utf-8")
+    (foreign / "notes.txt").write_text("x", encoding="utf-8")
     # Run expiré contenant un autre artefact : events purgé, répertoire gardé.
     expired_kept = _make_run(tmp_path, "req-old-kept", age_days=40)
     (expired_kept / "manifest.json").write_text("{}", encoding="utf-8")
@@ -194,11 +201,74 @@ def test_purge_removes_expired_keeps_recent_and_foreign(
 
     assert not expired.exists()
     assert (recent / revents.EVENTS_FILENAME).exists()
-    assert (foreign / "state.json").exists()
+    assert (foreign / "notes.txt").exists()
     assert expired_kept.exists()
     assert not (expired_kept / revents.EVENTS_FILENAME).exists()
     assert (expired_kept / "manifest.json").exists()
     assert (tmp_path / "req-new" / revents.EVENTS_FILENAME).exists()
+
+
+def test_purge_removes_state_json_with_events(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Régression (audit 2026-07-11) : state.json contient le prompt — il
+    doit expirer AVEC events.jsonl, pas préserver le dossier pour toujours."""
+    monkeypatch.setenv(revents.RUN_EVENTS_ENABLED_ENV, "1")
+    monkeypatch.setenv(revents.RUN_EVENTS_DIR_ENV, str(tmp_path))
+    monkeypatch.setenv(revents.RUN_EVENTS_RETENTION_DAYS_ENV, "30")
+
+    expired = _make_run(tmp_path, "req-old", age_days=40)
+    state = expired / revents.STATE_FILENAME
+    state.write_text('{"message": "prompt secret"}', encoding="utf-8")
+    _age_file(state, 40)
+
+    revents.emit_run_event(request_id="req-new", kind="run.started")
+
+    assert not expired.exists()  # events + state supprimés → dossier vide retiré
+
+
+def test_purge_removes_state_only_run_and_stray_tmp(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Un dossier sans events.jsonl mais avec state.json (events désactivés,
+    ou purge partielle d'avant le fix) expire aussi ; les temporaires
+    d'écriture atomique orphelins (crash pendant un checkpoint) suivent."""
+    monkeypatch.setenv(revents.RUN_EVENTS_ENABLED_ENV, "1")
+    monkeypatch.setenv(revents.RUN_EVENTS_DIR_ENV, str(tmp_path))
+    monkeypatch.setenv(revents.RUN_EVENTS_RETENTION_DAYS_ENV, "30")
+
+    state_only = tmp_path / "req-state-only"
+    state_only.mkdir()
+    state = state_only / revents.STATE_FILENAME
+    state.write_text('{"message": "prompt"}', encoding="utf-8")
+    _age_file(state, 40)
+    stray = state_only / f"{revents.STATE_FILENAME}.deadbeef.tmp"
+    stray.write_text('{"message": "pro', encoding="utf-8")  # tronqué (crash)
+    _age_file(stray, 40)
+
+    revents.emit_run_event(request_id="req-new", kind="run.started")
+
+    assert not state_only.exists()
+
+
+def test_purge_age_is_newest_data_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Un run dont le checkpoint est récent n'expire pas, même si son
+    events.jsonl est vieux (l'âge = dernière écriture du run)."""
+    monkeypatch.setenv(revents.RUN_EVENTS_ENABLED_ENV, "1")
+    monkeypatch.setenv(revents.RUN_EVENTS_DIR_ENV, str(tmp_path))
+    monkeypatch.setenv(revents.RUN_EVENTS_RETENTION_DAYS_ENV, "30")
+
+    mixed = _make_run(tmp_path, "req-mixed", age_days=40)
+    state = mixed / revents.STATE_FILENAME
+    state.write_text('{"message": "prompt"}', encoding="utf-8")
+    _age_file(state, 5)
+
+    revents.emit_run_event(request_id="req-new", kind="run.started")
+
+    assert (mixed / revents.EVENTS_FILENAME).exists()
+    assert state.exists()
 
 
 def test_purge_disabled_via_zero_retention(
