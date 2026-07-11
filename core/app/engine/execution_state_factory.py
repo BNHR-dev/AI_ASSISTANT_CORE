@@ -1,3 +1,10 @@
+"""Fabrique d'`ExecutionState` — PAS un magasin persistant.
+
+L'état d'une exécution vit en mémoire le temps d'une requête ; un crash ou un
+redémarrage le perd (seuls les artefacts déjà écrits sur disque survivent).
+Un vrai store persistant (runs consultables, reprise) = roadmap, pas ce module.
+Ex-`state_store.py`, renommé pour dire ce qu'il fait vraiment.
+"""
 from __future__ import annotations
 
 from app.engine.planner_types import ExecutionPlan, ExecutionState
