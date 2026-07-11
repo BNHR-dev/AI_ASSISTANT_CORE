@@ -1,18 +1,28 @@
 """aac — CLI d'observabilité et de pilotage de l'API AAC locale.
 
-Trois commandes, un seul fichier, zéro dépendance nouvelle (click + httpx,
+Quatre commandes, un seul fichier, zéro dépendance nouvelle (click + httpx,
 déjà dans requirements.txt) :
 
     aac health               GET /health + /health/runtime + /debug/canonical
     aac inspect "<prompt>"   POST /route   → décision de routage + arbre
     aac execute "<prompt>"   POST /execute → statut, plan/étapes, artefacts
+    aac reproduce <run>      POST /reproduce → rejoue un run depuis son
+                             manifest v2 et compare les artefacts (verdict
+                             exact / perceptual / different / failed / refused)
+
+`aac reproduce` prend le dossier d'un run (ou son manifest.json) : le CLI
+lit le manifest + le matériel de rejeu À CÔTÉ du manifest (sidecars
+workflow_resolved_v<i>.json pour ComfyUI, scene.py pour Blender) et envoie
+leur CONTENU au backend — c'est lui qui ré-exécute (il voit ComfyUI et
+Blender), pas la machine du CLI.
 
 Options globales (avant la sous-commande) : --base-url (défaut
 http://127.0.0.1:8000), --token (défaut : env AAC_API_TOKEN), --json
 (réponse brute pour les pipes). `--image` se pose sur inspect/execute.
 
 Codes de sortie : 0 OK · 1 erreur côté API (HTTP non-2xx, exécution en
-échec, runtime dégradé) · 2 API injoignable · 3 authentification refusée.
+échec, runtime dégradé, verdict de rejeu non-reproduit) · 2 API
+injoignable · 3 authentification refusée.
 
 Usage : `python core/cli.py health` (ou alias shell `aac`).
 """
@@ -23,6 +33,7 @@ import json
 import sys
 import textwrap
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Optional
 
 import click
@@ -46,6 +57,16 @@ EXECUTE_READ_TIMEOUT = 900.0  # un rendu ComfyUI/Blender se compte en minutes
 RUNTIME_PALETTE = {"ok": "green", "partial": "yellow", "degraded": "red"}
 EXEC_PALETTE = {"success": "green", "degraded": "yellow", "empty": "yellow", "failed": "red"}
 STEP_GLYPHS = {"success": ("✔", "green"), "error": ("✘", "red"), "blocked": ("⊘", "yellow")}
+REPRO_PALETTE = {
+    "exact": "green",
+    "perceptual": "yellow",
+    "different": "red",
+    "failed": "red",
+    "refused": "red",
+    "skipped": "white",
+}
+# Verdicts considérés comme « reproduit » pour le code de sortie.
+REPRO_OK_VERDICTS = ("exact", "perceptual")
 
 
 @dataclass
@@ -305,6 +326,122 @@ def _render_execution(prompt: str, result: dict) -> None:
         click.echo()
         click.echo("Sortie")
         click.echo(result["output"])
+
+
+def _load_reproduce_material(run_path: Path) -> dict:
+    """
+    Construit le payload /reproduce depuis un dossier de run (ou son
+    manifest.json) : manifest + sidecars workflow (ComfyUI) ou scene.py
+    (Blender), lus À CÔTÉ du manifest — jamais via les chemins absolus du
+    manifest, qui décrivent le disque du BACKEND (conteneur ≠ hôte).
+    """
+    manifest_path = run_path / "manifest.json" if run_path.is_dir() else run_path
+    run_dir = manifest_path.parent
+    if not manifest_path.is_file():
+        _fail(EXIT_API_ERROR, f"manifest.json introuvable : {manifest_path}")
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        _fail(EXIT_API_ERROR, f"manifest illisible : {exc}")
+
+    pipeline = manifest.get("pipeline")
+    if manifest.get("manifest_version", 0) < 2 or not manifest.get("repro"):
+        _fail(
+            EXIT_API_ERROR,
+            "ce run n'a pas de bloc repro (manifest v1 ?) — seuls les runs "
+            "produits depuis les manifests v2 sont rejouables.",
+        )
+
+    payload: dict = {"pipeline": pipeline, "manifest": manifest, "workflows": {}, "scene_py": None}
+
+    if pipeline == "comfyui":
+        for variant in manifest["repro"].get("variants") or []:
+            sidecar_name = variant.get("workflow_file")
+            if not sidecar_name:
+                continue
+            sidecar_path = run_dir / sidecar_name
+            try:
+                payload["workflows"][str(variant["index"])] = json.loads(
+                    sidecar_path.read_text(encoding="utf-8")
+                )
+            except (OSError, ValueError):
+                click.secho(f"sidecar illisible, variante ignorée : {sidecar_path}", fg="yellow", err=True)
+        if not payload["workflows"]:
+            _fail(EXIT_API_ERROR, "aucun sidecar workflow_resolved_v<i>.json lisible dans le run.")
+    elif pipeline == "blender":
+        scene_path = run_dir / "scene.py"
+        try:
+            payload["scene_py"] = scene_path.read_text(encoding="utf-8")
+        except OSError:
+            _fail(EXIT_API_ERROR, f"scene.py introuvable à côté du manifest : {scene_path}")
+    else:
+        _fail(EXIT_API_ERROR, f"pipeline inconnu dans le manifest : {pipeline!r}")
+
+    return payload
+
+
+@aac.command()
+@click.argument("run", type=click.Path(exists=True, path_type=Path))
+@click.pass_obj
+def reproduce(cfg: Settings, run: Path) -> None:
+    """Rejoue RUN (dossier de run ou manifest.json) et compare les artefacts."""
+    payload = _load_reproduce_material(run)
+
+    with make_client(cfg.base_url, cfg.token, EXECUTE_READ_TIMEOUT) as client:
+        report = _request(client, "POST", "/reproduce", payload)
+
+    if cfg.as_json:
+        _echo_json(report)
+    else:
+        _render_reproduce(report)
+
+    if report.get("verdict") not in REPRO_OK_VERDICTS:
+        sys.exit(EXIT_API_ERROR)
+
+
+def _render_reproduce(report: dict) -> None:
+    verdict = report.get("verdict") or "?"
+    click.echo(f"Rejeu — run {report.get('reproduced_request_id') or '?'} ({report.get('pipeline')})")
+    _kv("verdict", _paint(verdict, REPRO_PALETTE))
+    if report.get("duration_ms") is not None:
+        _kv("durée", _fmt_ms(report["duration_ms"]))
+    _kv("seuil dHash", report.get("dhash_threshold"))
+    if report.get("error"):
+        _kv("erreur", click.style(report["error"], fg="red"))
+
+    lines = []
+    for variant in report.get("variants") or []:
+        v = variant.get("verdict") or "?"
+        line = f"variante {variant.get('index')} : {_paint(v, REPRO_PALETTE)}"
+        image = variant.get("image") or {}
+        if image.get("dhash_distance") is not None:
+            line += f" (distance dHash {image['dhash_distance']})"
+        if variant.get("reason"):
+            line += f" — {variant['reason']}"
+        lines.append(line)
+    for check in report.get("checks") or []:
+        v = check.get("verdict") or "?"
+        line = f"{check.get('name')} : {_paint(v, REPRO_PALETTE)}"
+        if check.get("dhash_distance") is not None:
+            line += f" (distance dHash {check['dhash_distance']})"
+        lines.append(line)
+    if lines:
+        click.echo()
+        click.echo("Comparaisons")
+        click.echo(_tree(lines))
+
+    diffs = report.get("environment_diffs") or []
+    if diffs:
+        click.echo()
+        click.echo("Environnement modifié depuis l'enregistrement")
+        click.echo(
+            _tree([f"{d['field']} : {d['recorded']} → {d['current']}" for d in diffs])
+        )
+
+    if report.get("report_path"):
+        click.echo()
+        _kv("rapport", report["report_path"])
 
 
 if __name__ == "__main__":

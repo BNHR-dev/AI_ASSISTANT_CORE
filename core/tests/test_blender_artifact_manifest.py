@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 
+from app.engine import repro
 from app.engine.artifact_manifest import (
     MANIFEST_VERSION,
     PIPELINE,
@@ -412,7 +413,7 @@ class TestReproSection:
         self._patch_probes(monkeypatch)
         manifest = build_blender_manifest(_make_request(), _make_result())
         block = manifest["repro"]
-        assert block["repro_version"] == 1
+        assert block["repro_version"] == repro.REPRO_VERSION
         assert block["aac_git_commit"] == "deadbeef" * 5
         assert block["blender_version"] == "Blender 9.9.9"
         # Fichiers inexistants -> hashes null, jamais d'exception.

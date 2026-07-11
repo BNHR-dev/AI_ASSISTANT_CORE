@@ -85,7 +85,7 @@ def test_manifest_v2_has_repro_block(tmp_path: Path) -> None:
     manifest = _build(_fake_result(tmp_path), str(tmp_path / "run"))
     assert manifest["manifest_version"] == MANIFEST_VERSION == 2
     repro_block = manifest["repro"]
-    assert repro_block["repro_version"] == 1
+    assert repro_block["repro_version"] == repro.REPRO_VERSION
     assert set(repro_block) == {"repro_version", "aac_git_commit", "comfyui", "models", "variants"}
 
 

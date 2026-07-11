@@ -15,6 +15,7 @@ from app.auth import (
     validate_startup_auth,
 )
 from app.engine.executor import execute_request
+from app.engine.reproduce import reproduce_run
 from app.engine.router_service import build_route_decision
 from app.engine.runtime_debug import (
     get_canonical_boundaries,
@@ -24,6 +25,8 @@ from app.schemas import (
     CanonicalBoundariesResponse,
     ExecuteRequest,
     ExecuteResponse,
+    ReproduceRequest,
+    ReproduceResponse,
     RouteRequest,
     RouteResponse,
     RuntimeHealthResponse,
@@ -72,6 +75,22 @@ def execute(payload: ExecuteRequest) -> ExecuteResponse:
     return ExecuteResponse(**result)
 
 
+def reproduce(payload: ReproduceRequest) -> ReproduceResponse:
+    # Clés JSON = str ; l'engine indexe les variantes en int (index du manifest).
+    workflows = {
+        int(index): workflow
+        for index, workflow in payload.workflows.items()
+        if index.isdigit()
+    }
+    report = reproduce_run(
+        payload.pipeline,
+        payload.manifest,
+        workflows=workflows,
+        scene_py=payload.scene_py,
+    )
+    return ReproduceResponse(**report)
+
+
 def create_app() -> FastAPI:
     """Construit l'app en lisant la posture d'auth dans l'environnement.
 
@@ -117,6 +136,10 @@ def create_app() -> FastAPI:
     app.add_api_route(
         "/execute", execute, methods=["POST"],
         response_model=ExecuteResponse, dependencies=protected,
+    )
+    app.add_api_route(
+        "/reproduce", reproduce, methods=["POST"],
+        response_model=ReproduceResponse, dependencies=protected,
     )
 
     return app

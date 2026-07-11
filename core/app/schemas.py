@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -88,6 +88,36 @@ class RouteResponse(BaseModel):
     decision_trace: list[str] = Field(default_factory=list)
     decision_path: list[str] = Field(default_factory=list)
     reason: str
+
+
+class ReproduceRequest(BaseModel):
+    """Rejeu d'un run depuis son manifest v2.
+
+    Le client (CLI) lit les fichiers du run sur SON disque et transmet leur
+    CONTENU — le backend ne résout jamais de chemins client (les chemins d'un
+    manifest Docker n'existent pas côté hôte, et inversement).
+    """
+    pipeline: Literal["comfyui", "blender"]
+    manifest: dict[str, Any]
+    # ComfyUI : index de variante (clé JSON = str) → contenu du sidecar
+    # workflow_resolved_v<i>.json.
+    workflows: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # Blender : contenu du scene.py du run.
+    scene_py: Optional[str] = None
+
+
+class ReproduceResponse(BaseModel):
+    pipeline: str
+    verdict: str
+    dhash_threshold: int
+    reproduced_request_id: Optional[str] = None
+    created_at: Optional[str] = None
+    variants: list[dict[str, Any]] = Field(default_factory=list)
+    checks: list[dict[str, Any]] = Field(default_factory=list)
+    environment_diffs: list[dict[str, Any]] = Field(default_factory=list)
+    error: Optional[str] = None
+    report_path: Optional[str] = None
+    duration_ms: Optional[int] = None
 
 
 class ExecuteRequest(BaseModel):

@@ -58,6 +58,7 @@ ACTIVE_RUNTIME_MODULES = [
     "app/engine/execution_state_factory.py",
     "app/engine/executor.py",
     "app/engine/step_executor.py",
+    "app/engine/reproduce.py",
     "app/engine/fallbacks.py",
     "app/engine/prompt_builder.py",
     "app/engine/agent_prompt_registry.py",

@@ -27,6 +27,7 @@ PROTECTED = [
     ("get", "/v1/models", None),
     ("post", "/route", {"message": "x"}),
     ("post", "/execute", {"message": "x"}),
+    ("post", "/reproduce", {"pipeline": "comfyui", "manifest": {}}),
     ("post", "/v1/chat/completions", {"messages": [{"role": "user", "content": "hi"}]}),
 ]
 

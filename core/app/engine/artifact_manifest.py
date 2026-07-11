@@ -96,7 +96,7 @@ def _repro_section(
     absent (preview non rendu, script manquant) donne null, jamais d'échec.
     """
     return {
-        "repro_version": 1,
+        "repro_version": repro.REPRO_VERSION,
         "aac_git_commit": repro.aac_git_commit(),
         "blender_version": repro.blender_version(),
         "scene_py_sha256": repro.sha256_file(script_path),
