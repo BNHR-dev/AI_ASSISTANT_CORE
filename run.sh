@@ -77,6 +77,18 @@ if [ "$MODELS" = 1 ]; then
   bash "$REPO_ROOT/scripts/linux/fetch-models.sh"
 fi
 
+# Outputs : le backend tourne non-root (UID 1000) -> le bind doit lui appartenir.
+# 1) Reprise de possession : les anciennes images (backend root) et ComfyUI (toujours
+#    root) laissent des fichiers root sur le bind ; on les rend à l'utilisateur courant
+#    via un conteneur jetable (pas de sudo requis).
+# 2) Création AVANT le up : un bind manquant serait créé root par Docker.
+if [ -d "$DOCKER_DIR/outputs" ] \
+   && [ -n "$(find "$DOCKER_DIR/outputs" ! -user "$(id -u)" -print -quit 2>/dev/null)" ]; then
+  log "outputs/ : reprise de possession (fichiers root d'un run précédent)"
+  docker run --rm -v "$DOCKER_DIR/outputs:/o" busybox chown -R "$(id -u):$(id -g)" /o
+fi
+mkdir -p "$DOCKER_DIR/outputs/blender" "$DOCKER_DIR/outputs/comfyui"
+
 log "Build + démarrage de la stack"
 "${COMPOSE[@]}" up -d --build
 
