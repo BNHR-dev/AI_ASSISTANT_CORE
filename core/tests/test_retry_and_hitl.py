@@ -253,6 +253,8 @@ def test_build_view_flags_paused() -> None:
 
 
 def test_console_resume_route_renders_result(monkeypatch) -> None:
+    # 5 v2 : /console/resume répond le fragment LIVE (mode tail), la reprise
+    # part en arrière-plan ; le résultat final se lit sur /console/run-result.
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
@@ -274,9 +276,13 @@ def test_console_resume_route_renders_result(monkeypatch) -> None:
     app.include_router(console.router)
     client = TestClient(app)
 
-    response = client.post("/console/resume", params={"request_id": "req-9"})
-    assert response.status_code == 200
-    assert "success" in response.text
+    live = client.post("/console/resume", params={"request_id": "req-9"})
+    assert live.status_code == 200
+    assert "/console/stream/req-9?tail=1" in live.text
+
+    result = client.get("/console/run-result/req-9")
+    assert result.status_code == 200
+    assert "success" in result.text
 
 
 def test_console_resume_route_unknown_run(monkeypatch) -> None:
@@ -293,6 +299,7 @@ def test_console_resume_route_unknown_run(monkeypatch) -> None:
     app.include_router(console.router)
     client = TestClient(app)
 
-    response = client.post("/console/resume", params={"request_id": "nope"})
-    assert response.status_code == 200
-    assert "No saved state" in response.text
+    client.post("/console/resume", params={"request_id": "nope"})
+    result = client.get("/console/run-result/nope")
+    assert result.status_code == 200
+    assert "no saved state" in result.text.lower()

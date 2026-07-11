@@ -1,0 +1,13 @@
+{# One timeline row — shared by the run-detail modal and the live SSE stream. #}
+<div class="tl-row{% if row.error %} tl-err{% endif %}">
+  <span class="tl-time">{{ row.time }}</span>
+  <span class="tl-dot tl-{{ row.family }}"></span>
+  <span class="tl-kind">{{ row.kind }}</span>
+  <span class="tl-label" {% if row.error_text %}title="{{ row.error_text }}"{% endif %}>{{ row.label }}</span>
+  {% if row.bar_pct %}
+    <span class="tl-bar"><i style="width:{{ row.bar_pct }}%"></i></span>
+  {% endif %}
+  {% if row.duration_ms is not none %}
+    <span class="tl-ms">{{ row.duration_ms }} ms</span>
+  {% endif %}
+</div>
