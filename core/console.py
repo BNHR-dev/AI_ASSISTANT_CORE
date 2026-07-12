@@ -710,6 +710,16 @@ def _provenance_view(manifest: dict | None, run_dir: Path, run_id: str) -> dict 
         badges.append({"label": "torch", "value": comfy["pytorch_version"]})
     if repro.get("aac_git_commit"):
         badges.append({"label": "commit", "value": repro["aac_git_commit"][:9]})
+    # BYO Ollama : endpoint + version LLM du run, si le manifest les porte.
+    ollama_env = repro.get("ollama") or {}
+    if ollama_env.get("version") or ollama_env.get("base_url"):
+        value = " · ".join(
+            str(part)
+            for part in (f"v{ollama_env['version']}" if ollama_env.get("version") else None,
+                         ollama_env.get("base_url"))
+            if part
+        )
+        badges.append({"label": "ollama", "value": value})
 
     hashes: list[dict] = []
 

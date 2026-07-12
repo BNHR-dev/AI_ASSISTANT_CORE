@@ -57,6 +57,7 @@ _SUBPROCESS_TIMEOUT = 10.0
 _UNSET = object()
 _git_commit_memo: Any = _UNSET
 _blender_version_memo: dict[str, Optional[str]] = {}
+_ollama_version_memo: dict[str, Optional[str]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -331,11 +332,45 @@ def blender_version() -> Optional[str]:
     return version
 
 
+def ollama_environment() -> dict[str, Any]:
+    """Bloc provenance BYO Ollama : endpoint + version + modèles par rôle.
+
+    Capture d'ENVIRONNEMENT best-effort : `version` est None si l'instance
+    ne répond pas ; les modèles viennent de la config (aucun réseau). Ce
+    bloc ne participe PAS aux environment_diffs du rejeu — ni le replay
+    ComfyUI ni le replay Blender ne rappellent Ollama (workflow resoumis
+    tel quel, scene.py rejoué tel quel), un écart Ollama n'explique donc
+    jamais un verdict. Version mémoïsée par endpoint (une sonde réseau par
+    process, même politique que blender_version).
+    """
+    from app.infra.ollama_runtime import get_ollama_base_url, resolved_model_summary
+
+    base_url = get_ollama_base_url()
+    if base_url not in _ollama_version_memo:
+        import requests
+
+        version: Optional[str] = None
+        try:
+            response = requests.get(f"{base_url}/api/version", timeout=3.0)
+            if response.ok:
+                raw = response.json().get("version")
+                version = str(raw) if raw else None
+        except (requests.RequestException, ValueError):
+            version = None
+        _ollama_version_memo[base_url] = version
+    return {
+        "base_url": base_url,
+        "version": _ollama_version_memo[base_url],
+        "models": resolved_model_summary(),
+    }
+
+
 def reset_probe_memos() -> None:
     """Réinitialise les mémos (tests uniquement)."""
     global _git_commit_memo
     _git_commit_memo = _UNSET
     _blender_version_memo.clear()
+    _ollama_version_memo.clear()
 
 
 # ---------------------------------------------------------------------------

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from app.infra.ollama_runtime import get_ollama_base_url
 from app.infra.runtime_urls import (
     get_comfyui_url,
-    get_ollama_tags_url,
     get_searxng_healthcheck_url,
 )
 from app.infra.tool_manager import (
     get_comfyui_status,
-    is_ollama_ready,
+    get_ollama_status,
     is_searxng_ready,
 )
 
@@ -102,6 +102,7 @@ ACTIVE_AUXILIARY_MODULES = [
     "app/engine/script_gen_eval_runner.py",
     "app/engine/blender_model_config.py",
     "app/engine/llm_trajectory_log.py",
+    "app/infra/ollama_runtime.py",
     "app/engine/run_events.py",
     "app/engine/run_identity.py",
     "app/engine/run_locks.py",
@@ -151,6 +152,24 @@ def _build_service_status(
     }
 
 
+def _build_ollama_status() -> dict:
+    # Même sémantique que ComfyUI : reachable ≠ ready (BYO — une instance
+    # qui répond sans les modèles configurés n'est PAS prête), modèles
+    # requis manquants listés dans `missing`.
+    status = get_ollama_status()
+    return {
+        "name": "ollama",
+        "ready": bool(status["ready"]),
+        "reachable": bool(status["reachable"]),
+        "required": True,
+        "role": "llm_backend",
+        "reason": status["reason"],
+        "endpoint": get_ollama_base_url(),
+        "activity": "active",
+        "missing": list(status.get("missing", [])),
+    }
+
+
 def _build_comfyui_status() -> dict:
     # ComfyUI is reachable vs READY: an empty-but-reachable instance is NOT ready.
     status = get_comfyui_status()
@@ -169,13 +188,7 @@ def _build_comfyui_status() -> dict:
 
 def get_runtime_health() -> dict:
     services = {
-        "ollama": _build_service_status(
-            "ollama",
-            is_ollama_ready(),
-            role="llm_backend",
-            required=True,
-            endpoint=get_ollama_tags_url(),
-        ),
+        "ollama": _build_ollama_status(),
         "searxng": _build_service_status(
             "searxng",
             is_searxng_ready(),

@@ -104,7 +104,11 @@ def test_extract_object_info_choices_handles_both_shapes():
 
 def test_runtime_health_reports_comfyui_degraded_not_green(monkeypatch):
     # ollama/searxng are bound INTO runtime_debug at import -> patch them there.
-    monkeypatch.setattr(rd, "is_ollama_ready", lambda: (True, "http 200"))
+    monkeypatch.setattr(
+        rd,
+        "get_ollama_status",
+        lambda: {"reachable": True, "ready": True, "reason": "http 200", "missing": []},
+    )
     monkeypatch.setattr(rd, "is_searxng_ready", lambda: (True, "http 200"))
     # comfyui status flows through the real get_comfyui_status -> patch the tool_manager leaves.
     monkeypatch.setattr(tm, "is_comfyui_ready", lambda: (True, "http 200"))

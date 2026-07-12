@@ -114,6 +114,8 @@ The Blender path is where AI writes code — so it's built to be controlled, not
 
 Single-host and GPU-accelerated (developed on an RTX 3060). Runs on **Linux** (Fedora, validated) and **Windows** (Docker Desktop).
 
+The Ollama instance is yours to swap — native, LAN or remote, with your own generation and embedding models. Health reports the exact missing models, manifests record which instance produced each run. → [`docs/OLLAMA.md`](docs/OLLAMA.md)
+
 ## Security
 
 Generated code is the thing AAC trusts least. The Blender pipeline writes and runs `bpy` code, and that code is confined at the OS level — by default, and you can make it mandatory.

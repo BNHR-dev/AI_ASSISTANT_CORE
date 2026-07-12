@@ -120,6 +120,22 @@ def enrich_route_config(
     user_text: str,
     base_config: dict[str, Any],
 ) -> dict[str, Any]:
+    """Enrichit la décision par les règles hybrides, puis applique le
+    remplacement de modèle BYO Ollama — ce point est le PASSAGE OBLIGÉ des
+    deux chemins de routage (auto via router_service, forcé via executor),
+    d'où l'application ici et nulle part ailleurs."""
+    from app.infra.ollama_runtime import apply_model_override
+
+    enriched = _apply_hybrid_rules(task_type, user_text, base_config)
+    enriched["selected_model"] = apply_model_override(enriched.get("selected_model"))
+    return enriched
+
+
+def _apply_hybrid_rules(
+    task_type: str,
+    user_text: str,
+    base_config: dict[str, Any],
+) -> dict[str, Any]:
     text = normalize_text(user_text)
     enriched = deepcopy(base_config)
 

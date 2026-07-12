@@ -99,6 +99,9 @@ def _repro_section(
         "repro_version": repro.REPRO_VERSION,
         "aac_git_commit": repro.aac_git_commit(),
         "blender_version": repro.blender_version(),
+        # BYO Ollama : endpoint + modèles actifs au moment du run (le script
+        # a été GÉNÉRÉ par ce modèle — la provenance doit le dire).
+        "ollama": repro.ollama_environment(),
         "scene_py_sha256": repro.sha256_file(script_path),
         "scene_report_semantic_sha256": repro.semantic_scene_report_hash(scene_report),
         "preview_png": {
