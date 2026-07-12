@@ -86,7 +86,9 @@ def test_manifest_v2_has_repro_block(tmp_path: Path) -> None:
     assert manifest["manifest_version"] == MANIFEST_VERSION == 2
     repro_block = manifest["repro"]
     assert repro_block["repro_version"] == repro.REPRO_VERSION
-    assert set(repro_block) == {"repro_version", "aac_git_commit", "comfyui", "models", "variants"}
+    assert set(repro_block) == {
+        "repro_version", "aac_git_commit", "comfyui", "ollama", "models", "variants",
+    }
 
 
 def test_variant_entry_seed_workflow_hash_and_image(tmp_path: Path) -> None:

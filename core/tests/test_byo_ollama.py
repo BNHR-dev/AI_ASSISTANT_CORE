@@ -304,6 +304,64 @@ def test_runtime_health_exposes_ollama_models(clean_env, monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Provenance : bloc ollama dans les sections repro des manifests
+# ---------------------------------------------------------------------------
+
+def test_ollama_environment_capture(fake_ollama: FakeOllama, clean_env) -> None:
+    from app.engine import repro
+
+    clean_env.setenv(orun.GENERAL_MODEL_ENV, "llama3.3:70b")
+    repro.reset_probe_memos()
+    env = repro.ollama_environment()
+
+    assert env["base_url"] == fake_ollama.base_url
+    assert env["version"] == "0.99.0"
+    assert env["models"]["general"] == "llama3.3:70b"
+    assert set(env["models"]) == {"general", "coder", "vision", "blender", "embedding"}
+
+    # La version est mémoïsée par endpoint : serveur coupé → même réponse.
+    fake_ollama.stop()
+    assert repro.ollama_environment()["version"] == "0.99.0"
+
+
+def test_ollama_environment_unreachable_is_none(clean_env) -> None:
+    from app.engine import repro
+
+    clean_env.setenv("OLLAMA_BASE_URL", "http://127.0.0.1:9")
+    repro.reset_probe_memos()
+    env = repro.ollama_environment()
+    assert env["version"] is None  # best-effort, jamais d'exception
+    assert env["models"]["general"] == "qwen3:8b"
+
+
+def test_manifest_repro_sections_carry_ollama(clean_env, monkeypatch) -> None:
+    from app.engine import repro
+    from app.engine.artifact_manifest import _repro_section as blender_section
+    from app.engine.comfyui_manifest import _repro_section as comfyui_section
+
+    sentinel = {"base_url": "http://x:1", "version": "9.9.9", "models": {}}
+    monkeypatch.setattr(repro, "ollama_environment", lambda: sentinel)
+
+    blender_block = blender_section(None, None, {})
+    comfyui_block = comfyui_section({}, None)
+    assert blender_block["ollama"] == sentinel
+    assert comfyui_block["ollama"] == sentinel
+
+
+def test_console_provenance_badge_shows_ollama() -> None:
+    import console
+
+    view = console._provenance_view(
+        {"repro": {"ollama": {"base_url": "http://192.168.1.50:11434",
+                              "version": "0.9.0", "models": {}}}},
+        run_dir=__import__("pathlib").Path("/nonexistent"),
+        run_id="req-1",
+    )
+    labels = {badge["label"]: badge["value"] for badge in view["badges"]}
+    assert labels["ollama"] == "v0.9.0 · http://192.168.1.50:11434"
+
+
+# ---------------------------------------------------------------------------
 # Client : succès et erreurs actionnables contre un vrai serveur HTTP
 # ---------------------------------------------------------------------------
 

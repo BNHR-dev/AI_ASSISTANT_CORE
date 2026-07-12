@@ -208,6 +208,10 @@ def _repro_section(
         "repro_version": repro.REPRO_VERSION,
         "aac_git_commit": repro.aac_git_commit(),
         "comfyui": comfyui_system_info,
+        # BYO Ollama : environnement LLM au moment du run (même capture que
+        # côté Blender — l'endpoint et les modèles actifs font partie de la
+        # provenance, même quand la variante n'a pas appelé Ollama).
+        "ollama": repro.ollama_environment(),
         "models": _models_section(runs),
         "variants": _variant_entries(runs),
     }
