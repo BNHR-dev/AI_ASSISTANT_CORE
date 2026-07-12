@@ -130,6 +130,88 @@ def _comfyui_available_models(timeout: float = 4.0):
     return available
 
 
+def _ollama_model_present(required: str, installed: set[str]) -> bool:
+    """`bge-m3` matche `bge-m3:latest` : un nom requis SANS tag accepte
+    n'importe quel tag installé (c'est la sémantique d'`ollama pull`)."""
+    if required in installed:
+        return True
+    if ":" not in required:
+        return any(name.split(":", 1)[0] == required for name in installed)
+    return False
+
+
+def get_ollama_status() -> dict:
+    """Distingue joignable / prêt pour Ollama (BYO, chantier 6).
+
+    Une instance qui répond mais à qui il manque les modèles que le
+    routage va demander est le même faux vert que ComfyUI : `ready`
+    seulement si TOUS les modèles de génération configurés sont présents
+    dans /api/tags. Le modèle d'EMBEDDING est à part : la couche
+    embeddings du routeur se dégrade proprement quand il manque → absent
+    = signalé dans reason, `ready` intact.
+
+    Import engine tardif (même règle que les imports clients).
+    """
+    from app.infra.ollama_runtime import configured_generation_models, get_embed_model
+
+    tags_url = get_ollama_tags_url()
+    try:
+        response = requests.get(tags_url, timeout=3.0)
+    except requests.RequestException as exc:
+        return {"reachable": False, "ready": False, "reason": str(exc), "missing": []}
+    if not response.ok:
+        return {
+            "reachable": True,
+            "ready": False,
+            "reason": f"http {response.status_code}",
+            "missing": [],
+        }
+    try:
+        installed = {
+            str(entry.get("name"))
+            for entry in (response.json().get("models") or [])
+            if isinstance(entry, dict) and entry.get("name")
+        }
+    except ValueError:
+        return {
+            "reachable": True,
+            "ready": False,
+            "reason": "joignable mais /api/tags illisible",
+            "missing": [],
+        }
+
+    missing = sorted(
+        model
+        for model in configured_generation_models()
+        if not _ollama_model_present(model, installed)
+    )
+    embed_model = get_embed_model()
+    embed_note = (
+        ""
+        if _ollama_model_present(embed_model, installed)
+        else (
+            f"; embedding optionnel absent: {embed_model}"
+            " (fallback semantique du routeur desactive)"
+        )
+    )
+    if missing:
+        return {
+            "reachable": True,
+            "ready": False,
+            "reason": "joignable mais modeles requis manquants: "
+            + ", ".join(missing)
+            + embed_note,
+            "missing": missing,
+        }
+    return {
+        "reachable": True,
+        "ready": True,
+        "reason": f"joignable; {len(installed)} modeles installes; "
+        "modeles requis presents" + embed_note,
+        "missing": [],
+    }
+
+
 def get_comfyui_status() -> dict:
     """Distinguish reachable / ready / degraded for ComfyUI.
 
