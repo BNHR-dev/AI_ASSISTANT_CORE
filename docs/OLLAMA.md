@@ -44,16 +44,18 @@ export AAC_OLLAMA_CODER_MODEL=qwen2.5-coder:32b
 
 **Remote instance:** reach it through your own tunnel (e.g. `ssh -L 11434:localhost:11434 gpu-box`) and point `OLLAMA_BASE_URL` at the local end. AAC does not store credentials and does not add auth headers — keep the transport private.
 
-**Docker Compose override** (backend container talking to an external instance):
+**Persistent configuration** (instead of exporting variables each time): put them in `docker/.env` — Compose interpolates it automatically for the `run.sh` stack:
 
-```yaml
-# docker-compose.override.yml
-services:
-  aac-backend:
-    environment:
-      OLLAMA_BASE_URL: "http://192.168.1.50:11434"
-      AAC_OLLAMA_GENERAL_MODEL: "llama3.3:70b"
+```bash
+# docker/.env
+OLLAMA_BASE_URL=http://192.168.1.50:11434
+AAC_OLLAMA_GENERAL_MODEL=llama3.3:70b
 ```
+
+Two Docker-specific notes:
+
+- from inside the stack, `127.0.0.1` is the **backend container itself** — for an instance running on the host or the LAN, use a routable IP (or your tunnel's LAN end), never `localhost`;
+- when `OLLAMA_BASE_URL` is set, `run.sh` skips pulling models into the bundled Ollama container and skips its populated-gate: your instance owns its models, and `/health/runtime` lists anything missing.
 
 ## Verify the instance
 
