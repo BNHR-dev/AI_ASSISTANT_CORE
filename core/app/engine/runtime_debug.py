@@ -102,6 +102,7 @@ ACTIVE_AUXILIARY_MODULES = [
     "app/engine/script_gen_eval_runner.py",
     "app/engine/blender_model_config.py",
     "app/engine/llm_trajectory_log.py",
+    "app/infra/ollama_runtime.py",
     "app/engine/run_events.py",
     "app/engine/run_identity.py",
     "app/engine/run_locks.py",

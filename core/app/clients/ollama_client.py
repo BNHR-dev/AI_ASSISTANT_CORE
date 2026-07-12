@@ -16,6 +16,7 @@ from typing import Any, Mapping, Optional
 
 import requests
 
+from app.infra.ollama_runtime import get_ollama_timeout
 from app.infra.runtime_urls import get_ollama_generate_url
 
 
@@ -55,12 +56,27 @@ def generate_with_ollama(
     if format is not None:
         payload["format"] = format
 
-    response = requests.post(get_ollama_generate_url(), json=payload, timeout=240)
+    url = get_ollama_generate_url()
+    try:
+        response = requests.post(url, json=payload, timeout=get_ollama_timeout())
+    except requests.RequestException as exc:
+        # BYO Ollama : l'erreur doit dire OÙ on a frappé et QUOI vérifier —
+        # « connection refused » nu n'aide pas quelqu'un qui branche son
+        # instance LAN/distante.
+        raise RuntimeError(
+            f"Ollama unreachable at {url} ({type(exc).__name__}: {exc}). "
+            "Check that the server is running and that OLLAMA_BASE_URL points "
+            "to it — see docs/OLLAMA.md."
+        ) from exc
 
     if not response.ok:
-        raise RuntimeError(
-            f"Ollama error {response.status_code}: {response.text}"
-        )
+        detail = f"Ollama error {response.status_code}: {response.text} (endpoint: {url})"
+        if response.status_code == 404 and "not found" in response.text.lower():
+            detail += (
+                f" — the model {model!r} is probably absent from this instance: "
+                f"try `ollama pull {model}`."
+            )
+        raise RuntimeError(detail)
 
     data = response.json()
     return data.get("response", "").strip()

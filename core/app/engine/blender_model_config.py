@@ -34,6 +34,11 @@ def get_blender_llm_model() -> str:
     """
     Retourne le nom du modèle LLM Ollama pour la pipeline Blender.
 
+    Ordre de résolution : AAC_BLENDER_LLM_MODEL (spécifique) >
+    AAC_OLLAMA_CODER_MODEL (rôle BYO — le défaut Blender EST le modèle
+    coder du routage, un utilisateur qui remplace l'un veut presque
+    toujours remplacer l'autre) > défaut historique.
+
     Lecture dynamique de l'environnement à chaque appel : un changement
     d'env entre deux appels est pris en compte sans redémarrage. Les
     consommateurs qui ont besoin d'une valeur figée (ex. constantes
@@ -42,5 +47,7 @@ def get_blender_llm_model() -> str:
     """
     value = os.environ.get(BLENDER_LLM_MODEL_ENV)
     if value is None or value.strip() == "":
-        return DEFAULT_BLENDER_LLM_MODEL
+        from app.infra.ollama_runtime import get_coder_model_override
+
+        return get_coder_model_override() or DEFAULT_BLENDER_LLM_MODEL
     return value.strip()

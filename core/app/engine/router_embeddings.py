@@ -38,9 +38,15 @@ from typing import Any, Optional
 
 import requests
 
+# Source unique BYO Ollama (ollama_runtime) — ré-exportés ici pour les
+# consommateurs historiques de ce module (tests, scripts d'entraînement).
+from app.infra.ollama_runtime import (
+    DEFAULT_EMBED_MODEL as DEFAULT_EMBED_MODEL,
+    EMBED_MODEL_ENV as EMBED_MODEL_ENV,
+    get_embed_model as get_embed_model,
+)
+
 ROUTER_EMBEDDINGS_ENABLED_ENV = "AAC_ROUTER_EMBEDDINGS"
-EMBED_MODEL_ENV = "AAC_EMBED_MODEL"
-DEFAULT_EMBED_MODEL = "bge-m3"
 MIN_PROB_ENV = "AAC_ROUTER_EMBED_MIN_PROB"
 DEFAULT_MIN_PROB = 0.5
 WEIGHTS_PATH_ENV = "AAC_ROUTER_WEIGHTS_PATH"
@@ -59,10 +65,6 @@ def is_embeddings_routing_enabled() -> bool:
     if raw is None:
         return True
     return raw.strip().lower() not in _DISABLED_VALUES
-
-
-def get_embed_model() -> str:
-    return (os.environ.get(EMBED_MODEL_ENV) or DEFAULT_EMBED_MODEL).strip()
 
 
 def get_min_prob() -> float:
