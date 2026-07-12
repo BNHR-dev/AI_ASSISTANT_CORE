@@ -9,9 +9,20 @@ services:
       dockerfile: Dockerfile
     # Réseau interne : noms de service (pas de 127.0.0.1 ni d'IP host).
     environment:
-      - OLLAMA_BASE_URL=http://ollama:11434
-      - OLLAMA_URL=http://ollama:11434/api/generate
-      - OLLAMA_TAGS_URL=http://ollama:11434/api/tags
+      # BYO Ollama (docs/OLLAMA.md) : passthrough hôte → conteneur, défaut =
+      # l'instance bundlée. OLLAMA_URL / OLLAMA_TAGS_URL ne sont volontairement
+      # PLUS fixés ici : ils priment sur OLLAMA_BASE_URL dans la résolution du
+      # backend et neutralisaient tout override — le backend dérive les deux
+      # depuis la base (mêmes URLs qu'avant, à l'octet près).
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      # Rôles de modèles + timeout BYO : vide = défauts historiques (le backend
+      # traite une valeur vide comme absente).
+      - AAC_OLLAMA_GENERAL_MODEL=${AAC_OLLAMA_GENERAL_MODEL:-}
+      - AAC_OLLAMA_CODER_MODEL=${AAC_OLLAMA_CODER_MODEL:-}
+      - AAC_OLLAMA_VISION_MODEL=${AAC_OLLAMA_VISION_MODEL:-}
+      - AAC_BLENDER_LLM_MODEL=${AAC_BLENDER_LLM_MODEL:-}
+      - AAC_EMBED_MODEL=${AAC_EMBED_MODEL:-}
+      - AAC_OLLAMA_TIMEOUT=${AAC_OLLAMA_TIMEOUT:-}
       - SEARXNG_SEARCH_URL=http://searxng:8080/search
       - COMFYUI_URL=http://comfyui:8188
       # ComfyUI tourne dans son propre service -> le backend ne doit pas le démarrer.

@@ -92,8 +92,16 @@ mkdir -p "$DOCKER_DIR/outputs/blender" "$DOCKER_DIR/outputs/comfyui"
 log "Build + démarrage de la stack"
 "${COMPOSE[@]}" up -d --build
 
+# BYO Ollama (docs/OLLAMA.md) : OLLAMA_BASE_URL posé = l'utilisateur fournit
+# SON instance -> on ne pull pas dans le conteneur bundlé et on ne le gate pas ;
+# c'est /health/runtime qui dit si les modèles requis manquent sur SON instance.
+BYO_OLLAMA=0
+[ -n "${OLLAMA_BASE_URL:-}" ] && BYO_OLLAMA=1
+
 # Modèles LLM dans le conteneur ollama (idempotent).
-if [ "$MODELS" = 1 ]; then
+if [ "$BYO_OLLAMA" = 1 ]; then
+  log "BYO Ollama (OLLAMA_BASE_URL=${OLLAMA_BASE_URL}) — pull bundlé sauté ; les modèles manquants apparaîtront dans /health/runtime"
+elif [ "$MODELS" = 1 ]; then
   log "Modèles LLM (Ollama, dans le conteneur)"
   AAC_OLLAMA_MODE=docker bash "$REPO_ROOT/scripts/linux/fetch-ollama-models.sh" || die "échec du pull des modèles LLM"
 fi
@@ -114,10 +122,14 @@ done
 [ "$cf" = 1 ]   || die "comfyui pas 'healthy' (diagnostic : ./run.sh --logs)"
 
 # Ollama réellement peuplé (le « ready » d'un ollama vide est le mensonge classique).
-present="$("${COMPOSE[@]}" exec -T ollama ollama list 2>/dev/null || true)"
-for m in qwen3:8b qwen2.5-coder:7b qwen2.5vl:3b; do
-  printf '%s\n' "$present" | grep -q "$m" || die "Ollama répond mais le modèle '$m' manque (relancez sans --no-models)."
-done
+# En BYO, ce gate ne s'applique pas au conteneur bundlé : la vérité est côté
+# instance fournie, exposée par /health/runtime (missing: [...]).
+if [ "$BYO_OLLAMA" = 0 ]; then
+  present="$("${COMPOSE[@]}" exec -T ollama ollama list 2>/dev/null || true)"
+  for m in qwen3:8b qwen2.5-coder:7b qwen2.5vl:3b; do
+    printf '%s\n' "$present" | grep -q "$m" || die "Ollama répond mais le modèle '$m' manque (relancez sans --no-models)."
+  done
+fi
 
 log "OK — stack saine. Console : http://127.0.0.1:8000/console"
 if [ "$OPEN" = 1 ]; then
