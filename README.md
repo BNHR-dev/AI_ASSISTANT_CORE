@@ -54,6 +54,7 @@ When you see `== OK — stack ready ==`, open **<http://127.0.0.1:8000/console>*
 
 | Effort | You run | Needs |
 |---|---|---|
+| Just read | the [case study](docs/CASE_STUDY.md) · [technical brief](docs/TECH_BRIEF.md) | 10 minutes |
 | Just watch | the [4-minute walkthrough](https://github.com/BNHR-dev/AI_ASSISTANT_CORE/releases/download/v1.0/walkthrough_v1.mp4) | a browser |
 | **One command** (recommended) | `./run.sh` | Docker (+ NVIDIA toolkit for GPU) |
 | Native | the production runtime | Linux + GPU |
