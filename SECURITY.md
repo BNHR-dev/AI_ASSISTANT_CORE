@@ -25,10 +25,18 @@ project: triage is best-effort. Fixes land on `main`; there are no backport guar
   AAC writes Python and runs it.
 
 ### Defenses (defense in depth)
-1. **Static AST guard** (`core/app/engine/blender_ast_guard.py`) — pre-execution
-   inspection of the generated `bpy` for known hallucination/abuse patterns.
-   **V0, signal-only: it reports, it does not block.** It is an observability surface,
-   not a gate.
+1. **Static AST checks** (`core/app/engine/blender_ast_guard.py`) — two distinct
+   pre-execution passes over the generated `bpy`:
+   - an **informative AST report** (`analyze_scene_py`) for known hallucination/abuse
+     patterns — **signal-only**: it reports, it does not block. An observability surface.
+   - a **blocking security gate** (`analyze_security_gate`, wired in
+     `blender_client.py`): a denylisted import, `eval` / `exec` / `__import__` /
+     `compile`, an `open()` call not targeting the pipeline's own output variables,
+     or an unparseable AST
+     **refuses the run before Blender starts** (result `status="blocked_security"`,
+     the refusal is recorded in the manifest). A fixed denylist is not a proof of
+     safety — anything it does not catch is still confined by the OS-level layers
+     below.
 2. **OS-level sandbox — bubblewrap** (`core/app/clients/blender_sandbox.py`, wired in
    `blender_client.py`). Confines Blender execution: **no network** (`--unshare-net`),
    **no home**, **read-only system**, writes restricted to the canonical output
@@ -39,6 +47,13 @@ project: triage is best-effort. Fixes land on `main`; there are no backport guar
      degradation** with a startup warning;
    - `require` — **fail-closed** (no sandbox → the pipeline errors out);
    - `off` — passthrough (debug/CI).
+
+   **What CI proves about this layer:** the hermetic suite (run on every push) verifies
+   the sandbox **composition** — the bwrap argv (`--unshare-net`, env scrubbing, path
+   validation, fail-closed `require`). The **effective confinement** — network actually
+   unreachable, home secrets actually unreadable, process-group teardown on timeout —
+   is asserted by integration tests that need a real `bwrap`
+   (`core/tests/test_blender_sandbox_integration.py`) and run locally, **not in CI**.
 3. **Container boundary (the canonical secure path).** The cross-platform Docker stack runs
    the backend (Blender included) inside a Linux container; on Windows this is Docker
    Desktop's WSL2 backend (the same Linux stack, not a reimplementation). The secure overlay
@@ -93,7 +108,10 @@ The token is never logged; comparison is constant-time; failures return `401` +
 
 ## Known residual risks (stated plainly)
 
-- The AST guard is **signal-only** — it does not block execution.
+- Static analysis is a **fixed denylist, not a proof**: the informative AST report never
+  blocks, and the blocking security gate only refuses the patterns it knows (denylisted
+  imports, dynamic execution, out-of-tree `open()`). The OS-level sandbox / hardened
+  container remains the actual confinement boundary.
 - **No CPU/RAM quota** on sandboxed execution: a script that passes the guard can still
   exhaust resources up to the timeout. Resource quotas (cgroups / `systemd-run`) are a
   separate hardening, not yet shipped.

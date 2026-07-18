@@ -37,8 +37,14 @@ The suite is split into three tiers:
 | integration | `-m integration` | a local Blender binary (self-skips when absent) | before a PR that touches the Blender pipeline |
 | live | `AAC_LIVE_TESTS=1`, or `scripts/linux/live-tests.sh` | the running Docker stack + GPU | daily / before a release |
 
+**What the green CI badge proves:** `ruff` + the hermetic suite on `ubuntu-latest`,
+Python 3.13 (dev machines run 3.14). CI installs no Blender, no bubblewrap and no
+services, so the tests that exercise a real Blender render, real bwrap confinement or
+the live stack **self-skip there and only run locally**. CI proves the hermetic suite,
+not end-to-end behavior.
+
 ```bash
-# unit + whatever integration your machine supports (what CI runs):
+# unit + whatever integration your machine supports (CI has no Blender/bwrap → unit only):
 cd core && python -m pytest -q
 
 # live tier against the running stack (Linux, resolves container IPs itself):

@@ -2,6 +2,10 @@
 
 AAC ships with a bundled Ollama container, but nothing ties it to that instance. Point the backend at any Ollama — native, LAN, remote, or another container — and swap the models it serves. No code change, environment variables only. Without any of these variables set, behavior is exactly the bundled default.
 
+> **Scope:** BYO is wired into `./run.sh` and was validated end to end on Linux. The
+> Windows launcher (`run.bat` / `run.ps1`) does not implement the BYO logic (pull-skip,
+> gate-skip) yet — treat BYO on Windows as unsupported for now.
+
 ## Endpoint
 
 | Variable | Meaning | Default |

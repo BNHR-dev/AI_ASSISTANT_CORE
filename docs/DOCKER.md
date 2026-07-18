@@ -2,6 +2,8 @@
 
 > Goal: `docker compose up` brings up the full AAC stack on **Windows / macOS / Linux**,
 > so an evaluator can run the project **without a Linux environment and without manual setup**.
+> Honest status: validated end to end on **Linux**; Windows/WSL2 and macOS are documented,
+> not yet validated (see *Implementation status* below).
 >
 > Docker (rootful, **hardened** — see `SECURITY.md`) is the **recommended secure path** and
 > behaves the same on every OS. Native Linux stays available (host `bwrap` isolation, EEVEE
@@ -55,13 +57,15 @@ is exposed on the host (`127.0.0.1:8000`).
 5. **No separate Windows architecture.** Windows runs the *exact same* Linux containers
    through Docker Desktop's WSL2 backend — same `Dockerfile`, same `docker-compose.app.yml`,
    same in-container `bwrap`. WSL2 *is* the translation layer; nothing is reimplemented for
-   Windows. (The `docker-compose.yml` / `docker-compose.linux.yml` split is only the
-   *native-services* path, kept in mirror and differing solely by SELinux `:z` volume tags.)
+   Windows. (`docker-compose.linux.yml` is a different thing entirely: the *native-services*
+   stack — Ollama, Open-WebUI, SearXNG, with SELinux `:z` labels — that backs the
+   native-backend path; it contains neither the backend nor ComfyUI. `docker-compose.dev.yml`
+   is a dev overlay on the demo stack that bind-mounts the Console assets for live editing.)
 
 ## Prerequisites
 
 - **Docker** with the Compose plugin (`docker compose version` ≥ v2), plus `make`, `bash`, `curl`.
-- **~8 GB free disk** (≈6.6 GB of models + build layers) and an internet connection for the first run.
+- **20+ GB free disk** — the model downloads alone are ~20 GB (≈6.6 GB of image models + the four Ollama models), on top of the built images — and an internet connection for the first run.
 - **GPU (optional, recommended for images):** NVIDIA driver + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). On Windows: Docker Desktop with the WSL2 backend. No GPU? Use `make demo` (CPU — works anywhere, slower).
 
 ## Run the stack
@@ -119,7 +123,7 @@ root backend `chown`s them).
 - **GPU overlay** — `docker-compose.gpu.yml` (cu128 channel + NVIDIA reservation). Validated
   on an RTX 3060: `cuda.is_available()=True`, RealVisXL generation inside the container.
 - **Cross-platform** — full-stack `up` (backend+comfyui+ollama **healthy**) + validated
-  **backend→ComfyUI round-trip** via the API. Windows/WSL2 documented, not yet tested here.
+  **backend→ComfyUI round-trip** via the API. Windows/WSL2 and macOS documented, not yet tested here.
 - **One-command UX** — `make demo`, model-fetch script, the four reachability tiers above.
 
 ## Known risks

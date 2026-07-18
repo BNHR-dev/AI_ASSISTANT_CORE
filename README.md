@@ -48,7 +48,7 @@ cd aac
 
 When you see `== OK — stack ready ==`, open **<http://127.0.0.1:8000/console>** and try a prompt, an image, or *"create a Blender scene with a cube"* (3D → `scene.blend` + `preview.png`). Stop with `./run.sh --down`.
 
-> Validated end to end from a **bare clone with only Docker installed** — models downloaded, images built, hardened stack healthy, a real Blender render — nothing pre-staged.
+> Validated end to end **on Linux** from a **bare clone with only Docker installed** — models downloaded, images built, hardened stack healthy, a real Blender render — nothing pre-staged. Windows and macOS run the same containers but have not been validated end to end yet.
 
 **Pick your effort level:**
 
@@ -59,11 +59,11 @@ When you see `== OK — stack ready ==`, open **<http://127.0.0.1:8000/console>*
 | Native | the production runtime | Linux + GPU |
 
 **Other ways to run**
-- **Native (dev):** `docker compose -f docker/docker-compose.linux.yml up -d`, backend on `127.0.0.1:8000`. → [`docs/SETUP_LINUX.md`](docs/SETUP_LINUX.md) · [`docs/SETUP_WINDOWS.md`](docs/SETUP_WINDOWS.md)
-- **Models only / preflight:** `cd core && make deps` (download models) · `make doctor` (checks what's missing).
-- **Virgin Windows, no Docker:** `core\scripts\windows\Install-AAC.bat` installs everything natively (Ollama, Blender, ComfyUI, venv).
+- **Native (dev):** services via `docker compose -f docker/docker-compose.linux.yml up -d` (Ollama, Open-WebUI, SearXNG — the backend is *not* in that file), then the backend natively (venv from `scripts/linux/bootstrap.sh`): `cd core && .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000`. → [`docs/SETUP_LINUX.md`](docs/SETUP_LINUX.md) · [`docs/SETUP_WINDOWS.md`](docs/SETUP_WINDOWS.md)
+- **Models only / preflight:** `make deps` (download models) · `make doctor` (checks what's missing) — both from the repo root.
+- **Virgin Windows, no Docker:** `scripts\windows\Install-AAC.bat` sets up the native stack (Ollama + models, ComfyUI, venv — Python 3.11+ and Blender are prerequisites it checks, not installs).
 
-GPU prerequisites, the hardened-container model, per-run output layout → [`docs/DOCKER.md`](docs/DOCKER.md) · [`core/docs/DEPENDENCIES.md`](core/docs/DEPENDENCIES.md).
+GPU prerequisites, the hardened-container model, per-run output layout → [`docs/DOCKER.md`](docs/DOCKER.md) · [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
 
 ## How it works
 
@@ -112,9 +112,9 @@ The Blender path is where AI writes code — so it's built to be controlled, not
 | ComfyUI | 2D image generation |
 | SearXNG | private web search |
 
-Single-host and GPU-accelerated (developed on an RTX 3060). Runs on **Linux** (Fedora, validated) and **Windows** (Docker Desktop).
+Single-host and GPU-accelerated (developed on an RTX 3060). Validated end to end on **Linux** (Fedora). **Windows** (Docker Desktop + WSL2) and **macOS** run the same containers and are documented, but not yet validated end to end here.
 
-The Ollama instance is yours to swap — native, LAN or remote, with your own generation and embedding models. Health reports the exact missing models, manifests record which instance produced each run. → [`docs/OLLAMA.md`](docs/OLLAMA.md)
+The Ollama instance is yours to swap — native, LAN or remote, with your own generation and embedding models (wired into `./run.sh`; the Windows launcher does not implement it yet). Health reports the exact missing models, manifests record which instance produced each run. → [`docs/OLLAMA.md`](docs/OLLAMA.md)
 
 ## Security
 

@@ -12,7 +12,9 @@
   + **bubblewrap**, Docker, **nvidia-container-toolkit** (GPU in containers), Ollama + models,
   Blender, ComfyUI, the Python venv, and `core/.env` (generated from `core/.env.example`).
 - `core/.env.example` — the single, canonical, secret-free env template.
-- `docker/docker-compose.linux.yml` — native-services stack with SELinux `:z` labels.
+- `docker/docker-compose.linux.yml` — native-services stack (Ollama, Open-WebUI, SearXNG)
+  with SELinux `:z` labels. It does **not** contain the backend: on this path the backend
+  runs natively (step 4 below).
 
 ---
 
@@ -24,7 +26,8 @@
 ./scripts/linux/bootstrap.sh --skip-comfyui  # skip the heaviest phase
 ```
 It installs system packages + **bubblewrap** (the native Blender sandbox), Docker,
-`nvidia-container-toolkit`, Ollama + the LLM models, Blender, ComfyUI, the Python venv, and
+`nvidia-container-toolkit`, Ollama + the three generation models (`make pull-llms` adds
+the optional `bge-m3` embeddings), Blender, ComfyUI, the Python venv, and
 generates `core/.env` from `core/.env.example`. It does **not** install the NVIDIA *driver*
 (see the dedicated section below).
 
@@ -42,6 +45,14 @@ sudo systemctl restart docker
 
 docker compose -f docker/docker-compose.linux.yml up
 ```
+This stack provides the *services* (Ollama, Open-WebUI, SearXNG) — not the backend.
+
+### 4. Backend (native)
+The backend runs natively, from the venv created by `bootstrap.sh`:
+```bash
+cd core && .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+Then `curl -s http://127.0.0.1:8000/health` → `{"status":"ok"}`.
 
 ---
 
@@ -118,5 +129,6 @@ Until `nvidia-smi` responds, **do not move on**.
 
 ## End-to-end check
 - `nvtop` shows the GPU active.
-- `docker compose -f docker/docker-compose.linux.yml up` → Ollama responds; backend `/health` OK.
+- `docker compose -f docker/docker-compose.linux.yml up` → Ollama, Open-WebUI and SearXNG respond.
+- The backend runs under uvicorn (step 4) → `/health` returns `{"status":"ok"}`.
 - A Blender render produces `scene.blend` + `preview.png`.
